@@ -1,0 +1,552 @@
+name: Apply radar and nowcast fixes
+
+# One-time patch. Run it from the Actions tab, then you can delete this file.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Skip if already applied
+        id: guard
+        run: |
+          if [ -f src/services/nowcastService.ts ]; then
+            echo "applied=true" >> "$GITHUB_OUTPUT"
+            echo "Fixes are already in the repo. Nothing to do."
+          fi
+
+      - name: Write files and apply edits
+        if: steps.guard.outputs.applied != 'true'
+        run: |
+          mkdir -p /tmp/fix
+          cat > src/services/nowcastService.ts <<'TS_EOF'
+          import { NowcastFeed, MinutePrecipitation } from '../types/weather';
+
+          const MM_PER_INCH = 25.4;
+
+          /** Flat, clearly-labelled placeholder used only when real data cannot be fetched. */
+          export function unavailableNowcast(): NowcastFeed {
+            const timeline: MinutePrecipitation[] = Array.from({ length: 60 }, (_, i) => ({
+              minute: i,
+              intensityPercent: 0,
+              rateInchesPerHour: 0,
+              probabilityPercent: 0,
+            }));
+            return {
+              summary: 'Minute-by-minute precipitation data is unavailable right now.',
+              peakMinute: null,
+              peakRateInchesPerHour: 0,
+              willRainSoon: false,
+              minutesUntilStart: null,
+              minutesUntilEnd: null,
+              timeline,
+              source: 'Unavailable',
+            };
+          }
+
+          function intensityWord(rateInPerHr: number): string {
+            if (rateInPerHr < 0.1) return 'Light';
+            if (rateInPerHr < 0.3) return 'Moderate';
+            return 'Heavy';
+          }
+
+          /**
+           * Real next-60-minutes precipitation from Open-Meteo 15-minute model data.
+           * Values are 15-minute steps spread across the 60 per-minute bars.
+           * Returns null when the request fails or has no usable data.
+           */
+          export async function fetchRealNowcast(lat: number, lon: number): Promise<NowcastFeed | null> {
+            try {
+              const url =
+                `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+                `&minutely_15=precipitation&hourly=precipitation_probability` +
+                `&forecast_days=2&timeformat=unixtime&timezone=GMT`;
+              const res = await fetch(url, { headers: { Accept: 'application/json' } });
+              if (!res.ok) return null;
+              const data = await res.json();
+
+              const mTimes: number[] = data?.minutely_15?.time ?? [];
+              const mVals: Array<number | null> = data?.minutely_15?.precipitation ?? [];
+              const hTimes: number[] = data?.hourly?.time ?? [];
+              const hVals: Array<number | null> = data?.hourly?.precipitation_probability ?? [];
+              if (mTimes.length === 0) return null;
+
+              // Each 15-min value is stamped with the END of its interval (mm in that 15 min)
+              const mmByEnd = new Map<number, number>();
+              mTimes.forEach((t, i) => {
+                const v = mVals[i];
+                if (typeof v === 'number') mmByEnd.set(t, v);
+              });
+              const popByHour = new Map<number, number>();
+              hTimes.forEach((t, i) => {
+                const v = hVals[i];
+                if (typeof v === 'number') popByHour.set(t, v);
+              });
+
+              const nowSec = Math.floor(Date.now() / 1000);
+              const timeline: MinutePrecipitation[] = [];
+              let covered = 0;
+              for (let m = 0; m < 60; m++) {
+                const t = nowSec + m * 60;
+                const mm = mmByEnd.get((Math.floor(t / 900) + 1) * 900);
+                if (typeof mm === 'number') covered++;
+                const rate = typeof mm === 'number' ? Math.round(((mm * 4) / MM_PER_INCH) * 1000) / 1000 : 0;
+                const pct = rate > 0 ? Math.min(100, Math.max(8, Math.round(Math.sqrt(rate / 0.4) * 100))) : 0;
+                timeline.push({
+                  minute: m,
+                  intensityPercent: pct,
+                  rateInchesPerHour: rate,
+                  probabilityPercent: popByHour.get(Math.floor(t / 3600) * 3600) ?? 0,
+                });
+              }
+              if (covered === 0) return null;
+
+              let peakRate = 0;
+              let peakMinute: number | null = null;
+              let first = -1;
+              let last = -1;
+              for (let i = 0; i < timeline.length; i++) {
+                const r = timeline[i].rateInchesPerHour;
+                if (r > 0) {
+                  if (first === -1) first = i;
+                  last = i;
+                }
+                if (r > peakRate) {
+                  peakRate = r;
+                  peakMinute = i;
+                }
+              }
+
+              const minutesUntilStart = first >= 0 ? first : null;
+              const minutesUntilEnd = last >= 0 && last < 59 ? last + 1 : null;
+
+              let summary: string;
+              if (minutesUntilStart === null) {
+                summary = 'No precipitation expected in the next hour.';
+              } else {
+                const word = intensityWord(peakRate);
+                if (minutesUntilStart === 0) {
+                  summary =
+                    minutesUntilEnd === null
+                      ? `${word} precipitation now, continuing through the next hour.`
+                      : `${word} precipitation now, easing around +${minutesUntilEnd}m.`;
+                } else {
+                  summary =
+                    minutesUntilEnd === null
+                      ? `${word} precipitation starting in about ${minutesUntilStart}m, lasting past the hour.`
+                      : `${word} precipitation starting in about ${minutesUntilStart}m, ending around +${minutesUntilEnd}m.`;
+                }
+              }
+
+              return {
+                summary,
+                peakMinute,
+                peakRateInchesPerHour: peakRate,
+                willRainSoon: minutesUntilStart !== null,
+                minutesUntilStart,
+                minutesUntilEnd,
+                timeline,
+                source: 'Open-Meteo model data · 15-min steps',
+              };
+            } catch (err) {
+              console.warn('Real nowcast fetch failed:', err);
+              return null;
+            }
+          }
+          TS_EOF
+          cat > /tmp/fix/radar_head.tsx <<'TS_EOF'
+          interface RadarFrame {
+            id: string;
+            label: string;
+            timeFormatted: string;
+            sourceLabel?: string;
+            kind: 'tms' | 'wms';
+            url: string;
+            wms?: { layers: string; time: string };
+            maxNativeZoom?: number;
+            opacity?: number;
+          }
+
+          const IEM_BASE = 'https://mesonet.agron.iastate.edu';
+          const HRRR_MAX_MINUTES = 1080; // IEM serves HRRR forecast reflectivity out to 18 h
+          // true: 24h loop continues past the HRRR range with ECCC RDPS model frames. false: stop at HRRR range.
+          const USE_RDPS_TAIL = true;
+          const BLANK_TILE = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+
+          const pad2 = (n: number) => String(n).padStart(2, '0');
+
+          const iemStamp = (d: Date) =>
+            `${d.getUTCFullYear()}${pad2(d.getUTCMonth() + 1)}${pad2(d.getUTCDate())}${pad2(d.getUTCHours())}${pad2(d.getUTCMinutes())}`;
+
+          const localTime = (d: Date, withDay: boolean) =>
+            d.toLocaleString(
+              [],
+              withDay
+                ? { weekday: 'short', hour: 'numeric', minute: '2-digit' }
+                : { hour: 'numeric', minute: '2-digit' }
+            );
+
+          /** Latest HRRR model run published by IEM, with an estimate if the metadata is unreachable. */
+          async function getLatestHrrrInit(): Promise<Date> {
+            try {
+              const res = await fetch(`${IEM_BASE}/data/gis/images/4326/hrrr/refd_1080.json`, { cache: 'no-store' });
+              if (res.ok) {
+                const json = await res.json();
+                const raw: string | undefined = json?.model_init_utc;
+                if (raw) {
+                  let s = raw.replace(' ', 'T');
+                  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)) s += 'Z';
+                  const d = new Date(s);
+                  const ageMin = (Date.now() - d.getTime()) / 60000;
+                  if (!isNaN(d.getTime()) && ageMin >= 0 && ageMin < 12 * 60) return d;
+                }
+              }
+            } catch {
+              // fall through to the estimate below
+            }
+            const d = new Date(Date.now() - 90 * 60 * 1000); // assume ~90 min publish lag
+            d.setUTCMinutes(0, 0, 0);
+            return d;
+          }
+
+          function hrrrFrame(init: Date, forecastMin: number, label: string, withDay: boolean): RadarFrame {
+            const valid = new Date(init.getTime() + forecastMin * 60000);
+            const fm = String(forecastMin).padStart(4, '0');
+            const stamp = iemStamp(init);
+            return {
+              id: `hrrr-${stamp}-${fm}`,
+              label,
+              timeFormatted: `${label} · ${localTime(valid, withDay)}`,
+              sourceLabel: 'HRRR Forecast Reflectivity',
+              kind: 'tms',
+              url: `${IEM_BASE}/cache/tile.py/1.0.0/hrrr::REFD-F${fm}-${stamp}/{z}/{x}/{y}.png`,
+              maxNativeZoom: 8,
+              opacity: 0.85,
+            };
+          }
+
+          function rdpsFrame(valid: Date, label: string, withDay: boolean): RadarFrame {
+            const hour = new Date(Math.round(valid.getTime() / 3600000) * 3600000);
+            const iso = hour.toISOString().replace(/\.\d{3}Z$/, 'Z');
+            return {
+              id: `rdps-${iso}`,
+              label,
+              timeFormatted: `${label} · ${localTime(valid, withDay)}`,
+              sourceLabel: 'RDPS Precip Rate (model)',
+              kind: 'wms',
+              url: 'https://geo.weather.gc.ca/geomet',
+              wms: { layers: 'RDPS.ETA_RT', time: iso },
+              maxNativeZoom: 8,
+              opacity: 0.7,
+            };
+          }
+
+          /** Forward-looking frames: 'Now' through +2h (15-min steps) or +24h (hourly). */
+          async function buildForecastFrames(mode: 'loop2h' | 'loop24h'): Promise<RadarFrame[]> {
+            const init = await getLatestHrrrInit();
+            const now = Date.now();
+            const nowMin = Math.max(0, (now - init.getTime()) / 60000);
+            const startMin = Math.round(nowMin / 15) * 15; // forecast minute that corresponds to "now"
+            const stepMin = mode === 'loop2h' ? 15 : 60;
+            const count = mode === 'loop2h' ? 9 : 25;
+            const todayStr = new Date(now).toDateString();
+
+            const frames: RadarFrame[] = [];
+            for (let k = 0; k < count; k++) {
+              const offsetMin = k * stepMin;
+              const fMin = startMin + offsetMin;
+              const offsetLabel =
+                offsetMin < 60 ? `+${offsetMin}m` : `+${Math.floor(offsetMin / 60)}h${offsetMin % 60 ? ` ${offsetMin % 60}m` : ''}`;
+              const label = k === 0 ? 'Now' : mode === 'loop2h' ? offsetLabel : `+${k}h`;
+              const valid = new Date(init.getTime() + fMin * 60000);
+              const withDay = valid.toDateString() !== todayStr;
+              if (fMin <= HRRR_MAX_MINUTES) {
+                frames.push(hrrrFrame(init, fMin, label, withDay));
+              } else if (USE_RDPS_TAIL) {
+                frames.push(rdpsFrame(valid, label, withDay));
+              } else {
+                break;
+              }
+            }
+            return frames;
+          }
+          TS_EOF
+          cat > /tmp/fix/radar_body.tsx <<'TS_EOF'
+            // 3. Overlay layer helpers
+            const clearOverlayLayers = useCallback(() => {
+              const map = mapInstanceRef.current;
+              Object.values(activeTileLayersRef.current).forEach((l) => {
+                if (map) map.removeLayer(l);
+              });
+              activeTileLayersRef.current = {};
+              currentActiveUrlRef.current = '';
+            }, []);
+
+            const ensureLayer = useCallback((frame: RadarFrame): L.TileLayer | null => {
+              const map = mapInstanceRef.current;
+              if (!map) return null;
+              let layer = activeTileLayersRef.current[frame.id];
+              if (!layer) {
+                const common = {
+                  opacity: 0,
+                  className: 'radar-overlay-tile',
+                  zIndex: 50,
+                  maxNativeZoom: frame.maxNativeZoom ?? 18,
+                  errorTileUrl: BLANK_TILE,
+                };
+                if (frame.kind === 'wms' && frame.wms) {
+                  layer = L.tileLayer.wms(frame.url, {
+                    ...common,
+                    layers: frame.wms.layers,
+                    format: 'image/png',
+                    transparent: true,
+                    version: '1.3.0',
+                    time: frame.wms.time,
+                  } as unknown as L.WMSOptions);
+                } else {
+                  layer = L.tileLayer(frame.url, common);
+                }
+                layer.addTo(map);
+                activeTileLayersRef.current[frame.id] = layer;
+              }
+              return layer;
+            }, []);
+
+            const showFrame = useCallback(
+              (frame: RadarFrame) => {
+                const target = ensureLayer(frame);
+                if (!target) return;
+                target.setOpacity(frame.opacity ?? 0.85);
+                target.bringToFront();
+                const prevId = currentActiveUrlRef.current;
+                if (prevId && prevId !== frame.id) {
+                  const prev = activeTileLayersRef.current[prevId];
+                  if (prev) prev.setOpacity(0);
+                }
+                currentActiveUrlRef.current = frame.id;
+              },
+              [ensureLayer]
+            );
+
+            // 4. Build frames for the selected mode (loop modes look FORWARD from now)
+            useEffect(() => {
+              let active = true;
+              clearOverlayLayers();
+              setFrames([]);
+              setCurrentFrameIndex(0);
+
+              const build = async () => {
+                if (radarMode === 'live') {
+                  if (active) {
+                    setFrames([
+                      {
+                        id: 'kiln-live-sweep',
+                        label: 'Live Sweep',
+                        timeFormatted: 'Live KILN Sweep',
+                        kind: 'tms',
+                        url: `${IEM_BASE}/cache/tile.py/1.0.0/ridge::KILN-N0Q-0/{z}/{x}/{y}.png`,
+                      },
+                    ]);
+                  }
+                } else if (radarMode === 'satellite') {
+                  if (active) {
+                    setFrames([
+                      {
+                        id: 'goes-east-satellite',
+                        label: 'GOES-East IR',
+                        timeFormatted: 'Live Infrared Cloud Tops',
+                        kind: 'tms',
+                        url: `${IEM_BASE}/cache/tile.py/1.0.0/goes-ir-4km-900913/{z}/{x}/{y}.png`,
+                      },
+                    ]);
+                  }
+                } else {
+                  try {
+                    const list = await buildForecastFrames(radarMode);
+                    if (active) {
+                      setFrames(list);
+                      setCurrentFrameIndex(0);
+                    }
+                  } catch (e) {
+                    console.warn('Forecast radar frames failed:', e);
+                  }
+                }
+              };
+
+              build();
+
+              return () => {
+                active = false;
+              };
+            }, [radarMode, clearOverlayLayers]);
+
+            useEffect(() => {
+              if (frames.length === 0) return;
+              // Warm the cache for short loops so the animation does not flicker
+              if (frames.length <= 12) frames.forEach((f) => ensureLayer(f));
+              const frame = frames[currentFrameIndex];
+              if (frame) showFrame(frame);
+            }, [frames, currentFrameIndex, ensureLayer, showFrame]);
+
+          TS_EOF
+          cat > /tmp/fix/apply.py <<'PY_EOF'
+          import pathlib
+          import sys
+
+          FIX = pathlib.Path('/tmp/fix')
+
+
+          def read(p):
+              return pathlib.Path(p).read_text(encoding='utf-8')
+
+
+          def write(p, s):
+              pathlib.Path(p).write_text(s, encoding='utf-8')
+
+
+          def sub_once(s, old, new, label):
+              n = s.count(old)
+              if n != 1:
+                  sys.exit(f"[{label}] expected exactly 1 match, found {n}. Repo differs from the version these fixes were written for.")
+              return s.replace(old, new)
+
+
+          # ---------- RadarMap.tsx ----------
+          p = 'src/components/RadarMap.tsx'
+          s = read(p)
+
+          s = sub_once(s, """interface RadarFrame {
+            id: string;
+            label: string;
+            timeFormatted: string;
+            tileUrl: string;
+          }
+          """, read(FIX / 'radar_head.tsx'), 'RadarFrame interface')
+
+          start = s.find('  // 3. Build radar frames based on mode')
+          end = s.find('  // 5. Animation Timer')
+          if start == -1 or end == -1 or end < start:
+              sys.exit('[frames block] section markers not found')
+          s = s[:start] + read(FIX / 'radar_body.tsx') + s[end:]
+
+          s = sub_once(s, "            2h Loop\n", "            Next 2h\n", '2h label')
+          s = sub_once(s, "            24h Radar\n", "            Next 24h\n", '24h label')
+          s = sub_once(
+              s,
+              "{radarMode === 'satellite' ? 'GOES-East Satellite' : 'NOAA NEXRAD Radar Grid'}",
+              """{radarMode === 'satellite'
+                          ? 'GOES-East Satellite'
+                          : radarMode === 'loop2h' || radarMode === 'loop24h'
+                          ? currentFrame?.sourceLabel ?? 'Forecast Radar'
+                          : 'NOAA NEXRAD Radar Grid'}""",
+              'status pill source',
+          )
+          s = sub_once(
+              s,
+              "{currentFrame ? currentFrame.timeFormatted : 'Live'}",
+              "{currentFrame ? currentFrame.timeFormatted : radarMode === 'live' ? 'Live' : 'Loading…'}",
+              'status pill time',
+          )
+          s = sub_once(s, 'min-w-[75px] text-right', 'min-w-[110px] whitespace-nowrap text-right', 'scrubber time width')
+          write(p, s)
+
+          # ---------- types/weather.ts ----------
+          p = 'src/types/weather.ts'
+          s = read(p)
+          s = sub_once(
+              s,
+              "  minutesUntilEnd: number | null;\n  timeline: MinutePrecipitation[];\n}",
+              "  minutesUntilEnd: number | null;\n  timeline: MinutePrecipitation[];\n  source?: string; // data attribution shown under the summary\n}",
+              'NowcastFeed type',
+          )
+          write(p, s)
+
+          # ---------- services/weatherService.ts ----------
+          p = 'src/services/weatherService.ts'
+          s = read(p)
+          s = sub_once(
+              s,
+              "      const nowcast = generateNowcast(category === 'rain' || category === 'thunderstorm', category === 'thunderstorm');",
+              "      const nowcast = (await fetchRealNowcast(lat, lon)) ?? unavailableNowcast();",
+              'live nowcast call',
+          )
+          s = sub_once(s, "    nowcast: generateNowcast(false),", "    nowcast: unavailableNowcast(),", 'fallback nowcast')
+          s = "import { fetchRealNowcast, unavailableNowcast } from './nowcastService';\n" + s
+          write(p, s)
+
+          # ---------- App.tsx ----------
+          p = 'src/App.tsx'
+          s = read(p)
+          s = sub_once(
+              s,
+              "  const [nowcast, setNowcast] = useState<NowcastFeed | null>(null);\n",
+              "  const [nowcast, setNowcast] = useState<NowcastFeed | null>(null);\n  const [realNowcast, setRealNowcast] = useState<NowcastFeed | null>(null);\n",
+              'App state',
+          )
+          s = sub_once(
+              s,
+              "      setNowcast(data.nowcast);\n",
+              "      setNowcast(data.nowcast);\n      setRealNowcast(data.nowcast);\n      setIsSimulatedRain(false);\n",
+              'App loadWeather',
+          )
+          s = sub_once(
+              s,
+              "        setNowcast(generateNowcast(false));\n",
+              "        setNowcast(realNowcast ?? generateNowcast(false));\n",
+              'App simulate reset',
+          )
+          write(p, s)
+
+          # ---------- components/NowcastPrecipitation.tsx ----------
+          p = 'src/components/NowcastPrecipitation.tsx'
+          s = read(p)
+          s = sub_once(
+              s,
+              "          {nowcast.summary}\n        </p>\n",
+              "          {nowcast.summary}\n        </p>\n        {nowcast.source && (\n          <p className=\"-mt-3 mb-3 text-[10px] font-mono text-neutral-500\">\n            {nowcast.source}\n          </p>\n        )}\n",
+              'nowcast source caption',
+          )
+          s = sub_once(
+              s,
+              "onMouseEnter={() => setHoveredMinute(item.minute)}",
+              "onMouseEnter={() => setHoveredMinute(item.minute)}\n                  onClick={() => setHoveredMinute(item.minute)}",
+              'tap tooltip',
+          )
+          write(p, s)
+
+          print('All edits applied.')
+          PY_EOF
+          python3 /tmp/fix/apply.py
+
+      - uses: actions/setup-node@v6
+        if: steps.guard.outputs.applied != 'true'
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@v2
+        if: steps.guard.outputs.applied != 'true'
+
+      - name: Build check (nothing is committed if this fails)
+        if: steps.guard.outputs.applied != 'true'
+        run: |
+          bun install --frozen-lockfile
+          bunx vite build
+
+      - name: Commit, push, redeploy
+        if: steps.guard.outputs.applied != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src
+          git commit -m "Forward-looking radar loops (HRRR), real minute-by-minute precipitation"
+          git push
+          gh workflow run deploy.yml --ref "${{ github.ref_name }}"
