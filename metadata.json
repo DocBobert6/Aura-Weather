@@ -1,0 +1,6 @@
+{
+  "name": "Aura Expressive Weather - NKY & Greater Cincinnati",
+  "description": "Android 17/18 Material 3 Expressive Weather App for Northern Kentucky and the Greater Cincinnati Metro Area. Featuring live NWS KCVG/KLUK observations, real-time NEXRAD KILN radar, 60-min nowcasting, dynamic tactile glassmorphism, and Jetpack Compose architecture studio.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    overflow-x: hidden;
+    background-color: #0E141B;
+    color: #E2E2E6;
+  }
+}
+
+/* Material You subtle scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* Leaflet map clean dark mode styling */
+.leaflet-container {
+  background: #14181F !important;
+  font-family: inherit;
+  border-radius: 24px;
+}
+
+/* Dark theme applied ONLY to base OpenStreetMap tiles */
+.leaflet-tile.osm-dark-base {
+  filter: brightness(0.6) invert(1) contrast(1.15) hue-rotate(200deg) saturate(0.25) brightness(0.7) !important;
+}
+
+/* Ensure radar and satellite overlay tiles remain 100% crisp, vibrant, and unfiltered */
+.leaflet-tile.radar-overlay-tile {
+  filter: none !important;
+  transition: opacity 0.15s ease-in-out;
+}
+
+/* Material 3 Zoom Controls */
+.leaflet-control-zoom {
+  border: none !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
+  border-radius: 20px !important;
+  overflow: hidden;
+}
+.leaflet-control-zoom a {
+  background: #1F252E !important;
+  color: #E2E2E6 !important;
+  border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+}
+.leaflet-control-zoom a:hover {
+  background: #2A323D !important;
+  color: #FFFFFF !important;
+}
