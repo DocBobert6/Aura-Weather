@@ -47,6 +47,7 @@ Aura Weather is a native Android weather application built with Kotlin, Jetpack 
 - **National Weather Service (NOAA)**: `https://api.weather.gov/` (Public domain US Government data).
 - **Open-Meteo**: `https://api.open-meteo.com/` (Weather data by Open-Meteo.com under CC BY 4.0).
 - **Iowa Environmental Mesonet (IEM)**: Iowa State University / NOAA NEXRAD Level III composite tile cache.
+- **Esri World Dark Gray Base**: dark basemap under the radar (keyless, `server.arcgisonline.com`). CARTO dark_all now returns an "API KEY REQUIRED" watermark tile and cannot be used.
 - **NASA GIBS**: Global Imagery Browse Services (EOSDIS) GOES-East ABI Satellite layers.
 
 ---

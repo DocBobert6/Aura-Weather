@@ -541,6 +541,7 @@ fun SettingsScreen(
                     AttributionRow("Weather & Alerts", "National Weather Service (NOAA / api.weather.gov)")
                     AttributionRow("Minute-Cast & AQI", "Open-Meteo.com (CC BY 4.0)")
                     AttributionRow("Radar Reflectivity", "Iowa Environmental Mesonet (IEM) / NEXRAD")
+                    AttributionRow("Radar Basemap", "Esri World Dark Gray Base")
                     AttributionRow("Satellite Imagery", "NASA GIBS (EOSDIS) GOES-East ABI")
                 }
             }

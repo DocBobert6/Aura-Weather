@@ -32,6 +32,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -54,6 +55,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.imageLoader
 import coil.request.ImageRequest
 import com.example.domain.model.FullWeatherState
 import com.example.ui.RadarLayer
@@ -66,6 +68,20 @@ import com.example.ui.designsystem.PillSegmentedControl
 import kotlin.math.ln
 import kotlin.math.roundToInt
 import kotlin.math.tan
+
+// IEM NEXRAD composite layer name for frame 0..9 (0 = 45m ago, 9 = LIVE).
+private fun iemLayerNameFor(frameIndex: Int): String = when (frameIndex) {
+    9 -> "nexrad-n0q-900913"
+    8 -> "nexrad-n0q-900913-m05m"
+    7 -> "nexrad-n0q-900913-m10m"
+    6 -> "nexrad-n0q-900913-m15m"
+    5 -> "nexrad-n0q-900913-m20m"
+    4 -> "nexrad-n0q-900913-m25m"
+    3 -> "nexrad-n0q-900913-m30m"
+    2 -> "nexrad-n0q-900913-m35m"
+    1 -> "nexrad-n0q-900913-m40m"
+    else -> "nexrad-n0q-900913-m45m"
+}
 
 @Composable
 fun RadarScreen(
@@ -116,19 +132,16 @@ fun RadarScreen(
     }
 
     // IEM NEXRAD composite layer names corresponding to 0..9
-    val iemLayerName = remember(currentFrameIndex) {
-        when (currentFrameIndex) {
-            9 -> "nexrad-n0q-900913"
-            8 -> "nexrad-n0q-900913-m05m"
-            7 -> "nexrad-n0q-900913-m10m"
-            6 -> "nexrad-n0q-900913-m15m"
-            5 -> "nexrad-n0q-900913-m20m"
-            4 -> "nexrad-n0q-900913-m25m"
-            3 -> "nexrad-n0q-900913-m30m"
-            2 -> "nexrad-n0q-900913-m35m"
-            1 -> "nexrad-n0q-900913-m40m"
-            else -> "nexrad-n0q-900913-m45m"
-        }
+    val iemLayerName = remember(currentFrameIndex) { iemLayerNameFor(currentFrameIndex) }
+
+    // Satellite layers have a max zoom in GIBS (GeoColor Level7, Band13
+    // Level6) below the radar zoom range (7..9), so clamp the effective
+    // zoom per layer. The stored zoomLevel is untouched, so switching back
+    // to radar restores the radar zoom.
+    val effectiveZoomLevel = when (selectedLayer) {
+        RadarLayer.SatelliteVis -> minOf(zoomLevel, 7)
+        RadarLayer.SatelliteIr -> minOf(zoomLevel, 6)
+        else -> zoomLevel
     }
 
     // Centre on the selected place. The location puck below marks it; there
@@ -140,6 +153,28 @@ fun RadarScreen(
     // GIBS satellite layers are dated: use today, never a hardcoded date.
     val gibsDate = remember { java.time.LocalDate.now().toString() }
 
+    // Prefetch the current and next loop frames' radar tiles so a frame
+    // switch is atomic. Without this, the 9 tiles reload independently on
+    // each 750ms frame advance and the screen briefly shows a mix of two
+    // frames — the doubled/shifted map in the 2026-11-08 video. Satellite
+    // layers are a single image, so they need no prefetch.
+    val imageLoader = context.imageLoader
+    LaunchedEffect(currentFrameIndex, selectedLayer, effectiveZoomLevel) {
+        if (selectedLayer == RadarLayer.Reflectivity || selectedLayer == RadarLayer.LocalSite) {
+            for (frameIndex in listOf(currentFrameIndex, (currentFrameIndex + 1) % 10)) {
+                val layerName = iemLayerNameFor(frameIndex)
+                for (dx in -1..1) {
+                    for (dy in -1..1) {
+                        val tileX = lonToTileX(centerLon, effectiveZoomLevel) + dx
+                        val tileY = latToTileY(centerLat, effectiveZoomLevel) + dy
+                        val url = "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$layerName/$effectiveZoomLevel/$tileX/$tileY.png"
+                        imageLoader.enqueue(ImageRequest.Builder(context).data(url).build())
+                    }
+                }
+            }
+        }
+    }
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -150,15 +185,15 @@ fun RadarScreen(
         val screenHeightPx = constraints.maxHeight.toFloat()
 
         // Tile coordinates at zoomLevel
-        val centerTileX = lonToTileX(centerLon, zoomLevel)
-        val centerTileY = latToTileY(centerLat, zoomLevel)
+        val centerTileX = lonToTileX(centerLon, effectiveZoomLevel)
+        val centerTileY = latToTileY(centerLat, effectiveZoomLevel)
 
         // Base tile size in pixels (256 standard Mercator tile size, scaled by userScale)
         val tileSizePx = 256f * userScale
 
         // Pixel center of the central tile
-        val centerWorldX = lonToWorldPixel(centerLon, zoomLevel) * userScale
-        val centerWorldY = latToWorldPixel(centerLat, zoomLevel) * userScale
+        val centerWorldX = lonToWorldPixel(centerLon, effectiveZoomLevel) * userScale
+        val centerWorldY = latToWorldPixel(centerLat, effectiveZoomLevel) * userScale
 
         Box(
             modifier = Modifier
@@ -184,14 +219,14 @@ fun RadarScreen(
                     val screenX = (screenWidthPx / 2f) + (tileWorldLeft - centerWorldX) + panOffsetX
                     val screenY = (screenHeightPx / 2f) + (tileWorldTop - centerWorldY) + panOffsetY
 
-                    val basemapUrl = "https://a.basemaps.cartocdn.com/dark_all/$zoomLevel/$tileX/$tileY.png"
+                    val basemapUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/$effectiveZoomLevel/$tileY/$tileX"
                     val radarUrl = when (selectedLayer) {
                         RadarLayer.Reflectivity, RadarLayer.LocalSite ->
-                            "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$iemLayerName/$zoomLevel/$tileX/$tileY.png"
+                            "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$iemLayerName/$effectiveZoomLevel/$tileX/$tileY.png"
                         RadarLayer.SatelliteVis ->
-                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/$gibsDate/GoogleMapsCompatible_Level8/$zoomLevel/$tileY/$tileX.png"
+                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/$gibsDate/GoogleMapsCompatible_Level7/$effectiveZoomLevel/$tileY/$tileX.png"
                         RadarLayer.SatelliteIr ->
-                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_Band13_Clean_Infrared/default/$gibsDate/GoogleMapsCompatible_Level8/$zoomLevel/$tileY/$tileX.png"
+                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_Band13_Clean_Infrared/default/$gibsDate/GoogleMapsCompatible_Level6/$effectiveZoomLevel/$tileY/$tileX.png"
                     }
 
                     Box(
@@ -199,7 +234,8 @@ fun RadarScreen(
                             .offset { IntOffset(screenX.roundToInt(), screenY.roundToInt()) }
                             .size(with(LocalDensity.current) { tileSizePx.toDp() })
                     ) {
-                        // 1. Live Dark Basemap Tile (Roads, Counties, Ohio River, Cities)
+                        // 1. Esri World Dark Gray Base (dark, keyless). CARTO dark_all now returns an
+                        // "API KEY REQUIRED" watermark tile, so it cannot be used.
                         AsyncImage(
                             model = ImageRequest.Builder(context)
                                 .data(basemapUrl)
@@ -227,8 +263,8 @@ fun RadarScreen(
             }
 
             // Location Puck for the selected place
-            val userWorldX = lonToWorldPixel(centerLon, zoomLevel) * userScale
-            val userWorldY = latToWorldPixel(centerLat, zoomLevel) * userScale
+            val userWorldX = lonToWorldPixel(centerLon, effectiveZoomLevel) * userScale
+            val userWorldY = latToWorldPixel(centerLat, effectiveZoomLevel) * userScale
             val userScreenX = (screenWidthPx / 2f) + (userWorldX - centerWorldX) + panOffsetX
             val userScreenY = (screenHeightPx / 2f) + (userWorldY - centerWorldY) + panOffsetY
 
