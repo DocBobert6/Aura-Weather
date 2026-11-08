@@ -44,7 +44,10 @@ import androidx.compose.ui.unit.sp
 import com.example.domain.model.AirQuality
 import com.example.domain.model.PollenData
 import com.example.ui.designsystem.AuraBars
-import com.example.ui.designsystem.GlassCard
+import com.example.ui.designsystem.AuraColors
+import com.example.ui.designsystem.AuraShapes
+import com.example.ui.designsystem.GlassLevel
+import com.example.ui.designsystem.GlassSurface
 
 @Composable
 fun AirPollenScreen(
@@ -58,15 +61,7 @@ fun AirPollenScreen(
     val category = airQuality?.category ?: "Unavailable"
     val guidance = airQuality?.healthGuidance ?: "Air quality data is unavailable."
 
-    val aqiColor = when {
-        aqi == null -> Color.White.copy(alpha = 0.5f)
-        aqi <= 50 -> Color(0xFF00E676)
-        aqi <= 100 -> Color(0xFFFFEB3B)
-        aqi <= 150 -> Color(0xFFFF9800)
-        aqi <= 200 -> Color(0xFFF44336)
-        aqi <= 300 -> Color(0xFF9C27B0)
-        else -> Color(0xFF795548)
-    }
+    val aqiColor = AuraColors.aqiColor(aqi)
 
     LazyColumn(
         modifier = modifier
@@ -88,25 +83,29 @@ fun AirPollenScreen(
                     text = "AIR QUALITY & POLLEN",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = "Open-Meteo Air Quality",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.65f)
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                 )
             }
         }
 
         // AQI Dial Card
         item {
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
+            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    // The dial arcs are drawn inside the Canvas (a DrawScope,
+                    // where the scheme cannot be read), so resolve the track here.
+                    val dialTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+
                     Box(
                         modifier = Modifier.size(200.dp),
                         contentAlignment = Alignment.Center
@@ -118,7 +117,7 @@ fun AirPollenScreen(
 
                             // Background arc (240 degrees)
                             drawArc(
-                                color = Color.White.copy(alpha = 0.12f),
+                                color = dialTrackColor,
                                 startAngle = 150f,
                                 sweepAngle = 240f,
                                 useCenter = false,
@@ -146,12 +145,12 @@ fun AirPollenScreen(
                                 text = aqi?.toString() ?: "--",
                                 style = MaterialTheme.typography.displayMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = "US AQI",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color.White.copy(alpha = 0.65f)
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                             )
                         }
                     }
@@ -160,7 +159,7 @@ fun AirPollenScreen(
 
                     Surface(
                         color = aqiColor.copy(alpha = 0.2f),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = AuraShapes.pill
                     ) {
                         Text(
                             text = category.uppercase(),
@@ -176,7 +175,7 @@ fun AirPollenScreen(
                     Text(
                         text = guidance,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.85f),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
 
@@ -185,7 +184,7 @@ fun AirPollenScreen(
                     Text(
                         text = "Source: ${airQuality?.source ?: "Open-Meteo Air Quality"}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.5f)
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
                 }
             }
@@ -197,7 +196,7 @@ fun AirPollenScreen(
                 text = "POLLUTANT CONCENTRATION",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White.copy(alpha = 0.7f)
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
             )
         }
 
@@ -239,12 +238,12 @@ fun AirPollenScreen(
                 text = "ALLERGEN & POLLEN OUTLOOK",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White.copy(alpha = 0.7f)
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
             )
         }
 
         item {
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
+            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -273,8 +272,8 @@ fun AirPollenScreen(
                     if (pollen?.hasKey != true) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Surface(
-                            color = Color(0xFF1E293B),
-                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shape = AuraShapes.medium,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(14.dp)) {
@@ -290,14 +289,14 @@ fun AirPollenScreen(
                                         text = "Live Pollen Telemetry",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.White
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = "Pollen counts aren't connected yet — no live values are shown. A Tomorrow.io key can be stored in Settings for a future update, but it does not enable pollen data today.",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.75f)
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Button(
@@ -327,35 +326,35 @@ private fun PollutantCard(
     status: String,
     modifier: Modifier = Modifier
 ) {
-    GlassCard(modifier = modifier) {
+    GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = modifier) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.6f)
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(4.dp))
             Surface(
-                color = Color(0xFF00E676).copy(alpha = 0.2f),
-                shape = RoundedCornerShape(6.dp)
+                color = AuraColors.Accent.copy(alpha = 0.2f),
+                shape = AuraShapes.pill
             ) {
                 Text(
                     text = status,
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    color = Color(0xFF00E676),
+                    color = AuraColors.Accent,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
@@ -374,7 +373,7 @@ private fun PollenGauge(
         Icon(
             imageVector = icon,
             contentDescription = title,
-            tint = if (hasKey) Color(0xFF81C784) else Color.White.copy(alpha = 0.4f),
+            tint = if (hasKey) AuraColors.PollenActive else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
             modifier = Modifier.size(32.dp)
         )
         Spacer(modifier = Modifier.height(6.dp))
@@ -382,13 +381,13 @@ private fun PollenGauge(
             text = title,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
-            color = Color.White
+            color = MaterialTheme.colorScheme.onSurface
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = if (hasKey && level != null) "$level / 5" else "--",
             style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.6f)
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
         )
     }
 }

@@ -52,6 +52,9 @@ object AuraColors {
     /** Moon blue — the "Next Full Moon" text. */
     val MoonBlue: Color = Color(0xFF81D4FA)
 
+    /** Pollen gauge "has data" green — the active gauge icon tint. */
+    val PollenActive: Color = Color(0xFF81C784)
+
     /**
      * Minute-cast bar colour by precipitation rate (mm/h): light rain is
      * blue, moderate amber, heavy red; the baseline is a faint neutral.
