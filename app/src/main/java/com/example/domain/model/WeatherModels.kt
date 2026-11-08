@@ -147,7 +147,9 @@ data class LunarTimes(
     val phaseAgeDays: Double,
     val nextNewMoonDays: Int,
     val nextFullMoonDays: Int,
-    val isWaxing: Boolean
+    val isWaxing: Boolean,
+    val moonrise: Instant? = null,
+    val moonset: Instant? = null
 )
 
 data class FullWeatherState(

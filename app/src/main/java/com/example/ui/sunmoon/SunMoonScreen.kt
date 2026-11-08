@@ -313,8 +313,13 @@ fun SunMoonScreen(
                                 center = center
                             )
 
-                            // Shadow mask based on illuminated fraction
-                            val shadowOffset = illFraction.toFloat() * r * 1.8f
+                            // Shadow mask based on illuminated fraction.
+                            // At 2% the offset is ~1px, so the disk reads as
+                            // fully dark. Keep a minimum visible sliver
+                            // whenever there is any illumination.
+                            val shadowOffset = if (illFraction > 0.005) {
+                                (illFraction.toFloat() * r * 1.8f).coerceAtLeast(r * 0.10f)
+                            } else 0f
                             drawCircle(
                                 color = AuraColors.MoonShadow,
                                 radius = r * 0.98f,
@@ -343,17 +348,44 @@ fun SunMoonScreen(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
+                        // The nearer event is prominent; the farther one is dim.
+                        // "16d" reads as jargon — say "in 16 days".
                         Row {
+                            val fullFirst = (lunar?.nextFullMoonDays ?: Int.MAX_VALUE) <= (lunar?.nextNewMoonDays ?: Int.MAX_VALUE)
+                            val fullText = lunar?.nextFullMoonDays?.let {
+                                if (it <= 0) "Full Moon today" else "Full Moon in $it day${if (it == 1) "" else "s"}"
+                            } ?: "Full Moon: --"
+                            val newText = lunar?.nextNewMoonDays?.let {
+                                if (it <= 0) "New Moon today" else "New Moon in $it day${if (it == 1) "" else "s"}"
+                            } ?: "New Moon: --"
                             Text(
-                                text = lunar?.nextFullMoonDays?.let { "Next Full Moon: ${it}d" } ?: "Next Full Moon: --",
+                                text = fullText,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = AuraColors.MoonBlue
+                                fontWeight = if (fullFirst) FontWeight.Bold else FontWeight.Normal,
+                                color = if (fullFirst) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = lunar?.nextNewMoonDays?.let { "New Moon: ${it}d" } ?: "New Moon: --",
+                                text = newText,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                fontWeight = if (!fullFirst) FontWeight.Bold else FontWeight.Normal,
+                                color = if (!fullFirst) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row {
+                            Text(
+                                text = "Moonrise ${lunar?.moonrise?.let { timeFormatter.format(it) } ?: "--"}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "Moonset ${lunar?.moonset?.let { timeFormatter.format(it) } ?: "--"}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                             )
                         }
                     }

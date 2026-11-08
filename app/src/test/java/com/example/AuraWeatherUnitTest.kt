@@ -13,6 +13,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.abs
 
@@ -68,6 +69,22 @@ class AuraWeatherUnitTest {
         assertTrue("Phase age should be between 0 and 30 days", lunar.phaseAgeDays in 0.0..30.0)
         assertTrue("Phase name should not be blank", lunar.phaseName.isNotBlank())
         assertTrue("Days to full moon should be non-negative", lunar.nextFullMoonDays >= 0)
+    }
+
+    @Test
+    fun testLunarCalculator_moonriseMoonsetNearNewMoon() {
+        // 2026-11-08: waning crescent, 1 day before new moon. The moon rises
+        // near sunrise and sets near sunset (it tracks the sun when new).
+        val zone = ZoneId.of("America/New_York")
+        val date = LocalDate.of(2026, 11, 8)
+        val (rise, set) = LunarCalculator.calculateRiseSet(date, zone, 38.77, -84.56)
+        assertNotNull("Moonrise should exist on 2026-11-08", rise)
+        assertNotNull("Moonset should exist on 2026-11-08", set)
+        val riseHour = rise!!.atZone(zone).hour
+        val setHour = set!!.atZone(zone).hour
+        assertTrue("Moonrise near new moon should be early morning (4-9 AM), was $riseHour", riseHour in 4..9)
+        assertTrue("Moonset near new moon should be late afternoon (3-8 PM), was $setHour", setHour in 15..20)
+        assertTrue("Moonrise should precede moonset", rise.isBefore(set))
     }
 
     @Test

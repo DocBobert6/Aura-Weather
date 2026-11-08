@@ -262,7 +262,14 @@ class WeatherRepository(
 
         // Astro calculations in the place's zone.
         val solar = SolarCalculator.calculate(resolvedPlace.point, now, zoneId)
-        val lunar = LunarCalculator.calculate(now)
+        val lunarBase = LunarCalculator.calculate(now)
+        val (moonrise, moonset) = LunarCalculator.calculateRiseSet(
+            date = now.atZone(zoneId).toLocalDate(),
+            zoneId = zoneId,
+            latitude = resolvedPlace.point.lat,
+            longitude = resolvedPlace.point.lon
+        )
+        val lunar = lunarBase.copy(moonrise = moonrise, moonset = moonset)
 
         // --- Current conditions. Every value is nullable: a provider that
         // did not return it leaves a null, and the UI shows "unavailable".
