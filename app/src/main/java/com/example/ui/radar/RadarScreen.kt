@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -84,6 +85,8 @@ private fun iemLayerNameFor(frameIndex: Int): String = when (frameIndex) {
     else -> "nexrad-n0q-900913-m45m"
 }
 
+// The scrubber's custom thumb is an experimental Material3 API.
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RadarScreen(
     state: FullWeatherState?,
