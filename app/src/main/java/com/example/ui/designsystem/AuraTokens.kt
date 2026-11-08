@@ -42,6 +42,9 @@ object AuraColors {
     /** Sunset coral — the sunset icon. */
     val Sunset: Color = Color(0xFFFF8A65)
 
+    /** Rain — the animated rain streaks in the sky. */
+    val Rain: Color = Color(0xFFA5D6A7)
+
     /**
      * Moon shadow — fixed dark in both modes. A phase shadow must read as
      * dark; the scheme surface would go light in light mode and break the

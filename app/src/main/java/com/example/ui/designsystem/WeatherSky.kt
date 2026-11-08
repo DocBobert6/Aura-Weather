@@ -145,7 +145,7 @@ fun WeatherSky(
         if (condition == WeatherCondition.Rain || condition == WeatherCondition.HeavyRain || condition == WeatherCondition.Thunderstorm || condition == WeatherCondition.Drizzle) {
             val strokeWidth = if (condition == WeatherCondition.HeavyRain) 2.5f else 1.5f
             val streakLength = if (condition == WeatherCondition.HeavyRain) 36f else 22f
-            val rainColor = Color(0xFFA5D6A7).copy(alpha = 0.45f)
+            val rainColor = AuraColors.Rain.copy(alpha = 0.45f)
 
             rainDrops.forEach { (xFrac, yFrac) ->
                 val startX = (xFrac * width + (driftOffset * 80f)) % width

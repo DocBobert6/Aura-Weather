@@ -33,9 +33,12 @@ Aura Weather is a native Android weather application built with Kotlin, Jetpack 
    - Pure Kotlin NOAA solar position algorithm: Sunrise, Solar Noon, Sunset, Civil Dawn/Dusk, Golden Hour (morning & evening), Blue Hour, day length changes — all rendered in the selected place's timezone.
    - Canvas-rendered lunar phase disk with illumination percentage and days until next New/Full moon.
 
-7. **Adaptive Layout & Theming**
-   - Adaptive navigation: Bottom navigation bar on phones; side NavigationRail on foldables, tablets, and wide windows.
-   - Condition-aware Material 3 theme (Storm Navy, Clear Gold, Snow Frost, Overcast Slate) and system Monet dynamic color support. (The "expressive" palette mode in Settings currently has no theme branch and does nothing; a full M3 Expressive upgrade is planned — see Phase 2 of the plan.)
+7. **Adaptive Layout & Theming (Phase 2 redesign, 2026-11-07)**
+   - Floating navigation: a pill nav bar on phones and a floating vertical pill rail on wide layouts, over full-bleed content; it hides on scroll with a spring and never hides while an alert banner is visible or on the Alerts screen.
+   - Floating top bar on Home (place pill + freshness pill), floating Radar pill cluster + transport pill, and pill segmented controls for layers and tabs.
+   - Condition-aware palettes (14 day/night key sets) with an Auto / Dark / Light theme mode in Settings — the light schemes are real now, not a system-only fallback. System Monet dynamic colour is still available as a palette mode.
+   - Mesh sky (3×3 colour points from the condition palette, drift + scroll parallax) and real backdrop blur (the sky is recorded to a GraphicsLayer and the glass samples a blurred copy; off on low-RAM/battery saver; Radar opts out, its backdrop is the map). There is no Compose mesh-gradient API in the bumped BOM, so the mesh is a Canvas approximation and the platform APIs are a later swap.
+   - Motion: the "expressive" palette mode now selects the bouncier spring set at the animated call sites (material3 1.4.0 keeps MotionScheme internal, so motion is applied per call site, not via the theme). Springs snap when the system's Reduce motion setting is on.
 
 ---
 
@@ -89,3 +92,4 @@ Core weather runs without keys. You can optionally supply keys in **Settings**:
 2. **Nowcast Resolution**: Keyless minute-cast uses smooth interpolation from Open-Meteo's 15-minute precipitation steps.
 3. **No invented data**: when a provider returns nothing for a value, the app shows it as unavailable instead of substituting a plausible number. When a load fails with no cache, it shows an error instead of a fabricated forecast.
 4. **Emergency Disclaimer**: *Not an official NWS product. In a severe weather emergency or tornado warning, always prioritize official NOAA Weather Radio and local emergency broadcast sirens.*
+5. **Phase 2 device checks still owed**: the 60-second scroll test, the contrast check over the brightest and darkest sky states, the blur-seam check, and the battery/frame comparison against the Phase 1 build all need a real device — they are the next UI audit's job, not yet verified. Known gaps in the shipped redesign: the nav bar ↔ rail size does not interpolate on configuration change (the layout switch itself works), the condition-tinted shadow is only on the nav bar/rail and top-bar pills, and there is no mesh bitmap caching for low-end devices.
