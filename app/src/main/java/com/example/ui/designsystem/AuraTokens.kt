@@ -33,6 +33,27 @@ object AuraColors {
     val OnAccent: Color = Color(0xFF003314)
     val AccentContainer: Color = Color(0xFF004D26)
 
+    /** Warning amber — stale-data text and error icons. */
+    val Warning: Color = Color(0xFFFFB74D)
+
+    /** Water blue — precipitation icons and rain-chance text. */
+    val Water: Color = Color(0xFF64B5F6)
+
+    /** Sunset coral — the sunset icon. */
+    val Sunset: Color = Color(0xFFFF8A65)
+
+    /**
+     * Minute-cast bar colour by precipitation rate (mm/h): light rain is
+     * blue, moderate amber, heavy red; the baseline is a faint neutral.
+     */
+    fun precipColor(mmPerHour: Double): Color =
+        when {
+            mmPerHour > 5.0 -> Color(0xFFE53935) // Heavy
+            mmPerHour > 2.0 -> Color(0xFFFFB300) // Moderate
+            mmPerHour > 0.1 -> Color(0xFF42A5F5) // Light
+            else -> Color.White.copy(alpha = 0.15f) // Baseline
+        }
+
     /**
      * The one severity scale, shared by Home and Alerts (the audit found two
      * disagreeing scales). Colours are the Alerts screen's complete scale;
