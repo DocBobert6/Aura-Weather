@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -225,7 +226,8 @@ fun HomeScreen(
         // 3. Active Alert Banner (if severe alert is active)
         if (state != null && !state.activeAlerts.isNullOrEmpty()) {
             item {
-                val topAlert = state!!.activeAlerts.first()
+                val topAlert = state!!.activeAlerts.maxByOrNull { AuraColors.severityRank(it.severity) }
+                    ?: state.activeAlerts.first()
                 ActiveAlertBanner(
                     alertTitle = topAlert.headline,
                     severity = topAlert.severity,
@@ -963,6 +965,11 @@ private fun DailyForecastCard(
 ) {
     val dayFormatter = remember { DateTimeFormatter.ofPattern("EEE", Locale.US) }
 
+    // The week's overall min/max, so each day's range bar is scaled to the
+    // week (a 29–45° day is visibly shorter than a 43–64° day).
+    val weekMin = dailyPoints.mapNotNull { it.lowC }.minOrNull()
+    val weekMax = dailyPoints.mapNotNull { it.highC }.maxOrNull()
+
     GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, 
         modifier = Modifier
             .fillMaxWidth()
@@ -998,17 +1005,27 @@ private fun DailyForecastCard(
                         modifier = Modifier.width(60.dp)
                     )
 
+                    // The icon must agree with the rain chance: a sun icon
+                    // next to a 48% chance reads as a contradiction. When the
+                    // chance is high, show rain; when moderate, partly cloudy
+                    // (unless the condition already says rain).
+                    val displayCondition = when {
+                        pop >= 50 -> WeatherCondition.Rain
+                        pop >= 30 && (point.condition == WeatherCondition.ClearDay || point.condition == WeatherCondition.ClearNight) -> WeatherCondition.PartlyCloudyDay
+                        else -> point.condition
+                    }
+
                     Row(
                         modifier = Modifier.width(65.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = getWeatherIcon(point.condition, isDaytime = true),
-                            contentDescription = point.condition.displayName,
+                            imageVector = getWeatherIcon(displayCondition, isDaytime = true),
+                            contentDescription = displayCondition.displayName,
                             tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(24.dp)
                         )
-                        if (pop > 15) {
+                        if (pop > 0) {
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "$pop%",
@@ -1026,19 +1043,49 @@ private fun DailyForecastCard(
                         modifier = Modifier.width(36.dp)
                     )
 
-                    // Temperature gradient range bar
-                    Box(
+                    // Temperature range bar, scaled to the week's min/max and
+                    // coloured by the actual temperature (not a fixed gradient).
+                    Row(
                         modifier = Modifier
                             .weight(1f)
                             .height(6.dp)
                             .padding(horizontal = 8.dp)
                             .background(
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(AuraColors.Water, AuraColors.Warning)
-                                ),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
                                 shape = RoundedCornerShape(3.dp)
+                            ),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (weekMin != null && weekMax != null && weekMax > weekMin && point.lowC != null && point.highC != null) {
+                            val startFrac = ((point.lowC - weekMin) / (weekMax - weekMin)).toFloat().coerceIn(0f, 1f)
+                            val endFrac = ((point.highC - weekMin) / (weekMax - weekMin)).toFloat().coerceIn(0f, 1f)
+                            Spacer(modifier = Modifier.weight(startFrac))
+                            Box(
+                                modifier = Modifier
+                                    .weight((endFrac - startFrac).coerceAtLeast(0.02f))
+                                    .fillMaxHeight()
+                                    .background(
+                                        brush = Brush.horizontalGradient(
+                                            colors = listOf(AuraColors.tempColor(point.lowC), AuraColors.tempColor(point.highC))
+                                        ),
+                                        shape = RoundedCornerShape(3.dp)
+                                    )
                             )
-                    )
+                            Spacer(modifier = Modifier.weight((1f - endFrac).coerceAtLeast(0f)))
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .background(
+                                        brush = Brush.horizontalGradient(
+                                            colors = listOf(AuraColors.Water, AuraColors.Warning)
+                                        ),
+                                        shape = RoundedCornerShape(3.dp)
+                                    )
+                            )
+                        }
+                    }
 
                     Text(
                         text = hi,
@@ -1068,6 +1115,8 @@ private fun WeatherDetailsGrid(
 
     val pressureFormatted = unitFormatter.formatPressure(state?.current?.pressurePa)
     val visibilityFormatted = unitFormatter.formatVisibility(state?.current?.visibilityM)
+    val uvIndex = state?.daily7d?.firstOrNull()?.uvIndexMax
+    val cloudCover = state?.current?.cloudCoverPct
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
@@ -1124,6 +1173,29 @@ private fun WeatherDetailsGrid(
                 icon = Icons.Default.Visibility,
                 mainValue = visibilityFormatted,
                 subValue = "Clear horizon view",
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // UV Index Card (today's max; the data was fetched, never shown)
+            DetailMiniCard(
+                title = "UV INDEX",
+                icon = Icons.Default.WbSunny,
+                mainValue = uvIndex?.let { "${it.roundToInt()}" } ?: "--",
+                subValue = uvIndex?.let { AuraColors.uvCategory(it) } ?: "--",
+                modifier = Modifier.weight(1f)
+            )
+
+            // Cloud Cover Card
+            DetailMiniCard(
+                title = "CLOUD COVER",
+                icon = Icons.Default.Cloud,
+                mainValue = cloudCover?.let { "${it.roundToInt()}%" } ?: "--",
+                subValue = cloudCover?.let { AuraColors.cloudCoverDesc(it) } ?: "--",
                 modifier = Modifier.weight(1f)
             )
         }

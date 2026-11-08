@@ -311,13 +311,22 @@ class WeatherRepository(
             windGustMs = windGustMs,
             windDirDeg = windDirDeg,
             pressurePa = pressurePa,
-            visibilityM = visibilityM
+            visibilityM = visibilityM,
+            cloudCoverPct = omCurrent?.cloudCover
         )
 
         // --- Hourly (48h). NWS hourly is primary when /points resolved;
         // Open-Meteo is the fallback (and the only source outside the US).
         val hourlyList = parseNwsHourly(nwsHourlyResult?.properties?.periods, now)
             .ifEmpty { parseOpenMeteoHourly(openMeteoResult, resolvedPlace, zoneId, now) }
+            // The first hour is "now": its icon must match the hero, which
+            // comes from the observation. The forecast period's shortForecast
+            // can disagree with the observation for the same hour.
+            .let { list ->
+                if (list.isNotEmpty()) {
+                    list.mapIndexed { idx, pt -> if (idx == 0) pt.copy(condition = condition) else pt }
+                } else list
+            }
 
         // --- Daily (7d). Same split as hourly.
         val dailyList = parseNwsDaily(nwsForecastResult?.properties?.periods, zoneId)
@@ -340,6 +349,7 @@ class WeatherRepository(
                 ?: return@mapNotNull null
             val expires = props.expires?.let { runCatching { Instant.parse(it) }.getOrNull() }
                 ?: return@mapNotNull null
+            val ends = props.ends?.let { runCatching { Instant.parse(it) }.getOrNull() }
             if (expires.isBefore(now)) return@mapNotNull null
             WeatherAlert(
                 id = id,
@@ -351,6 +361,7 @@ class WeatherRepository(
                 instruction = props.instruction,
                 effective = effective,
                 expires = expires,
+                ends = ends,
                 areaDesc = props.areaDesc ?: ""
             )
         } ?: emptyList()

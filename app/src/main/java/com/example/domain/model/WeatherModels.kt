@@ -49,7 +49,8 @@ data class CurrentConditions(
     val windGustMs: Double?,
     val windDirDeg: Double?,
     val pressurePa: Double?,
-    val visibilityM: Double?
+    val visibilityM: Double?,
+    val cloudCoverPct: Double? = null
 )
 
 data class HourlyPoint(
@@ -94,6 +95,9 @@ data class WeatherAlert(
     val instruction: String?,
     val effective: Instant,
     val expires: Instant,
+    // When the event itself ends (NWS "ends"); null when the feed omits it.
+    // The pill shows this, not "expires" (when the alert product expires).
+    val ends: Instant?,
     val areaDesc: String
 )
 

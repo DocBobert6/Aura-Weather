@@ -208,12 +208,18 @@ object WeatherMappers {
             else -> "Hazardous" to "Emergency warning: Entire population is likely to be affected. Remain indoors."
         }
 
+        // Open-Meteo reports ozone in µg/m³; the UI labels it ppb, so convert
+        // (µg/m³ × 24.45 / 48.00 ≈ ×0.509). The 54 ppb cutoff is the EPA
+        // "Good" boundary in ppb — it must be applied to the converted value,
+        // not the raw µg/m³.
+        val ozonePpb = ozone?.let { it * 24.45 / 48.0 }
+
         val dominant = when {
             pm25 != null && pm25 > 15.0 -> "PM2.5"
-            ozone != null && ozone > 45.0 -> "Ozone (O₃)"
+            ozonePpb != null && ozonePpb > 54.0 -> "Ozone (O₃)"
             pm10 != null && pm10 > 40.0 -> "PM10"
             pm25 != null -> "PM2.5"
-            ozone != null -> "Ozone (O₃)"
+            ozonePpb != null -> "Ozone (O₃)"
             pm10 != null -> "PM10"
             else -> null
         }
@@ -223,7 +229,7 @@ object WeatherMappers {
             category = category,
             pm25 = pm25,
             pm10 = pm10,
-            ozonePpb = ozone,
+            ozonePpb = ozonePpb,
             dominant = dominant,
             source = "Open-Meteo Air Quality",
             healthGuidance = guidance

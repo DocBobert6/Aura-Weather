@@ -106,6 +106,16 @@ class AuraWeatherUnitTest {
         // AQI mapping
         val goodAqi = WeatherMappers.mapAqi(35, 8.0, 15.0, 30.0)
         assertEquals("Good", goodAqi?.category)
+        // Ozone: Open-Meteo reports µg/m³; the UI labels it ppb, so the
+        // mapper converts (30 µg/m³ ≈ 15.3 ppb). The raw value must never
+        // be shown as ppb.
+        assertEquals(15.28, goodAqi?.ozonePpb ?: 0.0, 0.01)
+        // 70 µg/m³ is ≈ 35.6 ppb — below the 54 ppb "Good" boundary, so
+        // ozone is not the dominant pollutant (the old code compared the
+        // raw µg/m³ against a ppb threshold and got this wrong).
+        val ozoneHighUg = WeatherMappers.mapAqi(40, 5.0, 10.0, 70.0)
+        assertEquals(35.66, ozoneHighUg?.ozonePpb ?: 0.0, 0.01)
+        assertEquals("PM2.5", ozoneHighUg?.dominant)
 
         val modAqi = WeatherMappers.mapAqi(85, 25.0, 35.0, 50.0)
         assertEquals("Moderate", modAqi?.category)

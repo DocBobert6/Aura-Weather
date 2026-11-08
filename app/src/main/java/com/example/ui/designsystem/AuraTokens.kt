@@ -99,6 +99,43 @@ object AuraColors {
     fun severityColor(severity: AlertSeverity): Color = severityStyle(severity).first
     fun severityLabel(severity: AlertSeverity): String = severityStyle(severity).second
 
+    /** Rank for picking the most severe alert (the banner shows that one). */
+    fun severityRank(severity: AlertSeverity): Int = when (severity) {
+        AlertSeverity.Extreme -> 4
+        AlertSeverity.Severe -> 3
+        AlertSeverity.Moderate -> 2
+        AlertSeverity.Minor -> 1
+        AlertSeverity.Unknown -> 0
+    }
+
+    /** Temperature → colour for the 7-day range bars (cold blue → warm orange/red). */
+    fun tempColor(tempC: Double): Color = when {
+        tempC < 0.0 -> Color(0xFF1565C0)
+        tempC < 10.0 -> Color(0xFF42A5F5)
+        tempC < 20.0 -> Color(0xFF26A69A)
+        tempC < 27.0 -> Color(0xFFFFB300)
+        tempC < 32.0 -> Color(0xFFFF8A65)
+        else -> Color(0xFFE53935)
+    }
+
+    /** UV index → the EPA category word. */
+    fun uvCategory(uv: Double): String = when {
+        uv < 3.0 -> "Low"
+        uv < 6.0 -> "Moderate"
+        uv < 8.0 -> "High"
+        uv < 11.0 -> "Very High"
+        else -> "Extreme"
+    }
+
+    /** Cloud cover % → a plain-language description. */
+    fun cloudCoverDesc(pct: Double): String = when {
+        pct < 10.0 -> "Clear sky"
+        pct < 30.0 -> "Mostly clear"
+        pct < 60.0 -> "Partly cloudy"
+        pct < 90.0 -> "Mostly cloudy"
+        else -> "Overcast"
+    }
+
     /**
      * The one AQI band scale (the Air screen's complete 6-band version; Home
      * pasted a truncated copy of the same scale). Null means unavailable —
