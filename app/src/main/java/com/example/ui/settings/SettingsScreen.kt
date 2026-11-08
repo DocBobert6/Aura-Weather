@@ -187,9 +187,9 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     PillSegmentedControl(
-                        options = listOf("Auto Weather", "Material You", "Expressive"),
-                        selectedIndex = listOf("auto", "monet", "expressive").indexOf(paletteMode).coerceAtLeast(0),
-                        onSelect = { onSetPaletteMode(listOf("auto", "monet", "expressive")[it]) },
+                        options = listOf("Material You", "Expressive"),
+                        selectedIndex = listOf("monet", "expressive").indexOf(paletteMode).coerceAtLeast(0),
+                        onSelect = { onSetPaletteMode(listOf("monet", "expressive")[it]) },
                         isExpressive = paletteMode == "expressive",
                         modifier = Modifier.fillMaxWidth()
                     )

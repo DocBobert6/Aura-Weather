@@ -22,10 +22,10 @@ fun AuraWeatherTheme(
 ) {
     val context = LocalContext.current
 
-    // Colour source is the condition (decision D1), in the requested
-    // dark/light mode. "monet" keeps its dynamic-colour branch; every other
-    // mode resolves through the condition schemes — "expressive" included,
-    // so it is a motion/theme treatment, not a second palette.
+    // "monet" (Material You) takes its colours from the phone; "expressive"
+    // resolves through the condition schemes, so it is a motion/theme
+    // treatment, not a second palette. The automatic "auto" palette was
+    // removed 2026-11-08, so these are the only two modes.
     val colorScheme = when {
         paletteMode == "monet" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             // Material You: the Settings dropdown (Auto/Light/Dark)

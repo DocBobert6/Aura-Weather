@@ -52,7 +52,7 @@ class WeatherViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val paletteMode: StateFlow<String> = settingsManager.paletteModeFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "auto")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "monet")
 
     val themeMode: StateFlow<String> = settingsManager.themeModeFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "auto")

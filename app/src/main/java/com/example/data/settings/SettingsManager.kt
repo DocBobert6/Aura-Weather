@@ -16,7 +16,7 @@ class SettingsManager(private val context: Context) {
 
     companion object {
         val KEY_USE_METRIC = booleanPreferencesKey("use_metric_units")
-        val KEY_PALETTE_MODE = stringPreferencesKey("palette_mode") // "auto", "expressive", "monet"
+        val KEY_PALETTE_MODE = stringPreferencesKey("palette_mode") // "monet", "expressive" ("auto" removed 2026-11-08)
         val KEY_THEME_MODE = stringPreferencesKey("theme_mode") // "auto", "dark", "light"
         val KEY_MATERIAL_YOU_MODE = stringPreferencesKey("material_you_mode") // "auto", "light", "dark"
         val KEY_SELECTED_PLACE_ID = stringPreferencesKey("selected_place_id")
@@ -29,7 +29,12 @@ class SettingsManager(private val context: Context) {
     }
 
     val paletteModeFlow: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[KEY_PALETTE_MODE] ?: "auto"
+        // The automatic "auto" palette was removed (2026-11-08); a stored
+        // "auto" now means Material You, and the default is Material You.
+        when (val mode = preferences[KEY_PALETTE_MODE] ?: "monet") {
+            "auto" -> "monet"
+            else -> mode
+        }
     }
 
     // "auto" follows the system dark/light setting; "dark"/"light" force it.
