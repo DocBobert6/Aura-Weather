@@ -21,13 +21,17 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      # The ubuntu runner already ships an Android SDK (ANDROID_HOME is set
+      # by the image). Do NOT use android-actions/setup-android: v3 runs
+      # `sdkmanager tools`, and the legacy `tools` package no longer exists,
+      # so the step fails with exit code 1. Install what the build needs
+      # directly, answering the license prompts (including the Android 36
+      # preview license) non-interactively with `yes`.
       - name: Install Android platform and build tools
         run: |
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
-          yes | sdkmanager --licenses || true
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses || true
+          yes | "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
       - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
