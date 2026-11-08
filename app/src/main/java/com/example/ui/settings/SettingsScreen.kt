@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Palette
@@ -47,24 +48,30 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import java.util.Locale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.model.Place
 import com.example.ui.designsystem.AuraBars
-import com.example.ui.designsystem.GlassCard
+import com.example.ui.designsystem.AuraColors
+import com.example.ui.designsystem.AuraShapes
+import com.example.ui.designsystem.GlassLevel
+import com.example.ui.designsystem.GlassSurface
+import com.example.ui.designsystem.PillSegmentedControl
 
 @Composable
 fun SettingsScreen(
     useMetric: Boolean,
     paletteMode: String,
+    themeMode: String,
     tomorrowApiKey: String,
     savedPlaces: List<Place>,
     selectedPlaceId: String?,
     onSetUseMetric: (Boolean) -> Unit,
     onSetPaletteMode: (String) -> Unit,
+    onSetThemeMode: (String) -> Unit,
     onSaveTomorrowApiKey: (String) -> Unit,
     onSelectPlace: (String) -> Unit,
     onAddPlace: (String, String, Double, Double) -> Unit,
@@ -92,19 +99,19 @@ fun SettingsScreen(
                     text = "SETTINGS & REGION",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = "Unit preferences, locations, themes and data sources",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.65f)
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                 )
             }
         }
 
         // Units Section
         item {
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
+            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -128,12 +135,12 @@ fun SettingsScreen(
                                 text = "Units of Measurement",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = if (useMetric) "SI Metric (°C, km/h, hPa, mm)" else "US Customary (°F, mph, inHg, in)",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.7f)
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                             )
                         }
                     }
@@ -152,7 +159,7 @@ fun SettingsScreen(
 
         // Palette Mode
         item {
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
+            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
@@ -166,43 +173,67 @@ fun SettingsScreen(
                             text = "Color Palette Policy",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf("auto" to "Auto Weather", "monet" to "Monet Dynamic", "expressive" to "Expressive").forEach { (mode, label) ->
-                            val isSelected = paletteMode == mode
-                            Surface(
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFF1E293B),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable { onSetPaletteMode(mode) }
-                            ) {
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) Color(0xFF0D253F) else Color.White,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                    modifier = Modifier.padding(vertical = 10.dp)
-                                )
-                            }
-                        }
+                    PillSegmentedControl(
+                        options = listOf("Auto Weather", "Monet Dynamic", "Expressive"),
+                        selectedIndex = listOf("auto", "monet", "expressive").indexOf(paletteMode).coerceAtLeast(0),
+                        onSelect = { onSetPaletteMode(listOf("auto", "monet", "expressive")[it]) },
+                        isExpressive = paletteMode == "expressive",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+
+        // Theme Mode (Auto / Dark / Light) — wired to the 2.2 light schemes
+        item {
+            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.DarkMode,
+                            contentDescription = "Theme",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Theme Mode",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
                     }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    PillSegmentedControl(
+                        options = listOf("Auto", "Dark", "Light"),
+                        selectedIndex = listOf("auto", "dark", "light").indexOf(themeMode).coerceAtLeast(0),
+                        onSelect = { onSetThemeMode(listOf("auto", "dark", "light")[it]) },
+                        isExpressive = paletteMode == "expressive",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Auto follows your system. Motion follows the system Reduce motion setting — there is no separate motion toggle.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
                 }
             }
         }
 
         // Saved Places (no presets — the user adds their own places)
         item {
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
+            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -221,7 +252,7 @@ fun SettingsScreen(
                                 text = "Saved Places",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
 
@@ -244,8 +275,8 @@ fun SettingsScreen(
                     savedPlaces.forEach { place ->
                         val isSelected = place.id == selectedPlaceId
                         Surface(
-                            color = if (isSelected) Color(0xFF1E3A5F) else Color(0xFF1E293B).copy(alpha = 0.6f),
-                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                            shape = AuraShapes.small,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp)
@@ -261,12 +292,12 @@ fun SettingsScreen(
                                         text = if (place.stateCode.isNotBlank()) "${place.name}, ${place.stateCode}" else place.name,
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = Color.White
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = "${place.point.lat}, ${place.point.lon}",
+                                        text = "${"%.2f".format(Locale.US, place.point.lat)}, ${"%.2f".format(Locale.US, place.point.lon)}",
                                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                        color = Color.White.copy(alpha = 0.5f)
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                                     )
                                 }
 
@@ -290,7 +321,7 @@ fun SettingsScreen(
             var isKeyVisible by remember { mutableStateOf(false) }
             var isSavedMessageVisible by remember { mutableStateOf(false) }
 
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
+            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -301,7 +332,7 @@ fun SettingsScreen(
                             Icon(
                                 imageVector = Icons.Default.Key,
                                 contentDescription = "Tomorrow.io Key",
-                                tint = Color(0xFFFFB74D),
+                                tint = AuraColors.Warning,
                                 modifier = Modifier.size(22.dp)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
@@ -309,20 +340,20 @@ fun SettingsScreen(
                                 text = "Tomorrow.io API Key",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
 
                         if (tomorrowApiKey.isNotBlank()) {
                             Surface(
-                                color = Color(0xFF00E676).copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(8.dp)
+                                color = AuraColors.Accent.copy(alpha = 0.2f),
+                                shape = AuraShapes.pill
                             ) {
                                 Text(
                                     text = "KEY ACTIVE",
                                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF00E676),
+                                    color = AuraColors.Accent,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                 )
                             }
@@ -334,7 +365,7 @@ fun SettingsScreen(
                     Text(
                         text = "A Tomorrow.io key is stored here for a future update. It does not unlock anything today: 1-minute precipitation and live pollen are not connected yet, so no live values are shown with or without a key. Core weather works keyless.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.75f)
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -354,15 +385,15 @@ fun SettingsScreen(
                                 Icon(
                                     imageVector = if (isKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                                     contentDescription = if (isKeyVisible) "Hide key" else "Show key",
-                                    tint = Color.White.copy(alpha = 0.6f)
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
                             }
                         },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                             focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = Color.White.copy(alpha = 0.25f)
+                            unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -381,7 +412,7 @@ fun SettingsScreen(
                                     onSaveTomorrowApiKey("")
                                 }
                             ) {
-                                Text("Clear", color = Color(0xFFFF5252))
+                                Text("Clear", color = MaterialTheme.colorScheme.error)
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                         }
@@ -406,7 +437,7 @@ fun SettingsScreen(
                     Text(
                         text = "Need a key? Free API keys with 500 calls/day are available at tomorrow.io/weather-api",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                        color = Color.White.copy(alpha = 0.5f)
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                     )
                 }
             }
@@ -414,7 +445,7 @@ fun SettingsScreen(
 
         // Data Sources & Attributions
         item {
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
+            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
@@ -428,7 +459,7 @@ fun SettingsScreen(
                             text = "Data Sources & Attribution",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
 
@@ -444,9 +475,9 @@ fun SettingsScreen(
 
         // Emergency Warning Disclaimer
         item {
-            Surface(
-                color = Color(0xFF1E293B).copy(alpha = 0.8f),
-                shape = RoundedCornerShape(16.dp),
+            GlassSurface(
+                level = GlassLevel.Card,
+                shape = AuraShapes.medium,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -456,14 +487,14 @@ fun SettingsScreen(
                     Icon(
                         imageVector = Icons.Default.Warning,
                         contentDescription = "Disclaimer",
-                        tint = Color(0xFFFFB74D),
+                        tint = AuraColors.Warning,
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
                         text = "Not an official NWS product. In an active tornado warning or severe weather emergency, always prioritize official National Weather Service broadcasts, NOAA Weather Radio, and local emergency management sirens.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.75f)
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
                     )
                 }
             }
@@ -492,12 +523,12 @@ private fun AttributionRow(title: String, source: String) {
             text = title,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,
-            color = Color.White
+            color = MaterialTheme.colorScheme.onSurface
         )
         Text(
             text = source,
             style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.65f)
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
         )
     }
 }
@@ -515,7 +546,7 @@ private fun AddPlaceDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add Custom Location", color = Color.White) },
+        title = { Text("Add Custom Location", color = MaterialTheme.colorScheme.onSurface) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
@@ -523,8 +554,8 @@ private fun AddPlaceDialog(
                     onValueChange = { name = it },
                     label = { Text("City or Place Name") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -534,8 +565,8 @@ private fun AddPlaceDialog(
                     onValueChange = { stateCode = it },
                     label = { Text("State Code (e.g. KY, OH)") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -545,8 +576,8 @@ private fun AddPlaceDialog(
                     onValueChange = { latStr = it },
                     label = { Text("Latitude (e.g. 39.08)") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -556,8 +587,8 @@ private fun AddPlaceDialog(
                     onValueChange = { lonStr = it },
                     label = { Text("Longitude (e.g. -84.51)") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -584,9 +615,9 @@ private fun AddPlaceDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = Color.White.copy(alpha = 0.7f))
+                Text("Cancel", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
             }
         },
-        containerColor = Color(0xFF1E293B)
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
     )
 }

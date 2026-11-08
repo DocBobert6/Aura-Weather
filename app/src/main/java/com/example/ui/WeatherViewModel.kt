@@ -54,6 +54,9 @@ class WeatherViewModel(
     val paletteMode: StateFlow<String> = settingsManager.paletteModeFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "auto")
 
+    val themeMode: StateFlow<String> = settingsManager.themeModeFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "auto")
+
     val tomorrowApiKey: StateFlow<String> = settingsManager.tomorrowApiKeyFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
@@ -118,6 +121,12 @@ class WeatherViewModel(
     fun setPaletteMode(mode: String) {
         viewModelScope.launch {
             settingsManager.setPaletteMode(mode)
+        }
+    }
+
+    fun setThemeMode(mode: String) {
+        viewModelScope.launch {
+            settingsManager.setThemeMode(mode)
         }
     }
 

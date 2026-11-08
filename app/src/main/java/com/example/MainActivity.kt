@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.domain.model.WeatherCondition
@@ -38,6 +39,7 @@ class MainActivity : ComponentActivity() {
             val savedPlaces by viewModel.savedPlaces.collectAsStateWithLifecycle()
             val useMetric by viewModel.useMetric.collectAsStateWithLifecycle()
             val paletteMode by viewModel.paletteMode.collectAsStateWithLifecycle()
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
             val selectedRadarLayer by viewModel.selectedRadarLayer.collectAsStateWithLifecycle()
             val currentRadarFrameIndex by viewModel.currentRadarFrameIndex.collectAsStateWithLifecycle()
             val isRadarPlaying by viewModel.isRadarPlaying.collectAsStateWithLifecycle()
@@ -49,7 +51,13 @@ class MainActivity : ComponentActivity() {
             AuraWeatherTheme(
                 paletteMode = paletteMode,
                 condition = condition,
-                isDaytime = isDaytime
+                isDaytime = isDaytime,
+                // "auto" follows the system; "dark"/"light" force the 2.2 schemes.
+                darkTheme = when (themeMode) {
+                    "dark" -> true
+                    "light" -> false
+                    else -> isSystemInDarkTheme()
+                }
             ) {
                 WeatherNavDisplay(
                     viewModel = viewModel,
@@ -60,6 +68,7 @@ class MainActivity : ComponentActivity() {
                     savedPlaces = savedPlaces,
                     useMetric = useMetric,
                     paletteMode = paletteMode,
+                    themeMode = themeMode,
                     tomorrowApiKey = tomorrowApiKey,
                     selectedRadarLayer = selectedRadarLayer,
                     currentRadarFrameIndex = currentRadarFrameIndex,
