@@ -42,6 +42,7 @@ import com.example.domain.model.LunarTimes
 import com.example.domain.model.SolarTimes
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
+import com.example.ui.designsystem.LocalSkyHeaderColor
 import com.example.ui.designsystem.AuraShapes
 import com.example.ui.designsystem.AuraSky
 import com.example.ui.designsystem.GlassLevel
@@ -100,7 +101,7 @@ fun SunMoonScreen(
                     text = "SUN & MOON DYNAMICS",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = LocalSkyHeaderColor.current
                 )
                 Text(
                     text = "Astronomical Solar Track & Lunar Illuminance" + (placeName?.let { " for $it" } ?: ""),
@@ -245,7 +246,7 @@ fun SunMoonScreen(
                 text = "LIGHTING & TWILIGHT PHASES",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                color = LocalSkyHeaderColor.current.copy(alpha = 0.7f)
             )
         }
 
@@ -281,7 +282,7 @@ fun SunMoonScreen(
                 text = "LUNAR CYCLE",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                color = LocalSkyHeaderColor.current.copy(alpha = 0.7f)
             )
         }
 

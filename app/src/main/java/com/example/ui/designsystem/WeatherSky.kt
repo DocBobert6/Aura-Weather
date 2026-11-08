@@ -127,17 +127,19 @@ fun WeatherSky(
         // 4. Draw subtle atmospheric light glow (Sun / Moon)
         val celestialCenter = if (isDaytime) Offset(width * 0.75f, height * 0.16f) else Offset(width * 0.8f, height * 0.18f)
         val celestialColor = AuraSky.celestialColor(isDaytime)
+        // 0.35 alpha at 0.45 width read as a muddy olive smudge on a dark
+        // sky. A subtler glow: it should read as light, not a stain.
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    celestialColor.copy(alpha = if (isDaytime) 0.35f else 0.25f),
-                    celestialColor.copy(alpha = 0.08f),
+                    celestialColor.copy(alpha = if (isDaytime) 0.18f else 0.25f),
+                    celestialColor.copy(alpha = 0.05f),
                     Color.Transparent
                 ),
                 center = celestialCenter,
-                radius = width * 0.45f
+                radius = width * 0.35f
             ),
-            radius = width * 0.45f,
+            radius = width * 0.35f,
             center = celestialCenter
         )
 

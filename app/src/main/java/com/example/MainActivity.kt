@@ -9,7 +9,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.domain.model.WeatherCondition
 import com.example.ui.WeatherViewModel
@@ -48,16 +50,24 @@ class MainActivity : ComponentActivity() {
             val condition = weatherState?.current?.condition ?: WeatherCondition.ClearDay
             val isDaytime = weatherState?.solar?.isDaytime ?: true
 
+            // "auto" follows the system; "dark"/"light" force the 2.2 schemes.
+            val darkTheme = when (themeMode) {
+                "dark" -> true
+                "light" -> false
+                else -> isSystemInDarkTheme()
+            }
+            // Status-bar icons must follow the theme: enableEdgeToEdge
+            // alone leaves dark icons on a dark sky in dark mode.
+            SideEffect {
+                WindowCompat.getInsetsController(window, window.decorView)
+                    .isAppearanceLightStatusBars = !darkTheme
+            }
+
             AuraWeatherTheme(
                 paletteMode = paletteMode,
                 condition = condition,
                 isDaytime = isDaytime,
-                // "auto" follows the system; "dark"/"light" force the 2.2 schemes.
-                darkTheme = when (themeMode) {
-                    "dark" -> true
-                    "light" -> false
-                    else -> isSystemInDarkTheme()
-                },
+                darkTheme = darkTheme,
             ) {
                 WeatherNavDisplay(
                     viewModel = viewModel,

@@ -47,6 +47,7 @@ import com.example.domain.model.WeatherAlert
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
 import com.example.ui.designsystem.AuraShapes
+import com.example.ui.designsystem.LocalSkyHeaderColor
 import com.example.ui.designsystem.GlassLevel
 import com.example.ui.designsystem.GlassSurface
 import java.time.Instant
@@ -106,12 +107,12 @@ fun AlertsScreen(
                         text = "WEATHER ALERTS",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = LocalSkyHeaderColor.current
                     )
                     Text(
                         text = "National Weather Service alerts" + (placeName?.let { " for $it" } ?: ""),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                        color = LocalSkyHeaderColor.current.copy(alpha = 0.65f)
                     )
                     if (cacheAgeText != null) {
                         Text(

@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.background
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -59,6 +61,7 @@ import com.example.ui.designsystem.BackdropBlurState
 import com.example.ui.designsystem.GlassLevel
 import com.example.ui.designsystem.GlassSurface
 import com.example.ui.designsystem.LocalBackdropBlur
+import com.example.ui.designsystem.LocalSkyHeaderColor
 import com.example.ui.designsystem.NavPillItem
 import com.example.ui.designsystem.PillSegmentedControl
 import com.example.ui.designsystem.ProgressiveEdge
@@ -165,8 +168,16 @@ fun WeatherNavDisplay(
     val shadowTint = remember(condition, isDaytime) {
         AuraSky.gradientColors(condition, isDaytime).last()
     }
+    // Headings that sit directly on the sky take their colour from the
+    // sky's own luminance (light text on a dark sky), not onSurface.
+    val skyHeaderColor = remember(condition, isDaytime) {
+        AuraSky.headerTextColor(AuraSky.gradientColors(condition, isDaytime))
+    }
 
-    CompositionLocalProvider(LocalBackdropBlur provides backdropBlurState) {
+    CompositionLocalProvider(
+        LocalBackdropBlur provides backdropBlurState,
+        LocalSkyHeaderColor provides skyHeaderColor
+    ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val isWideScreen = maxWidth >= 600.dp
 
@@ -305,6 +316,24 @@ fun WeatherNavDisplay(
                     )
                 }
             }
+            // Top fade: scrolled cards fade into the sky under the status
+            // bar instead of hard-clipping at the screen's top edge. Drawn
+            // after the content (so it sits over the scrolling cards) and
+            // above the top bar pill's own area.
+            val skyTopColor = remember(condition, isDaytime) {
+                AuraSky.gradientColors(condition, isDaytime).first()
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(36.dp)
+                    .align(Alignment.TopCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(skyTopColor, skyTopColor.copy(alpha = 0f))
+                        )
+                    )
+            )
         }
     }
     }

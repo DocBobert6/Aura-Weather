@@ -45,6 +45,7 @@ import com.example.domain.model.AirQuality
 import com.example.domain.model.PollenData
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
+import com.example.ui.designsystem.LocalSkyHeaderColor
 import com.example.ui.designsystem.AuraShapes
 import com.example.ui.designsystem.GlassLevel
 import com.example.ui.designsystem.GlassSurface
@@ -83,7 +84,7 @@ fun AirPollenScreen(
                     text = "AIR QUALITY & POLLEN",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = LocalSkyHeaderColor.current
                 )
                 Text(
                     text = "Open-Meteo Air Quality",
@@ -196,7 +197,7 @@ fun AirPollenScreen(
                 text = "POLLUTANT CONCENTRATION",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                color = LocalSkyHeaderColor.current.copy(alpha = 0.7f)
             )
         }
 
@@ -238,7 +239,7 @@ fun AirPollenScreen(
                 text = "ALLERGEN & POLLEN OUTLOOK",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                color = LocalSkyHeaderColor.current.copy(alpha = 0.7f)
             )
         }
 

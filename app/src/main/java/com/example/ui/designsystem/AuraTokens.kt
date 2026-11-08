@@ -192,7 +192,8 @@ object AuraGlass {
     fun scrimAlpha(level: GlassLevel): Float =
         when (level) {
             GlassLevel.Card -> 0.72f
-            GlassLevel.Bar -> 0.80f
+            // 0.88: scrolling text must not read through the floating bars.
+            GlassLevel.Bar -> 0.88f
         }
 
     /** Hairline border alpha (white, slightly brighter on the top edge). */
@@ -361,4 +362,29 @@ object AuraSky {
 
     fun celestialColor(isDaytime: Boolean): Color =
         if (isDaytime) Color(0xFFFFD54F) else Color(0xFFE0E0E0)
+
+    /**
+     * Text colour for a heading that sits directly on the sky (not on a
+     * card). The sky's brightness follows the condition, not the theme, so
+     * onSurface can be invisible on it — dark text on a dark slate sky.
+     * Picked from the sky's own average luminance: light text on a dark
+     * sky, dark text on a light one.
+     */
+    fun headerTextColor(gradientColors: List<Color>): Color {
+        if (gradientColors.isEmpty()) return Color.White
+        // The headers sit at the top of the sky, so the top stop is what
+        // they read against — not the average (the bottom stops are
+        // lighter and would vote dark text onto a dark top). Light text
+        // wins below ~0.25 (the contrast crossover); dark text above it.
+        val top = gradientColors.first()
+        val luminance = 0.2126f * top.red + 0.7152f * top.green + 0.0722f * top.blue
+        return if (luminance < 0.25f) Color(0xFFF8FAFC) else Color(0xFF1A1C1E)
+    }
 }
+
+/**
+ * Header colour for headings that sit directly on the sky. Provided by
+ * [WeatherNavDisplay] from the sky's own luminance; headings inside cards
+ * keep using onSurface.
+ */
+val LocalSkyHeaderColor = androidx.compose.runtime.staticCompositionLocalOf { Color(0xFFF8FAFC) }

@@ -88,6 +88,7 @@ import com.example.ui.designsystem.AuraSky
 import com.example.ui.designsystem.GlassIconButton
 import com.example.ui.designsystem.GlassLevel
 import com.example.ui.designsystem.GlassSurface
+import com.example.ui.designsystem.LocalSkyHeaderColor
 import com.example.ui.designsystem.ProgressiveEdge
 import com.example.domain.model.DailyPoint
 import com.example.domain.model.FullWeatherState
@@ -1295,7 +1296,7 @@ private fun AirAndPollenSummaryCard(
                     text = "AIR QUALITY & POLLEN",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    color = LocalSkyHeaderColor.current.copy(alpha = 0.7f)
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1374,7 +1375,7 @@ private fun SunAndMoonSummaryCard(
                     text = "SUN & MOON DYNAMICS",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    color = LocalSkyHeaderColor.current.copy(alpha = 0.7f)
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {

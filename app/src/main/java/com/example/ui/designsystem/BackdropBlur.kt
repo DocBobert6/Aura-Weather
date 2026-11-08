@@ -177,12 +177,17 @@ private fun BoxScope.BackdropLayerCanvas(
     shape: Shape,
     positionModifier: Modifier
 ) {
+    // The clip sits AFTER the graphicsLayer: a clip before it only clips
+    // the content going into the blur's offscreen buffer, and the buffer
+    // itself (a rectangle) is drawn unclipped — the lighter square-cornered
+    // panel inside every rounded card. Clipping after the layer clips the
+    // blurred output to the shape.
     Canvas(
         modifier = Modifier
             .matchParentSize()
-            .clip(shape)
             .then(positionModifier)
             .graphicsLayer { renderEffect = BlurEffect(blurPx, blurPx) }
+            .clip(shape)
     ) {
         // Reading the version subscribes this draw to sky re-records; the
         // value itself is unused.
