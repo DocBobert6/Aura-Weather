@@ -263,14 +263,18 @@ private fun AlertExpandableCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            // Freshness pill: a Warning-tinted background with onSurface
+            // text. Pale amber (Warning) text on the light pill was washed
+            // out; onSurface reads in both modes and the tint keeps the
+            // warning meaning.
             Surface(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                color = AuraColors.Warning.copy(alpha = 0.18f),
                 shape = AuraShapes.pill
             ) {
                 Text(
                     text = "Active · expires ${timeFormatter.format(alert.expires)}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = AuraColors.Warning,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )

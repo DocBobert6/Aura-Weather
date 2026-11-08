@@ -1286,12 +1286,12 @@ private fun AirAndPollenSummaryCard(
                     }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
+                // Guidance wraps (was maxLines = 1 + Ellipsis, which cut
+                // it off mid-word: "…little or no health r…").
                 Text(
                     text = state?.airQuality?.healthGuidance ?: "Air quality data is unavailable.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
             }
 

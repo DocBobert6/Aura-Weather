@@ -59,6 +59,7 @@ import coil.imageLoader
 import coil.request.ImageRequest
 import com.example.domain.model.FullWeatherState
 import com.example.ui.RadarLayer
+import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
 import com.example.ui.designsystem.AuraShapes
 import com.example.ui.designsystem.GlassIconButton
@@ -436,12 +437,20 @@ fun RadarScreen(
             }
         }
 
-        // Bottom Controls: Legend, Playback & Scrub Slider
+        // Bottom Controls: Legend, Playback & Scrub Slider. The bottom
+        // padding is the nav-bar clearance (bar height + margin + inset),
+        // not a fixed 16dp — with 16dp the transport pill sat behind the
+        // floating nav bar and was unusable.
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 16.dp,
+                    bottom = AuraBars.contentBottomPadding()
+                ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // Radar Legend Bar

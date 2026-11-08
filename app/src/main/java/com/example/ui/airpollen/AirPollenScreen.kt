@@ -303,7 +303,9 @@ fun AirPollenScreen(
                                     onClick = onNavigateToSettings,
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                                        contentColor = MaterialTheme.colorScheme.primary
+                                        // onPrimaryContainer (dark) reads on the pale gold;
+                                        // primary (gold) on pale gold was washed out.
+                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                                     ),
                                     shape = RoundedCornerShape(8.dp)
                                 ) {

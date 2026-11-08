@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -15,7 +16,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -140,10 +140,15 @@ fun GlassSurface(
                     .clip(shape)
                     .background(scrim)
             )
+            // Lit top edge. matchParentSize (not fillMaxWidth): the edge
+            // spans the pill's own width without forcing the pill to the
+            // full width of its parent Row — fillMaxWidth here made every
+            // glass pill claim the whole Row, starving a weighted sibling
+            // to 0dp (Radar station pill gone, Home place pill empty).
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .fillMaxWidth()
+                    .matchParentSize()
                     .height(1.dp)
                     .clip(shape)
                     .background(Color.White.copy(alpha = 0.14f))
@@ -192,6 +197,10 @@ fun NavPillItem(
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
+        // Centre the icon + label vertically in the bar. Without this the
+        // Column defaults to top-aligned and the icons sit ~6dp high in
+        // the 64dp bar, with extra empty space below the labels.
+        verticalArrangement = Arrangement.Center,
         modifier = modifier
             .selectable(
                 selected = selected,
