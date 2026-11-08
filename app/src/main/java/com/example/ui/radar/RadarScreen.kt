@@ -1,6 +1,8 @@
 package com.example.ui.radar
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -167,8 +169,8 @@ fun RadarScreen(
         if (selectedLayer == RadarLayer.Reflectivity || selectedLayer == RadarLayer.LocalSite) {
             for (frameIndex in listOf(currentFrameIndex, (currentFrameIndex + 1) % 10)) {
                 val layerName = iemLayerNameFor(frameIndex)
-                for (dx in -1..1) {
-                    for (dy in -1..1) {
+                for (dx in -2..2) {
+                    for (dy in -2..2) {
                         val tileX = lonToTileX(centerLon, effectiveZoomLevel) + dx
                         val tileY = latToTileY(centerLat, effectiveZoomLevel) + dy
                         val url = "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$layerName/$effectiveZoomLevel/$tileX/$tileY.png"
@@ -195,6 +197,15 @@ fun RadarScreen(
         // Base tile size in pixels (256 standard Mercator tile size, scaled by userScale)
         val tileSizePx = 256f * userScale
 
+        // How many tiles cover the screen (plus a margin for panning), so
+        // the map fills the available space instead of a central 3x3 rect
+        // with container background around it. Capped so a very large
+        // screen does not fire hundreds of tile requests.
+        val tilesX = ((screenWidthPx / tileSizePx).toInt() + 2).coerceIn(3, 9)
+        val tilesY = ((screenHeightPx / tileSizePx).toInt() + 2).coerceIn(3, 11)
+        val halfTilesX = tilesX / 2
+        val halfTilesY = tilesY / 2
+
         // Pixel center of the central tile
         val centerWorldX = lonToWorldPixel(centerLon, effectiveZoomLevel) * userScale
         val centerWorldY = latToWorldPixel(centerLat, effectiveZoomLevel) * userScale
@@ -210,9 +221,9 @@ fun RadarScreen(
                     }
                 }
         ) {
-            // Render a 3x3 grid of real map tiles centered on the place
-            for (dx in -1..1) {
-                for (dy in -1..1) {
+            // Render the tiles that cover the screen, centered on the place.
+            for (dx in -halfTilesX..halfTilesX) {
+                for (dy in -halfTilesY..halfTilesY) {
                     val tileX = centerTileX + dx
                     val tileY = centerTileY + dy
 
@@ -261,6 +272,19 @@ fun RadarScreen(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .alpha(0.85f)
+                        )
+
+                        // 3. Esri reference layer (city labels + boundaries,
+                        // keyless) on top, so the map names places instead
+                        // of showing bare terrain under the radar.
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/$effectiveZoomLevel/$tileY/$tileX")
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Place labels",
+                            contentScale = ContentScale.FillBounds,
+                            modifier = Modifier.fillMaxSize()
                         )
                     }
                 }
@@ -328,8 +352,21 @@ fun RadarScreen(
                             modifier = Modifier.size(10.dp)
                         ) {}
                         Spacer(modifier = Modifier.width(8.dp))
+                        // The header names the layer and the area, not the
+                        // bare station code: 'Composite Radar' for the
+                        // composite, the place name for the local site
+                        // ('Covington Radar', not 'KILN Radar').
                         Text(
-                            text = state.radarStation?.let { "$it Radar" } ?: "NEXRAD Radar",
+                            text = when (selectedLayer) {
+                                RadarLayer.Reflectivity -> "Composite Radar"
+                                RadarLayer.LocalSite -> {
+                                    val area = state.place.name.ifBlank { null }
+                                        ?: state.radarStation
+                                    if (area != null) "$area Radar" else "NEXRAD Radar"
+                                }
+                                RadarLayer.SatelliteVis -> "Visible Satellite"
+                                RadarLayer.SatelliteIr -> "Infrared Satellite"
+                            },
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -397,6 +434,7 @@ fun RadarScreen(
                         panOffsetY = 0f
                     }
                 },
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                 isExpressive = paletteMode == "expressive"
             ) {
                 Icon(
@@ -415,6 +453,7 @@ fun RadarScreen(
                         panOffsetY = 0f
                     }
                 },
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                 isExpressive = paletteMode == "expressive"
             ) {
                 Icon(
@@ -430,6 +469,7 @@ fun RadarScreen(
                     panOffsetY = 0f
                     userScale = 1f
                 },
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                 isExpressive = paletteMode == "expressive"
             ) {
                 Icon(
@@ -454,14 +494,14 @@ fun RadarScreen(
                     top = 16.dp,
                     bottom = AuraBars.contentBottomPadding()
                 ),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             // Radar Legend Bar
             GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -476,6 +516,16 @@ fun RadarScreen(
                     }
                 }
             }
+
+            // Clear-air speckle: the lightest echoes can be insects or
+            // ground clutter, not rain. The tiles are pre-rendered, so
+            // labelling (not filtering) is what the app can do.
+            Text(
+                text = "Lightest echoes can be clear-air returns, not rain.",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
 
             // Floating transport pill: play/pause + frame scrubber inside
             // the pill, PiP attached to its end. The frame label lives in
@@ -509,6 +559,14 @@ fun RadarScreen(
                     // A 28dp thumb: the default thumb is a tiny dot that is
                     // hard to grab precisely. The track keeps the default
                     // 48dp touch height.
+                    // The loop's range, flanking the scrubber so it costs
+                    // no extra row: -45m (first frame) to Now (frame 9).
+                    Text(
+                        text = "-45m",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+
                     Slider(
                         value = currentFrameIndex.toFloat(),
                         onValueChange = { onScrubFrame(it.toInt()) },
@@ -532,15 +590,40 @@ fun RadarScreen(
                         modifier = Modifier.weight(1f)
                     )
 
-                    GlassIconButton(
-                        onClick = onEnterPiP,
-                        isExpressive = paletteMode == "expressive"
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PictureInPicture,
-                            contentDescription = "Picture in Picture",
-                            tint = MaterialTheme.colorScheme.onSurface
+                    Text(
+                        text = "Now",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+
+                    // Labelled 'PiP': the icon alone did not say what it
+                    // does. A small pill with the icon + text.
+                    Surface(
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                        shape = AuraShapes.pill,
+                        modifier = Modifier.clickable(
+                            onClick = onEnterPiP,
+                            role = Role.Button
                         )
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PictureInPicture,
+                                contentDescription = "Picture in Picture",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "PiP",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 }
             }
