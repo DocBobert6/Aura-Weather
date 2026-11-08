@@ -369,6 +369,7 @@ class WeatherRepository(
                 effective = effective,
                 expires = expires,
                 ends = ends,
+                senderName = props.senderName,
                 areaDesc = props.areaDesc ?: ""
             )
         } ?: emptyList()

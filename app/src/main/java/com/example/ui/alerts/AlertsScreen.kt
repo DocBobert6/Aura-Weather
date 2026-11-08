@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -143,11 +144,12 @@ fun AlertsScreen(
                 EmptyAlertsCard()
             }
         } else {
-            items(sortedAlerts, key = { it.id }) { alert ->
+            itemsIndexed(sortedAlerts, key = { _, alert -> alert.id }) { index, alert ->
                 AlertExpandableCard(
                     alert = alert,
                     onViewOnRadar = onViewOnRadar,
-                    zoneId = zoneId
+                    zoneId = zoneId,
+                    initiallyExpanded = index == 0
                 )
             }
         }
@@ -201,9 +203,12 @@ private fun EmptyAlertsCard() {
 private fun AlertExpandableCard(
     alert: WeatherAlert,
     onViewOnRadar: () -> Unit,
-    zoneId: ZoneId = ZoneId.systemDefault()
+    zoneId: ZoneId = ZoneId.systemDefault(),
+    initiallyExpanded: Boolean = false
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    // The first card (the most severe — the list is sorted) starts open so
+    // the area and instructions are visible without a tap.
+    var expanded by remember { mutableStateOf(initiallyExpanded) }
 
     val (badgeBg, badgeText) = AuraColors.severityStyle(alert.severity)
 
@@ -229,7 +234,7 @@ private fun AlertExpandableCard(
                     shape = AuraShapes.pill
                 ) {
                     Text(
-                        text = "$badgeText • ${alert.urgency.uppercase(Locale.US)}",
+                        text = badgeText,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
@@ -255,8 +260,15 @@ private fun AlertExpandableCard(
 
             Spacer(modifier = Modifier.height(4.dp))
 
+            // Our own summary in a consistent time format ("9:42 AM"), not
+            // the raw NWS headline ("9:42AM EST"). The headline is the
+            // office's wording; the facts are the same.
             Text(
-                text = alert.headline,
+                text = buildString {
+                    append("Issued ${timeFormatter.format(alert.effective)}")
+                    append(" · Ends ${timeFormatter.format(alert.ends ?: alert.expires)}")
+                    alert.senderName?.let { append(" · $it") }
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
             )

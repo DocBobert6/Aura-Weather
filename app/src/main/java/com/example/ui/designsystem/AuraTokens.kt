@@ -92,7 +92,7 @@ object AuraColors {
             AlertSeverity.Extreme -> Color(0xFFD32F2F) to "EXTREME"
             AlertSeverity.Severe -> Color(0xFFF57C00) to "SEVERE"
             AlertSeverity.Moderate -> Color(0xFFFFA000) to "MODERATE"
-            AlertSeverity.Minor -> Color(0xFF388E3C) to "ADVISORY"
+            AlertSeverity.Minor -> Color(0xFF1E88E5) to "ADVISORY"
             AlertSeverity.Unknown -> Color(0xFF5C6BC0) to "STATEMENT"
         }
 

@@ -228,8 +228,17 @@ fun HomeScreen(
             item {
                 val topAlert = state!!.activeAlerts.maxByOrNull { AuraColors.severityRank(it.severity) }
                     ?: state.activeAlerts.first()
+                // Event + end time, not the raw headline: the headline
+                // truncates to "issued Novemb…" and hides the useful part.
+                val bannerZone = remember(state?.place?.zoneId) {
+                    runCatching { ZoneId.of(state?.place?.zoneId ?: "") }.getOrDefault(ZoneId.systemDefault())
+                }
+                val bannerTimeFormatter = remember(bannerZone) {
+                    DateTimeFormatter.ofPattern("h:mm a", Locale.US).withZone(bannerZone)
+                }
+                val bannerEnd = topAlert.ends ?: topAlert.expires
                 ActiveAlertBanner(
-                    alertTitle = topAlert.headline,
+                    alertTitle = "${topAlert.event} · Ends ${bannerTimeFormatter.format(bannerEnd)}",
                     severity = topAlert.severity,
                     count = state.activeAlerts.size,
                     onClick = onNavigateToAlerts

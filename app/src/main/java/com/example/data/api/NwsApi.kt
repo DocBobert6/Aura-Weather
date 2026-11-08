@@ -119,7 +119,8 @@ data class NwsAlertProperties(
     @Json(name = "certainty") val certainty: String?,
     @Json(name = "effective") val effective: String?,
     @Json(name = "expires") val expires: String?,
-    @Json(name = "ends") val ends: String?
+    @Json(name = "ends") val ends: String?,
+    @Json(name = "senderName") val senderName: String?
 )
 
 interface NwsApi {

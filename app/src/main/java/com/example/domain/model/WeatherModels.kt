@@ -98,6 +98,7 @@ data class WeatherAlert(
     // When the event itself ends (NWS "ends"); null when the feed omits it.
     // The pill shows this, not "expires" (when the alert product expires).
     val ends: Instant?,
+    val senderName: String?,
     val areaDesc: String
 )
 
