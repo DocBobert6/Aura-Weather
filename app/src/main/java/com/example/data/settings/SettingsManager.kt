@@ -18,6 +18,7 @@ class SettingsManager(private val context: Context) {
         val KEY_USE_METRIC = booleanPreferencesKey("use_metric_units")
         val KEY_PALETTE_MODE = stringPreferencesKey("palette_mode") // "auto", "expressive", "monet"
         val KEY_THEME_MODE = stringPreferencesKey("theme_mode") // "auto", "dark", "light"
+        val KEY_MATERIAL_YOU_MODE = stringPreferencesKey("material_you_mode") // "auto", "light", "dark"
         val KEY_SELECTED_PLACE_ID = stringPreferencesKey("selected_place_id")
         val KEY_TOMORROW_API_KEY = stringPreferencesKey("tomorrow_api_key")
         val KEY_AIRNOW_API_KEY = stringPreferencesKey("airnow_api_key")
@@ -34,6 +35,13 @@ class SettingsManager(private val context: Context) {
     // "auto" follows the system dark/light setting; "dark"/"light" force it.
     val themeModeFlow: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[KEY_THEME_MODE] ?: "auto"
+    }
+
+    // Material You light/dark dropdown. "auto" follows the global theme
+    // mode (which itself follows the system); "light"/"dark" force the
+    // dynamic scheme. Only applies while the Material You palette is on.
+    val materialYouModeFlow: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[KEY_MATERIAL_YOU_MODE] ?: "auto"
     }
 
     // No default place: empty until the user selects one. (Selection lives
@@ -65,6 +73,12 @@ class SettingsManager(private val context: Context) {
     suspend fun setThemeMode(mode: String) {
         context.dataStore.edit { preferences ->
             preferences[KEY_THEME_MODE] = mode
+        }
+    }
+
+    suspend fun setMaterialYouMode(mode: String) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_MATERIAL_YOU_MODE] = mode
         }
     }
 

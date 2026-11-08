@@ -2,6 +2,7 @@ package com.example.ui.settings
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
@@ -26,6 +28,8 @@ import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -66,18 +70,21 @@ fun SettingsScreen(
     useMetric: Boolean,
     paletteMode: String,
     themeMode: String,
+    materialYouMode: String,
     tomorrowApiKey: String,
     savedPlaces: List<Place>,
     selectedPlaceId: String?,
     onSetUseMetric: (Boolean) -> Unit,
     onSetPaletteMode: (String) -> Unit,
     onSetThemeMode: (String) -> Unit,
+    onSetMaterialYouMode: (String) -> Unit,
     onSaveTomorrowApiKey: (String) -> Unit,
     onSelectPlace: (String) -> Unit,
     onAddPlace: (String, String, Double, Double) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showAddPlaceDialog by remember { mutableStateOf(false) }
+    var materialYouMenuExpanded by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = modifier
@@ -180,12 +187,78 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     PillSegmentedControl(
-                        options = listOf("Auto Weather", "Monet Dynamic", "Expressive"),
+                        options = listOf("Auto Weather", "Material You", "Expressive"),
                         selectedIndex = listOf("auto", "monet", "expressive").indexOf(paletteMode).coerceAtLeast(0),
                         onSelect = { onSetPaletteMode(listOf("auto", "monet", "expressive")[it]) },
                         isExpressive = paletteMode == "expressive",
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    if (paletteMode == "monet") {
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Box {
+                            Surface(
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                                shape = AuraShapes.pill,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { materialYouMenuExpanded = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Material You: " + when (materialYouMode) {
+                                            "light" -> "Light"
+                                            "dark" -> "Dark"
+                                            else -> "Auto"
+                                        },
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = "Choose Material You light or dark",
+                                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+
+                            DropdownMenu(
+                                expanded = materialYouMenuExpanded,
+                                onDismissRequest = { materialYouMenuExpanded = false }
+                            ) {
+                                listOf(
+                                    "auto" to "Auto (follow system)",
+                                    "light" to "Light",
+                                    "dark" to "Dark"
+                                ).forEach { (mode, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = {
+                                            onSetMaterialYouMode(mode)
+                                            materialYouMenuExpanded = false
+                                        },
+                                        trailingIcon = if (materialYouMode == mode) {
+                                            { Icon(Icons.Default.Check, contentDescription = "Selected") }
+                                        } else null
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "Material You takes its colours from your phone's wallpaper. Auto follows your system; Light and Dark force it.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
                 }
             }
         }
