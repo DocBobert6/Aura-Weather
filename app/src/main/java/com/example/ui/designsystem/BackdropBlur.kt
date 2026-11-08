@@ -177,30 +177,39 @@ private fun BoxScope.BackdropLayerCanvas(
     shape: Shape,
     positionModifier: Modifier
 ) {
-    // The clip sits AFTER the graphicsLayer: a clip before it only clips
-    // the content going into the blur's offscreen buffer, and the buffer
-    // itself (a rectangle) is drawn unclipped — the lighter square-cornered
-    // panel inside every rounded card. Clipping after the layer clips the
-    // blurred output to the shape.
-    Canvas(
+    // The clip lives on a PARENT Box, not on the Canvas's own modifier
+    // chain. A clip on the same chain as a graphicsLayer with a
+    // renderEffect does not reliably contain the effect's output — the
+    // blur's offscreen buffer is a rectangle, and the effect fills its
+    // corners, so the lighter square-cornered panel showed inside every
+    // rounded card (Batch C moved the clip after the graphicsLayer; the
+    // panel persisted on device). A parent-level clip is a separate
+    // boundary that the effect cannot bypass: it clips the whole blurred
+    // output to the shape.
+    Box(
         modifier = Modifier
             .matchParentSize()
-            .then(positionModifier)
-            .graphicsLayer { renderEffect = BlurEffect(blurPx, blurPx) }
             .clip(shape)
     ) {
-        // Reading the version subscribes this draw to sky re-records; the
-        // value itself is unused.
-        @Suppress("UNUSED_VARIABLE")
-        val ignored = state.recordVersion
-        withTransform({ translate(-offsetInSky.x, -offsetInSky.y) }) {
-            drawLayer(layer)
-        }
-        if (mask != null) {
-            // DstIn keeps the blurred copy where the gradient is opaque
-            // (the content edge) and lets the stronger blur show through
-            // at the far edge.
-            drawRect(brush = mask, blendMode = BlendMode.DstIn)
+        Canvas(
+            modifier = Modifier
+                .matchParentSize()
+                .then(positionModifier)
+                .graphicsLayer { renderEffect = BlurEffect(blurPx, blurPx) }
+        ) {
+            // Reading the version subscribes this draw to sky re-records; the
+            // value itself is unused.
+            @Suppress("UNUSED_VARIABLE")
+            val ignored = state.recordVersion
+            withTransform({ translate(-offsetInSky.x, -offsetInSky.y) }) {
+                drawLayer(layer)
+            }
+            if (mask != null) {
+                // DstIn keeps the blurred copy where the gradient is opaque
+                // (the content edge) and lets the stronger blur show through
+                // at the far edge.
+                drawRect(brush = mask, blendMode = BlendMode.DstIn)
+            }
         }
     }
 }
