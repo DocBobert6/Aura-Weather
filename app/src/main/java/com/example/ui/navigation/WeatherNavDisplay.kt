@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -181,7 +182,7 @@ fun WeatherNavDisplay(
                     }
                     .drawWithContent {
                         backdropBlurState.record(density, layoutDirection, size.toIntSize()) {
-                            drawContent()
+                            this@drawWithContent.drawContent()
                         }
                         drawLayer(backdropBlurState.skyLayer)
                     }

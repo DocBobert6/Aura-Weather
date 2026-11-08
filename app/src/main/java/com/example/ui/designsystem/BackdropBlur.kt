@@ -4,7 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.PowerManager
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.matchParentSize
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
@@ -92,7 +93,11 @@ fun rememberBackdropBlurEnabled(): Boolean {
     return remember {
         val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        !activityManager.isLowRamDevice && !powerManager.isPowerSaveMode
+        // Do not start a line with `!` right after an `as` cast: kotlinc
+        // 2.2.10 misparses it (the `!` line is read as a continuation of
+        // the cast). Bind the result to a val and return that instead.
+        val enabled = !activityManager.isLowRamDevice && !powerManager.isPowerSaveMode
+        enabled
     }
 }
 
@@ -107,12 +112,11 @@ enum class ProgressiveEdge { Top, Bottom }
  * blur ramps from sharp where text sits to full frost at the far edge.
  */
 @Composable
-internal fun BackdropBlurCanvas(
+internal fun BoxScope.BackdropBlurCanvas(
     level: GlassLevel,
     shape: Shape,
     progressive: Boolean,
-    progressiveEdge: ProgressiveEdge,
-    modifier: Modifier = Modifier
+    progressiveEdge: ProgressiveEdge
 ) {
     val state = LocalBackdropBlur.current ?: return
     val layer = state.skyLayer
@@ -164,7 +168,7 @@ internal fun BackdropBlurCanvas(
 
 /** One blurred copy of the recorded sky, clipped to the glass shape. */
 @Composable
-private fun BackdropLayerCanvas(
+private fun BoxScope.BackdropLayerCanvas(
     layer: GraphicsLayer,
     state: BackdropBlurState,
     offsetInSky: Offset,

@@ -3,11 +3,11 @@ package com.example.ui.designsystem
 import android.content.Context
 import android.os.PowerManager
 import android.provider.Settings
-import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Shapes
 import androidx.compose.runtime.Composable
@@ -204,12 +204,14 @@ object AuraMotion {
 
     /**
      * The animation spec for one interactive spring (2.4d): the chosen
-     * spring set, or an instant snap when reduced motion is on. The caller
+     * spring set, or an instant (0ms) tween when reduced motion is on.
+     * Returns a [FiniteAnimationSpec] so it also fits `scaleIn` /
+     * `scaleOut`, which do not take a general animation spec. The caller
      * picks which spring of the set with [pick] — `{ press }`, `{ bar }` …
      */
     @Composable
-    fun <T> spec(expressive: Boolean, pick: AuraSprings.() -> AnimationSpec<T>): AnimationSpec<T> =
-        if (rememberReducedMotion()) snap() else springs(expressive).pick()
+    fun <T> spec(expressive: Boolean, pick: AuraSprings.() -> FiniteAnimationSpec<T>): FiniteAnimationSpec<T> =
+        if (rememberReducedMotion()) tween(durationMillis = 0) else springs(expressive).pick()
 }
 
 /**
