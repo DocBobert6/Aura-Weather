@@ -1081,7 +1081,12 @@ private fun DailyForecastCard(
                         if (weekMin != null && weekMax != null && weekMax > weekMin && point.lowC != null && point.highC != null) {
                             val startFrac = ((point.lowC - weekMin) / (weekMax - weekMin)).toFloat().coerceIn(0f, 1f)
                             val endFrac = ((point.highC - weekMin) / (weekMax - weekMin)).toFloat().coerceIn(0f, 1f)
-                            Spacer(modifier = Modifier.weight(startFrac))
+                            // weight() throws unless it is strictly greater than
+                            // zero, so a spacer is only drawn when it has room:
+                            // the coldest day starts at the left edge (startFrac
+                            // 0) and the warmest day ends at the right edge
+                            // (endFrac 1). The old code passed 0 and crashed.
+                            if (startFrac > 0f) Spacer(modifier = Modifier.weight(startFrac))
                             Box(
                                 modifier = Modifier
                                     .weight((endFrac - startFrac).coerceAtLeast(0.02f))
@@ -1093,7 +1098,7 @@ private fun DailyForecastCard(
                                         shape = RoundedCornerShape(3.dp)
                                     )
                             )
-                            Spacer(modifier = Modifier.weight((1f - endFrac).coerceAtLeast(0f)))
+                            if (endFrac < 1f) Spacer(modifier = Modifier.weight(1f - endFrac))
                         } else {
                             Box(
                                 modifier = Modifier
