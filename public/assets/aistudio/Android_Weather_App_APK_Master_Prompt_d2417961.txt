@@ -1,0 +1,369 @@
+# ANDROID APK MASTER PROMPT - "NKY Weather" (working title, rename freely)
+# Native Android app: Kotlin + Jetpack Compose -> installable APK (and AAB)
+# Region: Northern Kentucky & Greater Cincinnati (KCVG / KLUK / KILN)
+# Prompt version 2.0 - November 2026
+
+# USAGE NOTES (not part of the prompt):
+# - Google AI Studio: choose "Build an Android app" in the Build tab, paste everything below the line, test in the
+#   built-in emulator or over USB/ADB, then download the zip and open it in Android Studio for the signed APK.
+# - Android Studio (Gemini / Claude / any agent): paste as the first message in an empty project.
+# - Plain chat model: it will work phase by phase; reply "continue" after each phase.
+
+======================================================================================================
+BEGIN PROMPT
+======================================================================================================
+
+## 0. ROLE AND MISSION
+You are a principal Android engineer. Build a production-quality, hyper-local weather app as a NATIVE Android
+application that compiles to a real, installable APK. It is NOT a web app: no WebView shell, no React/Vite/PWA,
+no Flutter, no React Native, no Capacitor/Cordova, no Compose Multiplatform wrappers. Pure Kotlin + Jetpack
+Compose, one Gradle project, one `:app` module.
+
+The app targets Northern Kentucky and the Greater Cincinnati metro. It must feel like a flagship 2026 Pixel app:
+Material 3 Expressive, adaptive to phones/foldables/tablets/desktop windowing, honest about data freshness, and
+fully usable offline from cache.
+
+HOST ADAPTATION: If the environment you run in already scaffolds a Gradle project (for example Google AI
+Studio's "Build an Android app" or an existing Android Studio project), reuse its structure, wrapper, SDK
+settings and toolchain versions instead of regenerating them; only add what is missing. Otherwise generate the
+complete project from scratch.
+
+## 1. NON-NEGOTIABLE RULES
+1. Every file you output is complete and compiles. No "...", no "rest unchanged", no TODO(), no stub bodies,
+   no lorem ipsum, no fake weather values outside test fixtures.
+2. The app runs with ZERO API keys. Keyed providers are optional upgrades behind interfaces, with a keyless
+   fallback for every feature (see section 4).
+3. Never invent an endpoint, parameter or library symbol. If you are not certain it exists, isolate it behind an
+   interface, keep the URL/constant in one file (`ProviderEndpoints.kt`), and degrade gracefully when it fails.
+4. Use only current, non-deprecated APIs. Forbidden: XML layouts/Views (except the MapLibre view wrapper),
+   AsyncTask, LiveData, RxJava, KAPT (use KSP), Accompanist system-UI/insets libs, Jetifier, Gson,
+   androidx.security:security-crypto (deprecated), Navigation Compose string routes for new code,
+   android:screenOrientation locks, resizeableActivity=false.
+5. Offline-first: Room is the single source of truth; the UI renders cache immediately, then refreshes
+   (stale-while-revalidate). One failing provider never blanks the screen; each card owns its loading/error/stale state.
+6. All HTTPS. No analytics, no ads, no trackers. Coarse location only, and only if the user opts in.
+7. Never hard-code secrets. Optional keys are entered in Settings and stored encrypted (section 4.8).
+8. Anything time-sensitive in the UI says how old it is ("Updated 4 min ago"). Never label data "real-time" if it is polled.
+9. Do not ask me questions. Make the most reasonable assumption, list assumptions in README.md, and keep going.
+
+## 2. PLATFORM AND BUILD CONFIGURATION
+Baselines (verified Nov 2026; confirm the newest stable at build time and never go older):
+- Android 17 = API 37, stable since June 16 2026. Android 18 is NOT released: do not target it or reference its APIs.
+- compileSdk = 37, targetSdk = 37, minSdk = 33.
+  If the toolchain only has platform 36, use compileSdk/targetSdk 36 and note it in README. minSdk 33 gives
+  AGSL RuntimeShader, POST_NOTIFICATIONS, per-app language and themed icons without compat shims.
+- Gradle Kotlin DSL (`build.gradle.kts`, `settings.gradle.kts`) + version catalog `gradle/libs.versions.toml`.
+  Pin every version in the catalog. Latest stable AGP + Kotlin + KSP + Gradle wrapper that are mutually compatible
+  (if the host template pins them, keep the host's). Java/Kotlin toolchain 17.
+- Compose compiler via the `org.jetbrains.kotlin.plugin.compose` plugin. Compose BOM = latest stable
+  (Compose 1.12.x as of Oct 2026).
+- Material 3: stable `material3` is 1.4.0 and the full Expressive API set lives in 1.5.x pre-releases. Pin
+  `androidx.compose.material3:material3` explicitly to the newest 1.5.x (beta or later) so Expressive APIs
+  (`MaterialExpressiveTheme`, `MotionScheme.expressive()`, `MaterialShapes`, `LoadingIndicator`, `ButtonGroup`,
+  `FloatingToolbar`, `WideNavigationRail`) are available. Put EVERY Expressive call in `ui/designsystem/` so a version
+  change touches one folder, and `@OptIn(ExperimentalMaterial3ExpressiveApi::class)` there only. If a symbol does not
+  compile, fall back to the closest stable M3 component and keep going.
+- Build types:
+  - debug: applicationIdSuffix ".debug", debuggable.
+  - release: `isMinifyEnabled = true`, `isShrinkResources = true`, R8 rules for kotlinx.serialization, Retrofit,
+    OkHttp, Room, Hilt, MapLibre. Signing from a git-ignored `keystore.properties`; if it is absent, fall back to the
+    debug keystore so `assembleRelease` ALWAYS yields an installable sideload APK.
+  - ABI splits: arm64-v8a + x86_64, plus a universal APK (MapLibre native libs are large).
+- applicationId `com.nkyweather.app` (changeable). Versioning: versionCode from a single integer in the catalog/properties.
+- Required Gradle commands must all succeed:
+  `./gradlew clean assembleDebug assembleRelease bundleRelease testDebugUnitTest lintDebug`
+- APK output paths to document in README:
+  `app/build/outputs/apk/debug/app-debug.apk`, `app/build/outputs/apk/release/app-release.apk`,
+  install with `adb install -r <apk>`.
+
+## 3. LIBRARIES (best-in-class choices; use these unless a symbol fails to resolve)
+- UI: Compose BOM, material3 (see above), material-icons-extended ONLY if needed (prefer custom vector drawables),
+  `androidx.compose.material3.adaptive` (adaptive, adaptive-layout, adaptive-navigation) and
+  `material3-adaptive-navigation-suite`, `androidx.window` (foldables), `androidx.activity:activity-compose`,
+  `androidx.lifecycle:lifecycle-runtime-compose` + `viewmodel-compose` (`collectAsStateWithLifecycle`).
+- Navigation: Navigation 3 (`androidx.navigation3`, type-safe `@Serializable` keys, back stack as state, predictive back).
+- Glass/blur: Haze (`dev.chrisbanes.haze`, `haze-materials`) using the current 1.x API (`hazeSource` / `hazeEffect`,
+  `HazeProgressive` for progressive blur). Do not hand-roll backdrop capture unless Haze fails to resolve.
+- Color: MaterialKolor (`com.materialkolor:material-kolor`) for seed-color -> full M3 scheme with `PaletteStyle.Expressive`.
+- Graphics: AGSL via `android.graphics.RuntimeShader` + Compose `ShaderBrush`/`drawWithCache` for sky and precipitation.
+- Maps: MapLibre Native Android (`org.maplibre.gl:android-sdk`) wrapped in `AndroidView` (or the maintained
+  maplibre-compose library if it is stable), vector basemap from OpenFreeMap, raster radar/satellite layers on top.
+  No Google Maps key required.
+- Async: Kotlin Coroutines + Flow + StateFlow. UI state is immutable data classes; one `UiState` per screen.
+- DI: Hilt via KSP, `hilt-navigation-compose`, `hilt-work`.
+- Network: Retrofit 3 + OkHttp 5 + kotlinx.serialization (`ignoreUnknownKeys = true`, `coerceInputValues = true`).
+  OkHttp disk cache (20 MB), a single shared `OkHttpClient`, per-host interceptors (User-Agent, auth), retry with
+  exponential backoff + jitter on 5xx/IO errors, honor Cache-Control/ETag.
+- Persistence: Room (KSP) for cached payloads and saved places, DataStore Preferences for settings.
+- Background: WorkManager. Widgets: Jetpack Glance (`glance-appwidget`, `glance-material3`).
+- Location (optional): `play-services-location` FusedLocationProviderClient, coarse only.
+- Fonts: Roboto Flex through `androidx.compose.ui:ui-text-google-fonts` (downloadable font) with variable axes via
+  `FontVariation`, falling back to the system sans-serif if the provider is unavailable.
+- Time: `java.time` only. Internal storage in `Instant`; display zone `America/New_York` (or the selected place's zone).
+- Tests: JUnit4, MockK, Turbine, kotlinx-coroutines-test, OkHttp MockWebServer, Compose UI tests.
+
+## 4. DATA LAYER AND PROVIDER MAP
+Internal units are SI (degC, m/s, Pa, mm, m). A `UnitFormatter` converts for display; default is US customary
+(degF, mph, inHg, in, mi), switchable in Settings. Parse defensively: every NWS value can be null.
+
+### 4.1 Region defaults (`RegionDefaults.kt`, editable)
+- Home point (from the original spec): 38.9 N, -84.5 W. Presets: Florence KY (38.999, -84.627),
+  Covington KY (39.084, -84.509), Downtown Cincinnati (39.103, -84.512). Optional "Use my location".
+- NWS observation anchors: primary KCVG, secondary KLUK. WFO: ILN. NEXRAD site: KILN (Wilmington OH). Zone: America/New_York.
+
+### 4.2 Core conditions, forecast, alerts - NWS API (keyless, primary)
+Base `https://api.weather.gov`. Required headers on every request:
+`User-Agent: NKYWeather/<version> (<contact email from Settings or a placeholder constant>)` and
+`Accept: application/geo+json`.
+- `GET /points/{lat},{lon}` -> cache 7 days: gridId, gridX, gridY, forecast, forecastHourly, forecastZone, county, radarStation.
+- `GET /stations/{KCVG|KLUK}/observations/latest` -> temperature, dewpoint, windSpeed, windDirection, windGust,
+  barometricPressure, relativeHumidity, heatIndex, windChill, visibility, textDescription.
+  Reject observations older than 90 min or mostly null, then fall back KCVG -> KLUK -> nearest station from the points
+  response. "Feels like" = heatIndex if present, else windChill if present, else temperature.
+- `GET /gridpoints/{wfo}/{x},{y}/forecast` (7-day) and `/forecast/hourly` (hourly breakdown, 48 h shown).
+- `GET /alerts/active?point={lat},{lon}`: parse id, event, severity, urgency, certainty, headline, description,
+  instruction, effective, onset, expires, ends, senderName, areaDesc, geometry (may be null). Sort by severity then urgency.
+- NWS has NO device push service. Do not claim push. Alert delivery = polling (section 7) with a "Checked X min ago" label.
+  Document an optional v2 (small server polling NWS -> FCM topics per zone) in README only; do not build it.
+
+### 4.3 Hourly / 15-minute fallback and wind grid - Open-Meteo (keyless)
+`https://api.open-meteo.com/v1/forecast` with current, hourly, daily (sunrise/sunset not needed, computed locally),
+`minutely_15=precipitation`, imperial units requested only if convenient (otherwise convert), `timezone=auto`.
+Also used for an optional wind grid (comma-separated coordinates, 12x12 over the map viewport, throttled).
+Show "Weather data by Open-Meteo.com (CC BY 4.0)" in About/attribution.
+
+### 4.4 Minute-cast (next 60 minutes) - `NowcastProvider` interface, ordered fallback chain
+1. Tomorrow.io v4 forecast with `timesteps=1m` (key optional) -> minutely precipitationIntensity + probability.
+2. OpenWeather One Call 3.0 `minutely[]` (key optional; the plan needs a card on file, so treat it as opt-in).
+3. Keyless fallback: Open-Meteo `minutely_15`, interpolated to a smooth 60-minute curve and LABELED
+   "15-minute resolution" in the UI. Never present interpolated data as true minute-by-minute.
+UI: bar/area chart of intensity over 60 min plus one plain-language sentence ("Light rain starting in 12 min,
+ending around 2:40 PM") computed from the data. Intensity bands: none, drizzle, light, moderate, heavy, extreme.
+
+### 4.5 Radar and map overlays - Iowa Environmental Mesonet + NASA GIBS (keyless)
+RainViewer's free tier was cut back in 2026 (max zoom 7, no nowcast, no satellite, one color scheme, hashed frame
+paths, personal-use only), so do NOT make it a dependency. Optional later: a `RadarTileSource` implementation for it.
+- Reflectivity: IEM tile cache, composite layer `nexrad-n0q-900913` for "now" and its time-offset siblings
+  (`...-m05m`, `...-m10m`, ... `-m50m`) for a 10-frame loop (about 50 min back, 5-min steps), via
+  `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/<layer>/{z}/{x}/{y}.png`.
+- Single-site KILN: IEM RIDGE tiles (`ridge::ILN-<product>-<YYYYMMDDHHmm>`), reflectivity (N0B/N0Q) and base
+  velocity (N0G/N0U). Verify product codes at runtime; if a frame 404s, skip it silently and keep the loop going.
+- Satellite: NASA GIBS WMTS (EPSG:3857) GOES-East ABI GeoColor (visible) and Band 13 Clean IR, time `default` for latest.
+- Wind streamlines: animated particle layer drawn from the Open-Meteo wind grid (stretch goal, phase 7 if time allows).
+- All URL templates live in `ProviderEndpoints.kt` behind `RadarTileSource`. Preload frames as separate raster layers
+  and cross-fade opacity for a smooth loop. Display required attributions (OpenStreetMap/OpenFreeMap, IEM/NOAA, NASA GIBS).
+- Radar screen controls: layer chooser (Reflectivity, Velocity, Satellite Visible, Satellite IR, Wind), play/pause,
+  scrub slider with frame timestamps, opacity, "KILN" site marker, alert polygons from section 4.2 when geometry exists.
+
+### 4.6 Pollen - `PollenProvider` interface
+Pollen.com has no official public API: do NOT scrape it. Providers: Tomorrow.io (treeIndex / grassIndex / weedIndex,
+0-5) when a key is set; optional Google Pollen API (`pollen.googleapis.com`, key + billing) if the user enters one.
+With no key: render a helpful empty card ("Add a free Tomorrow.io key in Settings to enable pollen") rather than fake data.
+Cache 3 hours. Show Tree, Grass, Weed as three labeled gauges with category text.
+
+### 4.7 Air quality
+Primary when a key exists: AirNow API (`airnowapi.org`, current observation by lat/lon within 25 mi + forecast).
+Keyless default: Open-Meteo Air Quality API (`air-quality-api.open-meteo.com`: us_aqi, pm2_5, pm10, ozone).
+Show AQI number, EPA category and color, dominant pollutant, PM2.5, ozone, and one line of health guidance per category.
+Attribute the source actually used.
+
+### 4.8 Sun, moon and solar dynamics - pure Kotlin, no network
+Implement `SolarCalculator` and `LunarCalculator` in `domain/astro/` (NOAA solar position algorithm or a faithful
+SunCalc port). Outputs: sunrise, sunset, solar noon, civil/nautical/astronomical twilight, golden hour
+(sun elevation -4 to +6 deg, morning and evening), blue hour (-4 to -8 deg), day length and delta vs yesterday,
+current sun elevation/azimuth (feeds the sky shader), moon phase name, illuminated fraction, moonrise/moonset,
+next new/full moon. Unit-test against NOAA reference values for the home point.
+
+### 4.9 Secrets storage
+Optional keys (Tomorrow.io, OpenWeather, AirNow, Google Pollen) are entered in Settings. Encrypt with an Android
+Keystore-backed AES-GCM key (via Tink or direct `Cipher`), persist ciphertext in DataStore. Exclude from backups
+(`dataExtractionRules`, `allowBackup=false`). Never log keys or full request URLs containing keys.
+
+### 4.10 Cache TTLs
+observations 10 min, forecast 30 min, hourly 30 min, nowcast 5 min, alerts 5 min, AQI 30 min, pollen 3 h,
+points 7 d, radar frame list 5 min. Pull-to-refresh bypasses TTL but respects a 30-second minimum interval.
+
+## 5. DOMAIN MODEL (implement these as the shared vocabulary; extend as needed)
+```kotlin
+@JvmInline value class Celsius(val v: Double)
+data class GeoPoint(val lat: Double, val lon: Double)
+data class Place(val id: String, val name: String, val point: GeoPoint, val zoneId: String)
+
+enum class WeatherCondition { ClearDay, ClearNight, PartlyCloudyDay, PartlyCloudyNight, Cloudy, Fog, Haze,
+  Drizzle, Rain, HeavyRain, Thunderstorm, Snow, Sleet, FreezingRain, Windy, Unknown }
+
+data class CurrentConditions(
+  val observedAt: Instant, val station: String?, val condition: WeatherCondition, val description: String,
+  val tempC: Double?, val feelsLikeC: Double?, val dewPointC: Double?, val humidityPct: Double?,
+  val windMs: Double?, val windGustMs: Double?, val windDirDeg: Double?, val pressurePa: Double?, val visibilityM: Double?)
+
+data class HourlyPoint(val time: Instant, val tempC: Double?, val popPct: Int?, val condition: WeatherCondition, val windMs: Double?)
+data class DailyPoint(val date: LocalDate, val highC: Double?, val lowC: Double?, val popPct: Int?, val condition: WeatherCondition, val summary: String)
+data class MinutePrecip(val time: Instant, val mmPerHour: Double, val probabilityPct: Int?)
+enum class NowcastResolution { OneMinute, FifteenMinute }
+
+enum class AlertSeverity { Extreme, Severe, Moderate, Minor, Unknown }
+data class WeatherAlert(val id: String, val event: String, val severity: AlertSeverity, val urgency: String,
+  val headline: String, val description: String, val instruction: String?, val effective: Instant,
+  val expires: Instant, val areaDesc: String, val polygon: List<List<GeoPoint>>?)
+
+data class AirQuality(val aqi: Int, val category: String, val pm25: Double?, val ozonePpb: Double?, val dominant: String?, val source: String)
+data class Pollen(val tree: Int?, val grass: Int?, val weed: Int?, val source: String)   // 0..5
+
+sealed interface Loadable<out T> {
+  data object Loading : Loadable<Nothing>
+  data class Ready<T>(val data: T, val fetchedAt: Instant, val isStale: Boolean) : Loadable<T>
+  data class Failed<T>(val reason: AppError, val cached: Ready<T>?) : Loadable<T>
+}
+```
+Layering: `data` (api, db, repo impl, mappers) -> `domain` (models, repo interfaces, use cases, astro) -> `ui`
+(screens, viewmodels, design system). `domain` has zero Android imports. Mappers are pure and unit-tested.
+
+## 6. UX AND VISUAL SPECIFICATION (Material 3 Expressive, Android 17)
+### 6.1 Design system (`ui/designsystem/`)
+- `WeatherTheme` wraps `MaterialExpressiveTheme` with `MotionScheme.expressive()`, expressive shapes (`MaterialShapes`
+  morphing for toggles/loading) and Roboto Flex typography.
+- Palette policy (Settings: Auto / Always Monet / Always Weather): default is wallpaper dynamic color
+  (`dynamicLightColorScheme` / `dynamicDarkColorScheme`). In Auto, when an active Severe/Extreme alert or a heavy
+  precipitation/thunder condition exists, override with a condition-seeded scheme from MaterialKolor
+  (`PaletteStyle.Expressive`): storm = deep navy + violet, clear day = warm gold, sunset = amber/rose, snow/ice = slate blue,
+  fog = neutral gray, tornado/severe warning = high-contrast red/orange tertiary. Animate scheme changes with
+  expressive spring specs. Respect system dark mode.
+- Tactile glassmorphism: card surfaces use Haze frosted material over the sky background, progressive blur under the
+  top bar and navigation bar, 1 dp translucent outline, and a tonal fallback (surface container at about 92% alpha) when
+  blur is unavailable or battery saver is on. Text over glass must hold 4.5:1 contrast against the worst-case background.
+- Sky background: one full-screen AGSL `RuntimeShader` composable `WeatherSky(condition, sunElevation, intensity, time)`.
+  Uniform contract: `uniform float2 resolution; uniform float time; uniform float intensity; uniform float sunElevation;
+  uniform half3 skyTop; uniform half3 skyBottom;` Layers: gradient sky driven by sun elevation, soft cloud noise,
+  rain streaks, snow flakes, lightning flash, star field at night. Budget: one shader pass, no per-frame allocations,
+  drive `time` with `withFrameNanos`, pause when the app is stopped, in PiP-minimized mode or when Reduce Motion is on
+  (animator duration scale == 0), where it becomes a static frame.
+- Hero temperature: variable-font weight/width and size interpolate with scroll via spring physics, applied only to
+  the hero text (variable font changes are expensive).
+- Haptics: `HapticFeedbackType` ticks when scrubbing radar frames and on alert expansion.
+
+### 6.2 Screens
+1. Home: hero (temp, feels like, condition, hi/lo, alert banner if any), 60-minute minute-cast card, 48-hour hourly strip,
+   7-day forecast, details grid (wind with compass, humidity, dew point, pressure trend, visibility, UV only if available),
+   sun/moon summary, air quality and pollen summary cards, data-freshness chip.
+2. Radar: full-bleed MapLibre map, `FloatingToolbar` layer chooser, scrubber, legend, location puck, KILN marker.
+3. Alerts: active alerts ordered by severity, expandable detail with description and instruction, expiry countdown,
+   "view on radar".
+4. Air and Pollen: gauges, category colors, health guidance, 24-hour AQI trend.
+5. Sun and Moon: day arc visualization, golden/blue hour bands, moon phase graphic drawn in Canvas, next phases.
+6. Settings: units, place management/presets, palette policy, notification categories, API keys (optional, with "get a free
+   key" explainers), data sources and attributions, About.
+Every screen has designed loading (shimmer or `LoadingIndicator`), empty, error and stale states.
+
+### 6.3 Adaptive behavior (Android 17 windowing)
+- Edge-to-edge always; handle insets with `WindowInsets.safeDrawing`; predictive back enabled
+  (`android:enableOnBackInvokedCallback="true"`).
+- `NavigationSuiteScaffold` / `WideNavigationRail`: bar on compact, rail on medium, expanded rail on expanded widths.
+- Use `currentWindowAdaptiveInfo()` and window size classes (width AND height). Expanded width on Home =
+  `SupportingPaneScaffold` (forecast feed as main pane, live mini-radar as supporting pane). Radar screen on expanded
+  width shows layer controls in a side pane.
+- Foldables: observe `FoldingFeature` via `androidx.window`; in tabletop posture put the map on the top half and controls on
+  the bottom half; avoid placing content across a hinge.
+- Android 17 ignores orientation/resizability opt-outs on large screens for targetSdk 37, so the app must be fully resizable at
+  any window size, orientation and density. Keep all state in ViewModels or `rememberSaveable`; resizing, free-form
+  desktop windows and Android 17 app bubbles must never reset scroll position, radar frame or selected place. No custom bubble
+  code is needed beyond being correctly resizable.
+- Activity config: `android:resizeableActivity="true"`,
+  `android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density"` so the map view and PiP resizes do not recreate.
+- Picture-in-Picture: Radar loop only. `android:supportsPictureInPicture="true"`, `PictureInPictureParams` with a 1:1 or 4:3
+  aspect ratio, `setAutoEnterEnabled(true)` while the loop is playing, `RemoteAction` for play/pause. In PiP hide all chrome and show
+  map + frame timestamp only.
+
+## 7. BACKGROUND WORK, NOTIFICATIONS AND WIDGETS
+- `AlertCheckWorker` (WorkManager periodic, 15 min minimum, CONNECTED network). Diff active alerts against stored ids;
+  notify only for new alerts. Channels: "Tornado and Severe Warnings" (HIGH), "Watches and Advisories" (DEFAULT),
+  "Rain Soon" (LOW, optional "rain starting in ~N min" from nowcast). Request POST_NOTIFICATIONS at a meaningful moment
+  (after first alert opt-in), not on launch. Auto-cancel when the alert expires.
+- "NWS Alert Pill" (replaces a lock-screen widget, which phones do not support): on API 36+, an ongoing notification for active
+  Tornado/Severe Thunderstorm/Flash Flood warnings that requests promoted-ongoing treatment (`setRequestPromotedOngoing(true)`,
+  `setShortCriticalText("TOR WRN")`, permission `POST_PROMOTED_NOTIFICATIONS`) so it shows as a status-bar chip and on the
+  lock screen. Below API 36 it degrades to a normal high-priority notification. Settings toggle. Verify the platform symbol names
+  against the SDK.
+- Glance widgets with `GlanceTheme` (dynamic color), responsive size modes, tap -> deep link into the app:
+  - 2x2 "Rain Gauge": ring showing next-60-minute precipitation, big temp, minutes until rain. Draw the ring into a small bitmap
+    (max 400x400 px, ARGB_8888) because Android 17 enforces a strict RemoteViews memory limit.
+  - 4x2 "Detailed Glance": current conditions, next 5 hours, alert chip.
+  Refresh through `WorkManager` every 30 min and on data change via `updateAll`. Provide a generated preview and a resize-safe layout.
+
+## 8. QUALITY BAR
+- Accessibility: TalkBack labels and `stateDescription` on every gauge/chart (charts expose a text summary), 48 dp targets, works at 200%
+  font scale, never color-only meaning (severity also uses icon + text), full keyboard/D-pad navigation on large screens.
+- Performance: stable keys in lazy lists, `derivedStateOf` for scroll-driven values, no allocation in draw/shader paths, images/bitmaps
+  recycled, no work on the main thread, cold start under 1 s to cached content. Ship a Baseline Profile module or at least the
+  `baseline-prof.txt` rules and `profileinstaller`.
+- Battery and data: no polling when the app is backgrounded except the 15-minute worker, OkHttp caching, radar frames lazy-loaded
+  only on the Radar screen, coarse location only.
+- Privacy and safety: HTTPS only (`usesCleartextTraffic=false` + network security config), minimal permissions:
+  INTERNET, ACCESS_NETWORK_STATE, POST_NOTIFICATIONS, POST_PROMOTED_NOTIFICATIONS (API 36+), ACCESS_COARSE_LOCATION (optional).
+  No foreground service, no exact alarms. Add a short in-app disclaimer: "Not an official NWS product. In a tornado warning, follow
+  NWS and local emergency guidance."
+- Localization: all strings in `strings.xml` (English now, structured for translation), numbers/dates via locale-aware formatters.
+
+## 9. TESTING (required, must pass)
+- Unit: solar/lunar calculators vs reference values; NWS/Open-Meteo/AirNow/Tomorrow.io mappers using recorded JSON fixtures in
+  `src/test/resources`; unit conversions and rounding; observation staleness and station fallback; alert severity ordering and
+  diffing; cache TTL / stale logic; nowcast sentence generator; ViewModel state transitions with Turbine.
+- Integration: Retrofit clients against MockWebServer (200, 404, 500, malformed JSON, empty body).
+- UI: Compose tests for Home (loading/stale/error), alert expansion, and compact vs expanded layouts.
+- Manual smoke list in README: install on an API 33 and an API 37 emulator, resizable emulator, foldable emulator, airplane mode with
+  cache, rotate/resize mid-radar-loop, enter/exit PiP, add each widget, trigger a test alert notification from a debug menu.
+
+## 10. PROJECT STRUCTURE (create exactly this, then fill in)
+```
+/
+  settings.gradle.kts  build.gradle.kts  gradle.properties  gradle/libs.versions.toml  gradle/wrapper/*
+  keystore.properties.example  local.properties.example  .gitignore  README.md
+  app/
+    build.gradle.kts  proguard-rules.pro  src/main/AndroidManifest.xml
+    src/main/res/ (values, xml/network_security_config, xml/data_extraction_rules, drawable icons, widget info xml, mipmap adaptive + monochrome icon)
+    src/main/kotlin/com/nkyweather/app/
+      NkyWeatherApp.kt  MainActivity.kt
+      core/        (AppError, Dispatchers, Clock, UnitFormatter, Result helpers)
+      domain/      (model/, repository/, usecase/, astro/)
+      data/        (api/nws, api/openmeteo, api/tomorrowio, api/openweather, api/airnow, radar/, db/, repo/, mapper/, secrets/, ProviderEndpoints.kt)
+      work/        (AlertCheckWorker, WidgetRefreshWorker, Notifier)
+      widget/      (RainGaugeWidget, DetailedGlanceWidget, receivers)
+      ui/
+        designsystem/ (WeatherTheme, WeatherPalette, GlassCard, WeatherSky + AGSL, Typography, Motion, components)
+        navigation/   (Nav3 keys, AppNavDisplay, adaptive scaffolds)
+        home/ radar/ alerts/ airpollen/ sunmoon/ settings/
+    src/test/...   src/androidTest/...
+```
+
+## 11. EXECUTION PROTOCOL (build in this order; the project must compile after every phase)
+- Phase 0 - Scaffold: Gradle, catalog, manifest, Hilt app, theme stub, empty adaptive Home. `assembleDebug` must pass.
+- Phase 1 - Domain + astro: models, interfaces, Solar/Lunar calculators with tests.
+- Phase 2 - Data: NWS, Open-Meteo, AirNow/Open-Meteo AQ, Tomorrow.io/OpenWeather, Room cache, repositories, fixtures and tests.
+- Phase 3 - Design system + Home: Expressive theme, palette policy, glass cards with Haze, AGSL sky, hero typography, full Home screen.
+- Phase 4 - Radar, Alerts, Air and Pollen, Sun and Moon screens (MapLibre layers, loop, attributions).
+- Phase 5 - Adaptive layouts, foldable posture, PiP, Settings, key storage, place management.
+- Phase 6 - Background alerts, notifications, promoted ongoing alert pill, Glance widgets.
+- Phase 7 - Hardening: accessibility pass, Baseline Profile, R8 rules verified, signing config, wind particle layer (if time allows),
+  README, final checklist.
+After each phase print: `PHASE n COMPLETE` + list of files created/changed + any assumptions. Continue automatically unless the host
+requires a confirmation; in a plain chat, wait for "continue".
+
+## 12. DEFINITION OF DONE
+1. `./gradlew clean assembleDebug assembleRelease testDebugUnitTest lintDebug` passes with zero errors.
+2. The release APK installs and launches on API 33 and API 37, shows live data with no keys, and shows cached data in airplane mode.
+3. No crash or state loss on rotation, window resize, fold/unfold, PiP enter/exit, process death.
+4. Alerts, radar loop, minute-cast, AQI, sun/moon and both widgets work as specified; pollen shows live data with a key and a clear empty
+   state without one.
+5. README.md covers: what the app is, data sources + limits + attributions, how to get optional keys, build/sign/install commands,
+   AI Studio and Android Studio workflow, assumptions made, known limitations (no true push, 15-minute nowcast fallback), roadmap.
+6. Final message: file tree, the three exact commands to build, sign and install the APK, and a short list of anything you could
+   not verify.
+
+## 13. OUTPUT FORMAT
+Every file as: `// FILE: <relative/path>` followed by the full contents in a code fence. No prose between files except phase
+summaries. Kotlin code style: official Kotlin conventions, immutable state, `Modifier` as first optional parameter on composables,
+previews for every reusable composable, KDoc on public domain APIs.
+
+======================================================================================================
+END PROMPT
+======================================================================================================
