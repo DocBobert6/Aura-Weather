@@ -1,47 +1,42 @@
 package com.example.ui.navigation
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Air
-import androidx.compose.material.icons.filled.Brightness4
-import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.WbSunny
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.nestedScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.NavigationRailItemDefaults
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.domain.model.FullWeatherState
@@ -51,11 +46,24 @@ import com.example.ui.RadarLayer
 import com.example.ui.WeatherViewModel
 import com.example.ui.airpollen.AirPollenScreen
 import com.example.ui.alerts.AlertsScreen
+import com.example.ui.designsystem.AuraBars
+import com.example.ui.designsystem.AuraMotion
+import com.example.ui.designsystem.AuraShapes
+import com.example.ui.designsystem.GlassLevel
+import com.example.ui.designsystem.GlassSurface
+import com.example.ui.designsystem.NavPillItem
 import com.example.ui.designsystem.WeatherSky
 import com.example.ui.home.HomeScreen
 import com.example.ui.radar.RadarScreen
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.sunmoon.SunMoonScreen
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Air
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.WbSunny
 
 enum class ScreenDestination(val label: String, val icon: ImageVector) {
     Home("Forecast", Icons.Default.WbSunny),
@@ -87,6 +95,47 @@ fun WeatherNavDisplay(
     val activeAlertsCount = weatherState?.activeAlerts?.size ?: 0
     val condition = weatherState?.current?.condition ?: WeatherCondition.ClearDay
     val isDaytime = weatherState?.solar?.isDaytime ?: true
+    val isExpressive = paletteMode == "expressive"
+
+    // Hide-on-scroll for the floating phone bar: it hides on a sustained
+    // downward scroll and springs back on any upward scroll. It never hides
+    // while the Home alert banner is visible or on the Alerts screen.
+    val canHideBar by rememberUpdatedState(
+        !(currentDestination == ScreenDestination.Home && activeAlertsCount > 0) &&
+            currentDestination != ScreenDestination.Alerts
+    )
+    var barHidden by remember { mutableStateOf(false) }
+    val nestedScrollConnection = remember {
+        var downAccum = 0f
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (!canHideBar) {
+                    barHidden = false
+                    downAccum = 0f
+                    return Offset.Zero
+                }
+                if (available.y < 0f) {
+                    downAccum += -available.y
+                    if (downAccum > 96f) barHidden = true
+                } else if (available.y > 0f) {
+                    downAccum = 0f
+                    barHidden = false
+                }
+                return Offset.Zero
+            }
+        }
+    }
+    val density = LocalDensity.current
+    val bottomInset = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding()
+    val hideOffsetPx = with(density) {
+        (AuraBars.barHeight + AuraBars.bottomMargin).toPx() +
+            WindowInsets.safeDrawing.getBottom(this).toFloat()
+    }
+    val barOffsetY by animateFloatAsState(
+        targetValue = if (barHidden) hideOffsetPx else 0f,
+        animationSpec = AuraMotion.springs(isExpressive).bar,
+        label = "navBarOffset"
+    )
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val isWideScreen = maxWidth >= 600.dp
@@ -100,40 +149,30 @@ fun WeatherNavDisplay(
             )
 
             if (isWideScreen) {
-                // Wide screens (Tablets, Foldables unfolded): NavigationRail layout
+                // Wide screens (tablets, foldables unfolded): floating
+                // vertical pill rail, detached from the edges and centred,
+                // instead of a full-height opaque strip.
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
-                        .windowInsetsPadding(WindowInsets.safeDrawing)
-                ) {
-                    NavigationRail(
-                        containerColor = Color(0xFF0F172A).copy(alpha = 0.85f),
-                        contentColor = Color.White,
-                        modifier = Modifier.fillMaxHeight()
-                    ) {
-                        ScreenDestination.entries.forEach { destination ->
-                            val isSelected = destination == currentDestination
-                            NavigationRailItem(
-                                selected = isSelected,
-                                onClick = { currentDestination = destination },
-                                icon = {
-                                    NavIconWithBadge(
-                                        destination = destination,
-                                        activeAlertsCount = activeAlertsCount,
-                                        isSelected = isSelected
-                                    )
-                                },
-                                label = { Text(destination.label) },
-                                colors = NavigationRailItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                                    unselectedIconColor = Color.White.copy(alpha = 0.7f),
-                                    unselectedTextColor = Color.White.copy(alpha = 0.7f)
-                                ),
-                                modifier = Modifier.testTag("nav_rail_${destination.name.lowercase()}")
+                        .windowInsetsPadding(
+                            WindowInsets.safeDrawing.only(
+                                WindowInsetsSides.Top + WindowInsetsSides.Horizontal
                             )
-                        }
+                        )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(AuraBars.railWidth + 16.dp)
+                            .fillMaxHeight(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        FloatingNavRail(
+                            currentDestination = currentDestination,
+                            activeAlertsCount = activeAlertsCount,
+                            isExpressive = isExpressive,
+                            onSelect = { currentDestination = it }
+                        )
                     }
 
                     Box(
@@ -161,46 +200,21 @@ fun WeatherNavDisplay(
                     }
                 }
             } else {
-                // Compact screens (Standard phones): NavigationBar layout
-                Scaffold(
-                    containerColor = Color.Transparent,
-                    contentWindowInsets = WindowInsets.safeDrawing,
-                    bottomBar = {
-                        NavigationBar(
-                            containerColor = Color(0xFF0F172A).copy(alpha = 0.90f),
-                            contentColor = Color.White,
-                            tonalElevation = 4.dp
-                        ) {
-                            ScreenDestination.entries.forEach { destination ->
-                                val isSelected = destination == currentDestination
-                                NavigationBarItem(
-                                    selected = isSelected,
-                                    onClick = { currentDestination = destination },
-                                    icon = {
-                                        NavIconWithBadge(
-                                            destination = destination,
-                                            activeAlertsCount = activeAlertsCount,
-                                            isSelected = isSelected
-                                        )
-                                    },
-                                    label = { Text(destination.label) },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                                        unselectedIconColor = Color.White.copy(alpha = 0.7f),
-                                        unselectedTextColor = Color.White.copy(alpha = 0.7f)
-                                    ),
-                                    modifier = Modifier.testTag("nav_bar_${destination.name.lowercase()}")
-                                )
-                            }
-                        }
-                    }
-                ) { innerPadding ->
+                // Compact screens (standard phones): content scrolls
+                // edge-to-edge under a floating pill bar.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .nestedScroll(nestedScrollConnection)
+                ) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(innerPadding)
+                            .windowInsetsPadding(
+                                WindowInsets.safeDrawing.only(
+                                    WindowInsetsSides.Top + WindowInsetsSides.Horizontal
+                                )
+                            )
                     ) {
                         ScreenContent(
                             destination = currentDestination,
@@ -220,28 +234,116 @@ fun WeatherNavDisplay(
                             onEnterPiP = onEnterPiP
                         )
                     }
+
+                    FloatingNavBar(
+                        currentDestination = currentDestination,
+                        activeAlertsCount = activeAlertsCount,
+                        isExpressive = isExpressive,
+                        onSelect = { currentDestination = it },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(
+                                start = AuraBars.sideMargin,
+                                end = AuraBars.sideMargin,
+                                bottom = AuraBars.bottomMargin + bottomInset
+                            )
+                            .graphicsLayer { translationY = barOffsetY }
+                    )
                 }
             }
         }
     }
 }
 
+/**
+ * The floating phone navigation bar: one glass pill, 16dp side margins,
+ * 12dp above the bottom gesture area, ~64dp tall, with the 5 destinations
+ * as icon + label items inside it. The Alerts badge sits on the pill.
+ */
 @Composable
-private fun NavIconWithBadge(
-    destination: ScreenDestination,
+private fun FloatingNavBar(
+    currentDestination: ScreenDestination,
     activeAlertsCount: Int,
-    isSelected: Boolean
+    isExpressive: Boolean,
+    onSelect: (ScreenDestination) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    if (destination == ScreenDestination.Alerts && activeAlertsCount > 0) {
-        BadgedBox(badge = {
-            Badge(containerColor = Color(0xFFD32F2F)) {
-                Text("$activeAlertsCount")
+    GlassSurface(
+        level = GlassLevel.Bar,
+        shape = AuraShapes.pill,
+        modifier = modifier.height(AuraBars.barHeight)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ScreenDestination.entries.forEach { destination ->
+                NavPillItem(
+                    icon = destination.icon,
+                    label = destination.label,
+                    selected = destination == currentDestination,
+                    badgeCount = if (destination == ScreenDestination.Alerts) {
+                        activeAlertsCount.takeIf { it > 0 }
+                    } else {
+                        null
+                    },
+                    isExpressive = isExpressive,
+                    onClick = { onSelect(destination) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .testTag("nav_bar_${destination.name.lowercase()}")
+                )
             }
-        }) {
-            Icon(imageVector = destination.icon, contentDescription = destination.label)
         }
-    } else {
-        Icon(imageVector = destination.icon, contentDescription = destination.label)
+    }
+}
+
+/**
+ * The floating wide navigation rail: a vertical glass pill, detached from
+ * the left edge and vertically centred, with the same 5 destinations and
+ * the same badge as the phone bar.
+ */
+@Composable
+private fun FloatingNavRail(
+    currentDestination: ScreenDestination,
+    activeAlertsCount: Int,
+    isExpressive: Boolean,
+    onSelect: (ScreenDestination) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    GlassSurface(
+        level = GlassLevel.Bar,
+        shape = AuraShapes.pill,
+        modifier = modifier.width(AuraBars.railWidth)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            ScreenDestination.entries.forEach { destination ->
+                NavPillItem(
+                    icon = destination.icon,
+                    label = destination.label,
+                    selected = destination == currentDestination,
+                    badgeCount = if (destination == ScreenDestination.Alerts) {
+                        activeAlertsCount.takeIf { it > 0 }
+                    } else {
+                        null
+                    },
+                    isExpressive = isExpressive,
+                    onClick = { onSelect(destination) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("nav_rail_${destination.name.lowercase()}")
+                )
+            }
+        }
     }
 }
 
@@ -342,8 +444,8 @@ private fun AirSkyCompositeView(
         ) {
             listOf("Air & Pollen", "Sun & Moon").forEachIndexed { index, title ->
                 val isSelected = selectedTab == index
-                androidx.compose.material3.Surface(
-                    color = if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFF1E293B).copy(alpha = 0.8f),
+                Surface(
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color(0xFF1E293B).copy(alpha = 0.8f),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .weight(1f)
@@ -353,7 +455,7 @@ private fun AirSkyCompositeView(
                         text = title,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal,
-                        color = if (isSelected) Color(0xFF0D253F) else Color.White,
+                        color = if (isSelected) androidx.compose.ui.graphics.Color(0xFF0D253F) else androidx.compose.ui.graphics.Color.White,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         modifier = Modifier.padding(vertical = 10.dp)
                     )

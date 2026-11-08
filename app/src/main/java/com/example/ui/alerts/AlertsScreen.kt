@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.domain.model.AlertSeverity
 import com.example.domain.model.WeatherAlert
+import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.GlassCard
 import java.time.Instant
 import java.time.ZoneId
@@ -80,7 +81,14 @@ fun AlertsScreen(
         modifier = modifier
             .fillMaxSize()
             .testTag("alerts_screen"),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 16.dp,
+            // Room for the floating phone bar, so the last row never
+            // hides under it.
+            bottom = AuraBars.contentBottomPadding()
+        ),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {

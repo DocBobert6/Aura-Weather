@@ -53,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.model.Place
+import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.GlassCard
 
 @Composable
@@ -75,7 +76,14 @@ fun SettingsScreen(
         modifier = modifier
             .fillMaxSize()
             .testTag("settings_screen"),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 16.dp,
+            // Room for the floating phone bar, so the last row never
+            // hides under it.
+            bottom = AuraBars.contentBottomPadding()
+        ),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {

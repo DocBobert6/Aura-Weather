@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.UnitFormatter
 import com.example.domain.model.AlertSeverity
+import com.example.ui.designsystem.AuraBars
 import com.example.domain.model.DailyPoint
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.HourlyPoint
@@ -120,7 +121,14 @@ fun HomeScreen(
         modifier = modifier
             .fillMaxSize()
             .testTag("home_screen_scroll"),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 8.dp,
+            // The old trailing 24dp spacer is now this: room for the
+            // floating phone bar, so the last card never hides under it.
+            bottom = AuraBars.contentBottomPadding()
+        ),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // 1. Top Location Header & Freshness Bar
@@ -262,10 +270,6 @@ fun HomeScreen(
                 onClick = onNavigateToSunMoon
             )
         }
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
