@@ -17,7 +17,6 @@ fun AuraWeatherTheme(
     condition: WeatherCondition = WeatherCondition.ClearDay,
     isDaytime: Boolean = true,
     darkTheme: Boolean = isSystemInDarkTheme(),
-    materialYouMode: String = "auto",
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -28,15 +27,10 @@ fun AuraWeatherTheme(
     // removed 2026-11-08, so these are the only two modes.
     val colorScheme = when {
         paletteMode == "monet" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            // Material You: the Settings dropdown (Auto/Light/Dark)
-            // overrides the global theme mode for the dynamic scheme only.
-            // "auto" falls through to the theme's darkTheme.
-            val materialYouDark = when (materialYouMode) {
-                "dark" -> true
-                "light" -> false
-                else -> darkTheme
-            }
-            if (materialYouDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            // Material You follows the global theme mode (Auto/Dark/Light
+            // in Settings). There is no separate Material You dropdown —
+            // it was removed 2026-11-08 as redundant with Theme Mode.
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
         else -> {
             WeatherPalettes.getSchemeForCondition(condition, isDaytime, darkTheme)

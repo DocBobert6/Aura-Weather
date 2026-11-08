@@ -275,7 +275,9 @@ class WeatherRepository(
             WeatherMappers.mapWmoCodeToCondition(omCurrent?.weatherCode, solar.isDaytime)
         }
 
-        val description = currentObs?.textDescription ?: condition.displayName
+        // A blank NWS textDescription must not become the cached value:
+        // it rendered the hero condition pill as an empty grey circle.
+        val description = currentObs?.textDescription?.ifBlank { null } ?: condition.displayName
 
         // NWS temperature is in degC; Open-Meteo temperature_2m is degC.
         val tempC = currentObs?.temperature?.value ?: omCurrent?.temperature2m

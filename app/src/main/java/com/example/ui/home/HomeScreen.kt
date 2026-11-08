@@ -3,12 +3,7 @@ package com.example.ui.home
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -62,7 +57,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -77,7 +71,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -136,16 +129,7 @@ fun HomeScreen(
         }
     }
 
-    // The floating top bar collapses to the place pill alone once the list
-    // has scrolled ~48dp; the freshness detail moves into the hero card.
     val listState = rememberLazyListState()
-    val density = LocalDensity.current
-    val collapsed by remember {
-        derivedStateOf {
-            listState.firstVisibleItemIndex > 0 ||
-                listState.firstVisibleItemScrollOffset > with(density) { 48.dp.toPx() }
-        }
-    }
 
     // Freshness: no fetch yet means no freshness text at all — never the
     // "Updated just now" the empty state used to show for nothing fetched.
@@ -185,8 +169,10 @@ fun HomeScreen(
         contentPadding = PaddingValues(
             start = 16.dp,
             end = 16.dp,
-            // Room for the floating top bar pinned over the list.
-            top = 56.dp,
+            // Room for the floating top bar pinned over the list, plus a
+            // 16dp gap below it on startup so the bar never touches the
+            // first card — the alert banner / hero sat flush against it.
+            top = 72.dp,
             bottom = AuraBars.contentBottomPadding()
         ),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -258,9 +244,12 @@ fun HomeScreen(
             HeroWeatherCard(
                 state = state,
                 unitFormatter = unitFormatter,
-                // When the top bar is collapsed, the freshness detail lives
-                // here instead of in the pill.
-                freshnessText = if (collapsed) freshnessDetail else null
+                // The freshness detail lives here, under the hi/lo chips.
+                // It used to ride in a second top-bar pill, but place +
+                // freshness + two buttons cannot fit a 360dp row — the
+                // place name truncated to "Current..." — so the top bar is
+                // the place pill + buttons only.
+                freshnessText = freshnessDetail
             )
         }
 
@@ -316,17 +305,14 @@ fun HomeScreen(
         }
     }
 
-    // Floating top bar pinned over the sky: place pill + freshness pill +
-    // circular location / refresh buttons. Safe-drawing insets are part of
-    // the bar's placement (the ScreenContent container applies them above
+    // Floating top bar pinned over the sky: place pill + circular
+    // location / refresh buttons. Safe-drawing insets are part of the
+    // bar's placement (the ScreenContent container applies them above
     // this screen), so it never collides with the status bar.
     FloatingTopBar(
         place = selectedPlace ?: state?.place,
         savedPlaces = savedPlaces,
         isRefreshing = isRefreshing,
-        freshnessText = freshnessDetail,
-        isStale = state?.isStale ?: false,
-        collapsed = collapsed,
         isExpressive = paletteMode == "expressive",
         shadowColor = shadowTint,
         menuExpanded = locationMenuExpanded,
@@ -342,7 +328,7 @@ fun HomeScreen(
         modifier = Modifier
             .align(Alignment.TopCenter)
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 8.dp)
+            .padding(start = 12.dp, end = 12.dp, top = 8.dp)
     )
     }
 }
@@ -446,9 +432,6 @@ private fun FloatingTopBar(
     place: Place?,
     savedPlaces: List<Place>,
     isRefreshing: Boolean,
-    freshnessText: String?,
-    isStale: Boolean,
-    collapsed: Boolean,
     isExpressive: Boolean,
     shadowColor: Color?,
     menuExpanded: Boolean,
@@ -458,7 +441,6 @@ private fun FloatingTopBar(
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val selectionSpec = AuraMotion.spec(isExpressive) { selection }
     val placeName = place?.let { "${it.name}${if (it.stateCode.isNotBlank()) ", ${it.stateCode}" else ""}" }
         ?: "No place selected"
 
@@ -549,38 +531,6 @@ private fun FloatingTopBar(
             }
         }
 
-        // Freshness pill (expanded bar only; the hero card carries it
-        // when collapsed). Hidden entirely when nothing was ever fetched.
-        AnimatedVisibility(
-            visible = !collapsed && freshnessText != null,
-            enter = fadeIn() + scaleIn(animationSpec = selectionSpec),
-            exit = fadeOut() + scaleOut(animationSpec = selectionSpec)
-        ) {
-            GlassSurface(
-                level = GlassLevel.Bar,
-                shape = AuraShapes.pill,
-                progressive = true,
-                progressiveEdge = ProgressiveEdge.Bottom,
-                shadowColor = shadowColor,
-                modifier = Modifier.height(48.dp)
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.padding(horizontal = 12.dp)
-                ) {
-                    Text(
-                        text = freshnessText ?: "",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isStale) {
-                            AuraColors.Warning
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                        },
-                        maxLines = 1
-                    )
-                }
-            }
-        }
 
         GlassIconButton(
             onClick = onLocationClick,
@@ -680,7 +630,11 @@ private fun HeroWeatherCard(
     val tempFormatted = unitFormatter.formatTemperature(state?.current?.tempC)
     val feelsLikeFormatted = unitFormatter.formatTemperature(state?.current?.feelsLikeC)
     val condition = state?.current?.condition ?: WeatherCondition.ClearDay
-    val description = state?.current?.description ?: condition.displayName
+    // A blank description (an NWS observation can carry an empty
+    // textDescription) must fall back to the condition name — a blank
+    // string is not null, so plain ?: never fired and the hero pill
+    // rendered as an empty grey circle.
+    val description = state?.current?.description?.ifBlank { null } ?: condition.displayName
 
     val todayDaily = state?.daily7d?.firstOrNull()
     val highFormatted = unitFormatter.formatTemperature(todayDaily?.highC ?: state?.current?.tempC)
@@ -765,8 +719,7 @@ private fun HeroWeatherCard(
                 }
             }
 
-            // Freshness lives here when the floating top bar is collapsed
-            // (the pill that normally carries it is hidden then).
+            // Freshness detail lives here, under the hi/lo chips.
             if (freshnessText != null) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(

@@ -124,7 +124,13 @@ fun GlassSurface(
         shadowElevation = 0.dp,
         border = BorderStroke(1.dp, Color.White.copy(alpha = AuraGlass.borderAlpha))
     ) {
-        Box {
+        // The content is centred in the Surface. A plain Box defaults to
+        // TopStart, which left a short content (the freshness pill's
+        // "Updated just now") pinned to the top of a 48dp pill with the
+        // lower two-thirds empty — it read as the text sitting above an
+        // empty pill. matchParentSize children (blur, scrim) are unaffected
+        // and the lit edge keeps its own TopCenter alignment.
+        Box(contentAlignment = Alignment.Center) {
             if (blurOn) {
                 BackdropBlurCanvas(
                     level = level,

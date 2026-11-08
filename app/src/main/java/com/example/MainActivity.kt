@@ -40,7 +40,6 @@ class MainActivity : ComponentActivity() {
             val useMetric by viewModel.useMetric.collectAsStateWithLifecycle()
             val paletteMode by viewModel.paletteMode.collectAsStateWithLifecycle()
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-            val materialYouMode by viewModel.materialYouMode.collectAsStateWithLifecycle()
             val selectedRadarLayer by viewModel.selectedRadarLayer.collectAsStateWithLifecycle()
             val currentRadarFrameIndex by viewModel.currentRadarFrameIndex.collectAsStateWithLifecycle()
             val isRadarPlaying by viewModel.isRadarPlaying.collectAsStateWithLifecycle()
@@ -59,7 +58,6 @@ class MainActivity : ComponentActivity() {
                     "light" -> false
                     else -> isSystemInDarkTheme()
                 },
-                materialYouMode = materialYouMode
             ) {
                 WeatherNavDisplay(
                     viewModel = viewModel,
@@ -71,7 +69,6 @@ class MainActivity : ComponentActivity() {
                     useMetric = useMetric,
                     paletteMode = paletteMode,
                     themeMode = themeMode,
-                    materialYouMode = materialYouMode,
                     tomorrowApiKey = tomorrowApiKey,
                     selectedRadarLayer = selectedRadarLayer,
                     currentRadarFrameIndex = currentRadarFrameIndex,
