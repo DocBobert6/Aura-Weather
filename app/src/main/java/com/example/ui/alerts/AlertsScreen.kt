@@ -44,7 +44,10 @@ import androidx.compose.ui.unit.dp
 import com.example.domain.model.AlertSeverity
 import com.example.domain.model.WeatherAlert
 import com.example.ui.designsystem.AuraBars
-import com.example.ui.designsystem.GlassCard
+import com.example.ui.designsystem.AuraColors
+import com.example.ui.designsystem.AuraShapes
+import com.example.ui.designsystem.GlassLevel
+import com.example.ui.designsystem.GlassSurface
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -102,26 +105,26 @@ fun AlertsScreen(
                         text = "WEATHER ALERTS",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = "National Weather Service alerts" + (placeName?.let { " for $it" } ?: ""),
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.65f)
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                     )
                     if (cacheAgeText != null) {
                         Text(
                             text = cacheAgeText,
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFFFFB74D)
+                            color = AuraColors.Warning
                         )
                     }
                 }
 
                 if (sortedAlerts.isNotEmpty()) {
                     Surface(
-                        color = Color(0xFFD32F2F),
-                        shape = RoundedCornerShape(12.dp)
+                        color = AuraColors.severityColor(AlertSeverity.Extreme),
+                        shape = AuraShapes.pill
                     ) {
                         Text(
                             text = "${sortedAlerts.size} ACTIVE",
@@ -153,7 +156,9 @@ fun AlertsScreen(
 
 @Composable
 private fun EmptyAlertsCard() {
-    GlassCard(
+    GlassSurface(
+        level = GlassLevel.Card,
+        shape = AuraShapes.medium,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 24.dp)
@@ -167,7 +172,7 @@ private fun EmptyAlertsCard() {
             Icon(
                 imageVector = Icons.Default.CheckCircle,
                 contentDescription = "No alerts",
-                tint = Color(0xFF00E676),
+                tint = AuraColors.Accent,
                 modifier = Modifier.size(56.dp)
             )
 
@@ -177,7 +182,7 @@ private fun EmptyAlertsCard() {
                 text = "All Clear in the Region",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -185,7 +190,7 @@ private fun EmptyAlertsCard() {
             Text(
                 text = "No active watches, warnings, or advisories currently issued for this place by the National Weather Service.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.75f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
@@ -200,19 +205,15 @@ private fun AlertExpandableCard(
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    val (badgeBg, badgeText) = when (alert.severity) {
-        AlertSeverity.Extreme -> Color(0xFFD32F2F) to "EXTREME"
-        AlertSeverity.Severe -> Color(0xFFF57C00) to "SEVERE"
-        AlertSeverity.Moderate -> Color(0xFFFFA000) to "MODERATE"
-        AlertSeverity.Minor -> Color(0xFF388E3C) to "ADVISORY"
-        AlertSeverity.Unknown -> Color(0xFF5C6BC0) to "STATEMENT"
-    }
+    val (badgeBg, badgeText) = AuraColors.severityStyle(alert.severity)
 
     val timeFormatter = remember(zoneId) {
         DateTimeFormatter.ofPattern("EEE, MMM d, h:mm a", Locale.US).withZone(zoneId)
     }
 
-    GlassCard(
+    GlassSurface(
+        level = GlassLevel.Card,
+        shape = AuraShapes.medium,
         modifier = Modifier
             .fillMaxWidth()
             .clickable { expanded = !expanded }
@@ -225,7 +226,7 @@ private fun AlertExpandableCard(
             ) {
                 Surface(
                     color = badgeBg,
-                    shape = RoundedCornerShape(8.dp)
+                    shape = AuraShapes.pill
                 ) {
                     Text(
                         text = "$badgeText • ${alert.urgency.uppercase(Locale.US)}",
@@ -239,7 +240,7 @@ private fun AlertExpandableCard(
                 Icon(
                     imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                     contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = Color.White.copy(alpha = 0.7f)
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
             }
 
@@ -249,7 +250,7 @@ private fun AlertExpandableCard(
                 text = alert.event,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -257,22 +258,28 @@ private fun AlertExpandableCard(
             Text(
                 text = alert.headline,
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.85f)
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Text(
-                text = "Expires: ${timeFormatter.format(alert.expires)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFFFFB74D),
-                fontWeight = FontWeight.SemiBold
-            )
+            Surface(
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                shape = AuraShapes.pill
+            ) {
+                Text(
+                    text = "Active · expires ${timeFormatter.format(alert.expires)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = AuraColors.Warning,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
 
             AnimatedVisibility(visible = expanded) {
                 Column(modifier = Modifier.padding(top = 14.dp)) {
                     Surface(
-                        color = Color.White.copy(alpha = 0.1f),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(1.dp)
@@ -285,12 +292,12 @@ private fun AlertExpandableCard(
                             text = "AFFECTED AREAS",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
                         Text(
                             text = alert.areaDesc,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.85f),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                             modifier = Modifier.padding(top = 2.dp)
                         )
 
@@ -301,12 +308,12 @@ private fun AlertExpandableCard(
                         text = "DETAILS",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White.copy(alpha = 0.6f)
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
                     Text(
                         text = alert.description,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.85f),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                         modifier = Modifier.padding(top = 2.dp)
                     )
 
@@ -316,12 +323,12 @@ private fun AlertExpandableCard(
                             text = "SAFETY INSTRUCTIONS",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF00E676)
+                            color = AuraColors.Accent
                         )
                         Text(
                             text = alert.instruction,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(top = 2.dp)
                         )
                     }
