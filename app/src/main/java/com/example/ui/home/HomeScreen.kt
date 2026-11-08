@@ -1212,7 +1212,7 @@ private fun WeatherDetailsGrid(
             // Humidity & Dew Point Card
             DetailMiniCard(
                 title = "HUMIDITY",
-                icon = Icons.Default.Waves,
+                icon = Icons.Default.Opacity,
                 mainValue = humidity,
                 subValue = "Dew point $dewPoint",
                 modifier = Modifier.weight(1f).fillMaxHeight()

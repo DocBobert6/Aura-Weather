@@ -149,6 +149,9 @@ fun SunMoonScreen(
                     // where the scheme cannot be read), so resolve it here.
                     val horizonLineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
                     val textMeasurer = rememberTextMeasurer()
+                    // The 'Now' label colour is resolved here (a @Composable
+                    // read) — it cannot be read inside the Canvas DrawScope.
+                    val nowLabelColor = MaterialTheme.colorScheme.onSurface
 
                     // Canvas Solar Arc
                     Box(
@@ -223,7 +226,7 @@ fun SunMoonScreen(
                                     style = TextStyle(
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        color = nowLabelColor
                                     )
                                 )
                                 drawText(
@@ -434,7 +437,6 @@ fun SunMoonScreen(
     }
 }
 
-@Composable
 /**
  * A twilight window as a start–end range ("6:56 AM – 7:13 AM"). The model
  * has both ends; showing only the start hid half the window.
@@ -448,6 +450,7 @@ private fun formatRange(
     return "${timeFormatter.format(start)} – ${timeFormatter.format(end)}"
 }
 
+@Composable
 private fun TwilightCard(
     title: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
