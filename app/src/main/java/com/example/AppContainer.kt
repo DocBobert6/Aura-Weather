@@ -95,8 +95,7 @@ class AppContainer(private val context: Context) {
             openMeteoWeatherApi = openMeteoWeatherApi,
             openMeteoAirQualityApi = openMeteoAirQualityApi,
             weatherCacheDao = database.weatherCacheDao(),
-            savedPlaceDao = database.savedPlaceDao(),
-            settingsManager = settingsManager
+            savedPlaceDao = database.savedPlaceDao()
         )
     }
 

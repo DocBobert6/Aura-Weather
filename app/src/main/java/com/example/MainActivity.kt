@@ -33,6 +33,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val weatherState by viewModel.weatherState.collectAsStateWithLifecycle()
             val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+            val selectedPlace by viewModel.selectedPlace.collectAsStateWithLifecycle()
+            val loadError by viewModel.loadError.collectAsStateWithLifecycle()
             val savedPlaces by viewModel.savedPlaces.collectAsStateWithLifecycle()
             val useMetric by viewModel.useMetric.collectAsStateWithLifecycle()
             val paletteMode by viewModel.paletteMode.collectAsStateWithLifecycle()
@@ -53,6 +55,8 @@ class MainActivity : ComponentActivity() {
                     viewModel = viewModel,
                     weatherState = weatherState,
                     isRefreshing = isRefreshing,
+                    selectedPlace = selectedPlace,
+                    loadError = loadError,
                     savedPlaces = savedPlaces,
                     useMetric = useMetric,
                     paletteMode = paletteMode,

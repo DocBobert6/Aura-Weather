@@ -93,6 +93,8 @@ import kotlin.math.roundToInt
 fun HomeScreen(
     state: FullWeatherState?,
     isRefreshing: Boolean,
+    selectedPlace: Place?,
+    loadError: String?,
     savedPlaces: List<Place>,
     unitFormatter: UnitFormatter,
     onRefresh: () -> Unit,
@@ -101,6 +103,7 @@ fun HomeScreen(
     onNavigateToAlerts: () -> Unit,
     onNavigateToAirPollen: () -> Unit,
     onNavigateToSunMoon: () -> Unit,
+    onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var locationMenuExpanded by remember { mutableStateOf(false) }
@@ -123,7 +126,7 @@ fun HomeScreen(
         // 1. Top Location Header & Freshness Bar
         item {
             HeaderBar(
-                place = state?.place,
+                place = selectedPlace ?: state?.place,
                 savedPlaces = savedPlaces,
                 isRefreshing = isRefreshing,
                 isStale = state?.isStale ?: false,
@@ -169,8 +172,25 @@ fun HomeScreen(
             }
         }
 
+        // No place selected yet, or the load failed with nothing cached:
+        // show that state plainly instead of empty cards or invented weather.
+        if (selectedPlace == null && state == null) {
+            item {
+                if (loadError != null) {
+                    LoadErrorCard(message = loadError, onRetry = onRefresh)
+                } else {
+                    NoPlaceCard(
+                        onUseCurrentLocation = {
+                            locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                        },
+                        onAddPlace = onNavigateToSettings
+                    )
+                }
+            }
+        }
+
         // 3. Active Alert Banner (if severe alert is active)
-        if (!state?.activeAlerts.isNullOrEmpty()) {
+        if (state != null && !state.activeAlerts.isNullOrEmpty()) {
             item {
                 val topAlert = state!!.activeAlerts.first()
                 ActiveAlertBanner(
@@ -182,6 +202,10 @@ fun HomeScreen(
             }
         }
 
+        // 4-10. Weather sections — only when there is a state to show.
+        // With no place and no state, the no-place / error card above is the
+        // whole screen; empty cards with dashes would look broken.
+        if (state != null) {
         // 4. Hero Section: Current temperature, Condition icon, Feels-like, Hi/Lo
         item {
             HeroWeatherCard(
@@ -202,7 +226,8 @@ fun HomeScreen(
         item {
             HourlyForecastCard(
                 hourlyPoints = state?.hourly48h ?: emptyList(),
-                unitFormatter = unitFormatter
+                unitFormatter = unitFormatter,
+                zoneId = runCatching { ZoneId.of(state?.place?.zoneId ?: "") }.getOrDefault(ZoneId.systemDefault())
             )
         }
 
@@ -237,9 +262,98 @@ fun HomeScreen(
                 onClick = onNavigateToSunMoon
             )
         }
+        }
 
         item {
             Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun NoPlaceCard(
+    onUseCurrentLocation: () -> Unit,
+    onAddPlace: () -> Unit
+) {
+    GlassCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(24.dp)) {
+            Icon(
+                imageVector = Icons.Default.LocationOn,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(32.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Choose a place to see its weather",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Aura Weather works anywhere. Use your current location, or add a place in Settings — no place is chosen for you.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.75f)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            androidx.compose.material3.Button(
+                onClick = onUseCurrentLocation,
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Use current location")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            androidx.compose.material3.TextButton(
+                onClick = onAddPlace,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Add a place in Settings", color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoadErrorCard(message: String, onRetry: () -> Unit) {
+    GlassCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(24.dp)) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = Color(0xFFFFB74D),
+                modifier = Modifier.size(32.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Couldn't load the weather",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.75f)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            androidx.compose.material3.Button(
+                onClick = onRetry,
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Try again")
+            }
         }
     }
 }
@@ -258,7 +372,7 @@ private fun HeaderBar(
     onRefresh: () -> Unit
 ) {
     val placeName = place?.let { "${it.name}${if (it.stateCode.isNotBlank()) ", ${it.stateCode}" else ""}" }
-        ?: "Florence, KY"
+        ?: "No place selected"
 
     val diffMins = (Instant.now().epochSecond - fetchedAt.epochSecond) / 60
     val freshnessText = when {
@@ -324,7 +438,7 @@ private fun HeaderBar(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "${p.name}, ${p.stateCode}",
+                                    text = if (p.stateCode.isNotBlank()) "${p.name}, ${p.stateCode}" else p.name,
                                     color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.White
                                 )
                                 if (isCurrent) {
@@ -450,7 +564,8 @@ private fun HeroWeatherCard(
 
     val todayDaily = state?.daily7d?.firstOrNull()
     val highFormatted = unitFormatter.formatTemperature(todayDaily?.highC ?: state?.current?.tempC)
-    val lowFormatted = unitFormatter.formatTemperature(todayDaily?.lowC ?: state?.current?.tempC?.minus(6.0))
+    // No invented low: when the daily low is missing the UI shows "--".
+    val lowFormatted = unitFormatter.formatTemperature(todayDaily?.lowC)
 
     GlassCard(
         modifier = Modifier
@@ -621,10 +736,11 @@ private fun MinuteCastCard(
 @Composable
 private fun HourlyForecastCard(
     hourlyPoints: List<HourlyPoint>,
-    unitFormatter: UnitFormatter
+    unitFormatter: UnitFormatter,
+    zoneId: ZoneId = ZoneId.systemDefault()
 ) {
-    val timeFormatter = remember {
-        DateTimeFormatter.ofPattern("h a", Locale.US).withZone(ZoneId.of("America/New_York"))
+    val timeFormatter = remember(zoneId) {
+        DateTimeFormatter.ofPattern("h a", Locale.US).withZone(zoneId)
     }
 
     GlassCard(
@@ -650,7 +766,7 @@ private fun HourlyForecastCard(
                 items(hourlyPoints.take(24)) { point ->
                     val hourLabel = timeFormatter.format(point.time)
                     val temp = unitFormatter.formatTemperature(point.tempC)
-                    val pop = point.popPct ?: 0
+                    val pop = point.popPct
 
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -663,7 +779,7 @@ private fun HourlyForecastCard(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Icon(
-                            imageVector = getWeatherIcon(point.condition, isDaytime = true),
+                            imageVector = getWeatherIcon(point.condition, isDaytime = point.isDaytime),
                             contentDescription = point.condition.displayName,
                             tint = Color.White,
                             modifier = Modifier.size(28.dp)
@@ -676,7 +792,7 @@ private fun HourlyForecastCard(
                             color = Color.White
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        if (pop > 10) {
+                        if (pop != null && pop > 10) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = Icons.Default.WaterDrop,
@@ -804,11 +920,12 @@ private fun WeatherDetailsGrid(
     unitFormatter: UnitFormatter
 ) {
     val windFormatted = unitFormatter.formatWindSpeed(state?.current?.windMs)
-    val windDir = state?.current?.windDirDeg?.roundToInt() ?: 180
+    val windDir = state?.current?.windDirDeg?.roundToInt()
     val gustFormatted = unitFormatter.formatWindSpeed(state?.current?.windGustMs)
 
-    val humidity = "${state?.current?.humidityPct?.roundToInt() ?: 55}%"
-    val dewPoint = unitFormatter.formatTemperature(state?.current?.dewPointC ?: 8.0)
+    // Missing readings render as "--", never as invented 55% / 8 C / 180 deg.
+    val humidity = state?.current?.humidityPct?.let { "${it.roundToInt()}%" } ?: "--"
+    val dewPoint = unitFormatter.formatTemperature(state?.current?.dewPointC)
 
     val pressureFormatted = unitFormatter.formatPressure(state?.current?.pressurePa)
     val visibilityFormatted = unitFormatter.formatVisibility(state?.current?.visibilityM)
@@ -824,16 +941,18 @@ private fun WeatherDetailsGrid(
                 icon = Icons.Default.Air,
                 mainValue = windFormatted,
                 subValue = "Gusts to $gustFormatted",
-                trailing = {
-                    Icon(
-                        imageVector = Icons.Default.Navigation,
-                        contentDescription = "Wind direction",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .size(24.dp)
-                            .rotate(windDir.toFloat())
-                    )
-                },
+                trailing = if (windDir != null) {
+                    {
+                        Icon(
+                            imageVector = Icons.Default.Navigation,
+                            contentDescription = "Wind direction",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .rotate(windDir.toFloat())
+                        )
+                    }
+                } else null,
                 modifier = Modifier.weight(1f)
             )
 
@@ -933,10 +1052,12 @@ private fun AirAndPollenSummaryCard(
     state: FullWeatherState?,
     onClick: () -> Unit
 ) {
-    val aqi = state?.airQuality?.aqi ?: 28
-    val category = state?.airQuality?.category ?: "Good"
+    // No AQI from the provider means "unavailable" — never a made-up 28/Good.
+    val aqi = state?.airQuality?.aqi
+    val category = state?.airQuality?.category ?: "Unavailable"
 
     val aqiColor = when {
+        aqi == null -> Color.White.copy(alpha = 0.5f)
         aqi <= 50 -> Color(0xFF00E676)
         aqi <= 100 -> Color(0xFFFFEB3B)
         aqi <= 150 -> Color(0xFFFF9800)
@@ -965,7 +1086,7 @@ private fun AirAndPollenSummaryCard(
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "AQI $aqi",
+                        text = if (aqi != null) "AQI $aqi" else "AQI --",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -986,7 +1107,7 @@ private fun AirAndPollenSummaryCard(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = state?.airQuality?.healthGuidance ?: "Air quality is satisfactory.",
+                    text = state?.airQuality?.healthGuidance ?: "Air quality data is unavailable.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.7f),
                     maxLines = 1,
@@ -1009,14 +1130,18 @@ private fun SunAndMoonSummaryCard(
     state: FullWeatherState?,
     onClick: () -> Unit
 ) {
-    val timeFormatter = remember {
-        DateTimeFormatter.ofPattern("h:mm a", Locale.US).withZone(ZoneId.of("America/New_York"))
+    val zoneId = remember(state?.place?.zoneId) {
+        runCatching { ZoneId.of(state?.place?.zoneId ?: "") }.getOrDefault(ZoneId.systemDefault())
+    }
+    val timeFormatter = remember(zoneId) {
+        DateTimeFormatter.ofPattern("h:mm a", Locale.US).withZone(zoneId)
     }
 
-    val sunrise = state?.solar?.sunrise?.let { timeFormatter.format(it) } ?: "7:02 AM"
-    val sunset = state?.solar?.sunset?.let { timeFormatter.format(it) } ?: "6:38 PM"
-    val moonPhase = state?.lunar?.phaseName ?: "Waxing Crescent"
-    val illumination = "${((state?.lunar?.illuminatedFraction ?: 0.35) * 100).roundToInt()}% illuminated"
+    // No invented sun/moon values: missing data renders as "--".
+    val sunrise = state?.solar?.sunrise?.let { timeFormatter.format(it) } ?: "--"
+    val sunset = state?.solar?.sunset?.let { timeFormatter.format(it) } ?: "--"
+    val moonPhase = state?.lunar?.phaseName ?: "--"
+    val illumination = state?.lunar?.illuminatedFraction?.let { "${(it * 100).roundToInt()}% illuminated" } ?: "--"
 
     GlassCard(
         modifier = Modifier

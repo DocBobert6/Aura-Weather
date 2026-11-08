@@ -55,21 +55,27 @@ import kotlin.math.sin
 fun SunMoonScreen(
     solar: SolarTimes?,
     lunar: LunarTimes?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    zoneId: String? = null,
+    placeName: String? = null
 ) {
-    val timeFormatter = remember {
-        DateTimeFormatter.ofPattern("h:mm a", Locale.US).withZone(ZoneId.of("America/New_York"))
+    val zone = remember(zoneId) {
+        runCatching { ZoneId.of(zoneId ?: "") }.getOrDefault(ZoneId.systemDefault())
+    }
+    val timeFormatter = remember(zone) {
+        DateTimeFormatter.ofPattern("h:mm a", Locale.US).withZone(zone)
     }
 
-    val sunriseStr = solar?.sunrise?.let { timeFormatter.format(it) } ?: "7:02 AM"
-    val sunsetStr = solar?.sunset?.let { timeFormatter.format(it) } ?: "6:38 PM"
-    val noonStr = solar?.solarNoon?.let { timeFormatter.format(it) } ?: "1:20 PM"
-    val dawnStr = solar?.civilDawn?.let { timeFormatter.format(it) } ?: "6:34 AM"
-    val duskStr = solar?.civilDusk?.let { timeFormatter.format(it) } ?: "7:06 PM"
+    // No invented sun/moon values: missing data renders as "--".
+    val sunriseStr = solar?.sunrise?.let { timeFormatter.format(it) } ?: "--"
+    val sunsetStr = solar?.sunset?.let { timeFormatter.format(it) } ?: "--"
+    val noonStr = solar?.solarNoon?.let { timeFormatter.format(it) } ?: "--"
+    val dawnStr = solar?.civilDawn?.let { timeFormatter.format(it) } ?: "--"
+    val duskStr = solar?.civilDusk?.let { timeFormatter.format(it) } ?: "--"
 
-    val dayHours = (solar?.dayLengthMinutes ?: 700) / 60
-    val dayMinutes = (solar?.dayLengthMinutes ?: 700) % 60
-    val deltaMins = solar?.dayLengthDeltaYesterdayMinutes ?: 1
+    val dayHours = solar?.dayLengthMinutes?.div(60)
+    val dayMinutes = solar?.dayLengthMinutes?.rem(60)
+    val deltaMins = solar?.dayLengthDeltaYesterdayMinutes
 
     LazyColumn(
         modifier = modifier
@@ -87,7 +93,7 @@ fun SunMoonScreen(
                     color = Color.White
                 )
                 Text(
-                    text = "Astronomical Solar Track & Lunar Illuminance for NKY",
+                    text = "Astronomical Solar Track & Lunar Illuminance" + (placeName?.let { " for $it" } ?: ""),
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White.copy(alpha = 0.65f)
                 )
@@ -111,7 +117,11 @@ fun SunMoonScreen(
                         )
 
                         Text(
-                            text = "Daylight: ${dayHours}h ${dayMinutes}m (${if (deltaMins >= 0) "+$deltaMins min" else "$deltaMins min"})",
+                            text = if (dayHours != null && dayMinutes != null && deltaMins != null) {
+                                "Daylight: ${dayHours}h ${dayMinutes}m (${if (deltaMins >= 0) "+$deltaMins min" else "$deltaMins min"})"
+                            } else {
+                                "Daylight: --"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFFFFD54F)
@@ -152,8 +162,9 @@ fun SunMoonScreen(
 
                             // Sun position calculation
                             val now = Instant.now().epochSecond
-                            val rise = solar?.sunrise?.epochSecond ?: (now - 3600)
-                            val set = solar?.sunset?.epochSecond ?: (now + 3600)
+                            // Without real sunrise/sunset there is no arc to draw.
+                            val rise = solar?.sunrise?.epochSecond ?: return@Canvas
+                            val set = solar?.sunset?.epochSecond ?: return@Canvas
                             val progress = if (now in rise..set) {
                                 ((now - rise).toFloat() / (set - rise).toFloat()).coerceIn(0f, 1f)
                             } else {
@@ -227,8 +238,8 @@ fun SunMoonScreen(
                     title = "Golden Hour",
                     icon = Icons.Default.CameraAlt,
                     accentColor = Color(0xFFFFB74D),
-                    morning = solar?.goldenHourMorningStart?.let { timeFormatter.format(it) } ?: "7:00 AM",
-                    evening = solar?.goldenHourEveningStart?.let { timeFormatter.format(it) } ?: "6:05 PM",
+                    morning = solar?.goldenHourMorningStart?.let { timeFormatter.format(it) } ?: "--",
+                    evening = solar?.goldenHourEveningStart?.let { timeFormatter.format(it) } ?: "--",
                     modifier = Modifier.weight(1f)
                 )
 
@@ -236,8 +247,8 @@ fun SunMoonScreen(
                     title = "Blue Hour",
                     icon = Icons.Default.WbTwilight,
                     accentColor = Color(0xFF64B5F6),
-                    morning = solar?.blueHourMorningStart?.let { timeFormatter.format(it) } ?: "6:40 AM",
-                    evening = solar?.blueHourEveningStart?.let { timeFormatter.format(it) } ?: "6:42 PM",
+                    morning = solar?.blueHourMorningStart?.let { timeFormatter.format(it) } ?: "--",
+                    evening = solar?.blueHourEveningStart?.let { timeFormatter.format(it) } ?: "--",
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -255,8 +266,8 @@ fun SunMoonScreen(
         }
 
         item {
-            val phaseName = lunar?.phaseName ?: "Waxing Crescent"
-            val illFraction = lunar?.illuminatedFraction ?: 0.42
+            val phaseName = lunar?.phaseName ?: "--"
+            val illFraction = lunar?.illuminatedFraction ?: 0.0
             val illPercent = (illFraction * 100).roundToInt()
 
             GlassCard(modifier = Modifier.fillMaxWidth()) {
@@ -308,7 +319,7 @@ fun SunMoonScreen(
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Text(
-                            text = "$illPercent% illuminated disk",
+                            text = if (lunar != null) "$illPercent% illuminated disk" else "--",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.White.copy(alpha = 0.8f)
                         )
@@ -317,13 +328,13 @@ fun SunMoonScreen(
 
                         Row {
                             Text(
-                                text = "Next Full Moon: ${lunar?.nextFullMoonDays ?: 12}d",
+                                text = lunar?.nextFullMoonDays?.let { "Next Full Moon: ${it}d" } ?: "Next Full Moon: --",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color(0xFF81D4FA)
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = "New Moon: ${lunar?.nextNewMoonDays ?: 26}d",
+                                text = lunar?.nextNewMoonDays?.let { "New Moon: ${it}d" } ?: "New Moon: --",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color.White.copy(alpha = 0.6f)
                             )

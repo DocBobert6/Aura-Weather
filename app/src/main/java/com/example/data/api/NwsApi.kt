@@ -20,7 +20,26 @@ data class NwsPointsProperties(
     @Json(name = "forecast") val forecast: String?,
     @Json(name = "forecastHourly") val forecastHourly: String?,
     @Json(name = "forecastZone") val forecastZone: String?,
-    @Json(name = "radarStation") val radarStation: String?
+    @Json(name = "radarStation") val radarStation: String?,
+    // IANA timezone for the point, e.g. "America/Denver". This is how a
+    // place's zone is resolved — never a hardcoded default.
+    @Json(name = "timeZone") val timeZone: String?
+)
+
+@JsonClass(generateAdapter = true)
+data class NwsStationsResponse(
+    @Json(name = "features") val features: List<NwsStationFeature>?
+)
+
+@JsonClass(generateAdapter = true)
+data class NwsStationFeature(
+    @Json(name = "properties") val properties: NwsStationProperties?
+)
+
+@JsonClass(generateAdapter = true)
+data class NwsStationProperties(
+    @Json(name = "stationIdentifier") val stationIdentifier: String?,
+    @Json(name = "name") val name: String?
 )
 
 @JsonClass(generateAdapter = true)
@@ -108,6 +127,12 @@ interface NwsApi {
         @Path("latitude") lat: Double,
         @Path("longitude") lon: Double
     ): NwsPointsResponse
+
+    @GET("points/{latitude},{longitude}/stations")
+    suspend fun getStations(
+        @Path("latitude") lat: Double,
+        @Path("longitude") lon: Double
+    ): NwsStationsResponse
 
     @GET("stations/{stationId}/observations/latest")
     suspend fun getLatestObservation(

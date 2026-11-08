@@ -8,7 +8,6 @@ import com.example.data.repo.WeatherRepository
 import com.example.data.settings.SettingsManager
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.Place
-import com.example.domain.model.RegionDefaults
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.Job
@@ -22,7 +21,9 @@ import kotlinx.coroutines.launch
 
 enum class RadarLayer(val title: String) {
     Reflectivity("NEXRAD Composite"),
-    KilnSite("KILN Local Site"),
+    // The station shown is the one NWS /points returned for the selected
+    // place — never a hardcoded site.
+    LocalSite("Local Radar Site"),
     SatelliteVis("Satellite Visible"),
     SatelliteIr("Satellite Clean IR")
 }
@@ -37,8 +38,15 @@ class WeatherViewModel(
 
     val isRefreshing: StateFlow<Boolean> = weatherRepository.isRefreshing
 
+    /** Set when a load fails with no cached state to show. */
+    val loadError: StateFlow<String?> = weatherRepository.loadError
+
+    /** The selected place, or null on first launch before the user picks one. */
+    private val _selectedPlace = MutableStateFlow<Place?>(null)
+    val selectedPlace = _selectedPlace.asStateFlow()
+
     val savedPlaces: StateFlow<List<Place>> = weatherRepository.getSavedPlaces()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RegionDefaults.PRESET_PLACES)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val useMetric: StateFlow<Boolean> = settingsManager.useMetricFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -61,10 +69,16 @@ class WeatherViewModel(
     private var radarLoopJob: Job? = null
 
     init {
-        // Initial load
+        // Initial load — only when a place is already selected. With no
+        // place, the UI shows the no-place state and nothing is fetched.
         viewModelScope.launch {
             val place = weatherRepository.getSelectedPlace()
-            weatherRepository.loadWeather(place, forceRefresh = false)
+            _selectedPlace.value = place
+            if (place != null) {
+                weatherRepository.loadWeather(place, forceRefresh = false)
+            } else {
+                weatherRepository.clearWeather()
+            }
         }
         startRadarLoop()
     }
@@ -72,19 +86,26 @@ class WeatherViewModel(
     fun refresh() {
         viewModelScope.launch {
             val place = weatherRepository.getSelectedPlace()
-            weatherRepository.loadWeather(place, forceRefresh = true)
+            _selectedPlace.value = place
+            if (place != null) {
+                weatherRepository.loadWeather(place, forceRefresh = true)
+            } else {
+                weatherRepository.clearWeather()
+            }
         }
     }
 
     fun selectPlace(placeId: String) {
         viewModelScope.launch {
             weatherRepository.selectPlace(placeId)
+            _selectedPlace.value = weatherRepository.getSelectedPlace()
         }
     }
 
     fun addPlace(name: String, stateCode: String, lat: Double, lon: Double) {
         viewModelScope.launch {
-            weatherRepository.addCustomPlace(name, stateCode, lat, lon)
+            val place = weatherRepository.addCustomPlace(name, stateCode, lat, lon)
+            _selectedPlace.value = place
         }
     }
 
@@ -143,12 +164,13 @@ class WeatherViewModel(
                 .addOnSuccessListener { location ->
                     if (location != null) {
                         viewModelScope.launch {
-                            val place = weatherRepository.addCustomPlace(
-                                name = "Current Location",
-                                stateCode = "",
+                            // One fixed "Current Location" row, updated in
+                            // place — a tap never creates a duplicate place.
+                            val place = weatherRepository.setCurrentLocationPlace(
                                 lat = location.latitude,
                                 lon = location.longitude
                             )
+                            _selectedPlace.value = place
                             onSuccess(place.name)
                         }
                     } else {

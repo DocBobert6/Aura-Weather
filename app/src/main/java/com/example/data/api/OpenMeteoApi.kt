@@ -9,6 +9,7 @@ import retrofit2.http.Query
 data class OpenMeteoWeatherResponse(
     @Json(name = "latitude") val latitude: Double?,
     @Json(name = "longitude") val longitude: Double?,
+    @Json(name = "utc_offset_seconds") val utcOffsetSeconds: Int?,
     @Json(name = "current") val current: OpenMeteoCurrent?,
     @Json(name = "hourly") val hourly: OpenMeteoHourly?,
     @Json(name = "minutely_15") val minutely15: OpenMeteoMinutely15?,
@@ -76,7 +77,11 @@ interface OpenMeteoWeatherApi {
         @Query("hourly") hourly: String = "temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m",
         @Query("minutely_15") minutely15: String = "precipitation",
         @Query("daily") daily: String = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,uv_index_max",
-        @Query("timezone") timezone: String = "auto"
+        // Request UTC explicitly. The old "auto" value returned local wall
+        // times, which the repository then parsed as UTC ("${t}:00Z") and
+        // shifted every hour 4-5 hours. All parsing goes through
+        // parseOpenMeteoUtcInstant (see WeatherMappers).
+        @Query("timezone") timezone: String = "UTC"
     ): OpenMeteoWeatherResponse
 }
 

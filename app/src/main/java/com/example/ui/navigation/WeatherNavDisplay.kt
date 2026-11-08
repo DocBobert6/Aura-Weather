@@ -70,6 +70,8 @@ fun WeatherNavDisplay(
     viewModel: WeatherViewModel,
     weatherState: FullWeatherState?,
     isRefreshing: Boolean,
+    selectedPlace: Place?,
+    loadError: String?,
     savedPlaces: List<Place>,
     useMetric: Boolean,
     paletteMode: String,
@@ -144,6 +146,8 @@ fun WeatherNavDisplay(
                             viewModel = viewModel,
                             weatherState = weatherState,
                             isRefreshing = isRefreshing,
+                            selectedPlace = selectedPlace,
+                            loadError = loadError,
                             savedPlaces = savedPlaces,
                             useMetric = useMetric,
                             paletteMode = paletteMode,
@@ -203,6 +207,8 @@ fun WeatherNavDisplay(
                             viewModel = viewModel,
                             weatherState = weatherState,
                             isRefreshing = isRefreshing,
+                            selectedPlace = selectedPlace,
+                            loadError = loadError,
                             savedPlaces = savedPlaces,
                             useMetric = useMetric,
                             paletteMode = paletteMode,
@@ -245,6 +251,8 @@ private fun ScreenContent(
     viewModel: WeatherViewModel,
     weatherState: FullWeatherState?,
     isRefreshing: Boolean,
+    selectedPlace: Place?,
+    loadError: String?,
     savedPlaces: List<Place>,
     useMetric: Boolean,
     paletteMode: String,
@@ -259,6 +267,8 @@ private fun ScreenContent(
         ScreenDestination.Home -> HomeScreen(
             state = weatherState,
             isRefreshing = isRefreshing,
+            selectedPlace = selectedPlace,
+            loadError = loadError,
             savedPlaces = savedPlaces,
             unitFormatter = viewModel.getUnitFormatter(),
             onRefresh = { viewModel.refresh() },
@@ -266,7 +276,8 @@ private fun ScreenContent(
             onUseCurrentLocation = { viewModel.useCurrentLocation() },
             onNavigateToAlerts = { onNavigate(ScreenDestination.Alerts) },
             onNavigateToAirPollen = { onNavigate(ScreenDestination.AirSky) },
-            onNavigateToSunMoon = { onNavigate(ScreenDestination.AirSky) }
+            onNavigateToSunMoon = { onNavigate(ScreenDestination.AirSky) },
+            onNavigateToSettings = { onNavigate(ScreenDestination.Settings) }
         )
 
         ScreenDestination.Radar -> RadarScreen(
@@ -282,6 +293,11 @@ private fun ScreenContent(
 
         ScreenDestination.Alerts -> AlertsScreen(
             alerts = weatherState?.activeAlerts ?: emptyList(),
+            fetchedAt = weatherState?.fetchedAt,
+            isStale = weatherState?.isStale ?: false,
+            placeName = selectedPlace?.name,
+            zoneId = runCatching { java.time.ZoneId.of(weatherState?.place?.zoneId ?: "") }
+                .getOrDefault(java.time.ZoneId.systemDefault()),
             onViewOnRadar = { onNavigate(ScreenDestination.Radar) }
         )
 
@@ -298,7 +314,7 @@ private fun ScreenContent(
             paletteMode = paletteMode,
             tomorrowApiKey = tomorrowApiKey,
             savedPlaces = savedPlaces,
-            selectedPlaceId = weatherState?.place?.id,
+            selectedPlaceId = selectedPlace?.id,
             onSetUseMetric = { viewModel.setUseMetric(it) },
             onSetPaletteMode = { viewModel.setPaletteMode(it) },
             onSaveTomorrowApiKey = { viewModel.setTomorrowApiKey(it) },
@@ -352,7 +368,9 @@ private fun AirSkyCompositeView(
         } else {
             SunMoonScreen(
                 solar = weatherState?.solar,
-                lunar = weatherState?.lunar
+                lunar = weatherState?.lunar,
+                zoneId = weatherState?.place?.zoneId,
+                placeName = selectedPlace?.name
             )
         }
     }

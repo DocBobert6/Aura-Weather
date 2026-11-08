@@ -30,8 +30,10 @@ class SettingsManager(private val context: Context) {
         preferences[KEY_PALETTE_MODE] ?: "auto"
     }
 
+    // No default place: empty until the user selects one. (Selection lives
+    // in Room; this flow is currently unused.)
     val selectedPlaceIdFlow: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[KEY_SELECTED_PLACE_ID] ?: "florence_ky"
+        preferences[KEY_SELECTED_PLACE_ID] ?: ""
     }
 
     val tomorrowApiKeyFlow: Flow<String> = context.dataStore.data.map { preferences ->

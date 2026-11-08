@@ -52,11 +52,13 @@ fun AirPollenScreen(
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val aqi = airQuality?.aqi ?: 28
-    val category = airQuality?.category ?: "Good"
-    val guidance = airQuality?.healthGuidance ?: "Air quality is satisfactory."
+    // No AQI from the provider means "unavailable" — never a made-up 28/Good.
+    val aqi = airQuality?.aqi
+    val category = airQuality?.category ?: "Unavailable"
+    val guidance = airQuality?.healthGuidance ?: "Air quality data is unavailable."
 
     val aqiColor = when {
+        aqi == null -> Color.White.copy(alpha = 0.5f)
         aqi <= 50 -> Color(0xFF00E676)
         aqi <= 100 -> Color(0xFFFFEB3B)
         aqi <= 150 -> Color(0xFFFF9800)
@@ -81,7 +83,7 @@ fun AirPollenScreen(
                     color = Color.White
                 )
                 Text(
-                    text = "EPA Standard Measurements & Regional Sensor Feed",
+                    text = "Open-Meteo Air Quality",
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White.copy(alpha = 0.65f)
                 )
@@ -117,8 +119,9 @@ fun AirPollenScreen(
                                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                             )
 
-                            // Foreground AQI progress arc (normalized 0..300)
-                            val sweep = ((aqi.coerceIn(0, 300) / 300f) * 240f).coerceAtLeast(6f)
+                            // Foreground AQI progress arc (normalized 0..300).
+                            // With no AQI, the arc stays at the background.
+                            val sweep = if (aqi != null) ((aqi.coerceIn(0, 300) / 300f) * 240f).coerceAtLeast(6f) else 0f
                             drawArc(
                                 color = aqiColor,
                                 startAngle = 150f,
@@ -132,7 +135,7 @@ fun AirPollenScreen(
 
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = "$aqi",
+                                text = aqi?.toString() ?: "--",
                                 style = MaterialTheme.typography.displayMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
@@ -198,24 +201,24 @@ fun AirPollenScreen(
                 PollutantCard(
                     title = "PM2.5",
                     label = "Fine Dust",
-                    value = "${airQuality?.pm25 ?: 6.2} µg/m³",
-                    status = if ((airQuality?.pm25 ?: 6.2) < 12.0) "Good" else "Moderate",
+                    value = airQuality?.pm25?.let { "$it µg/m³" } ?: "--",
+                    status = airQuality?.pm25?.let { if (it < 12.0) "Good" else "Moderate" } ?: "--",
                     modifier = Modifier.weight(1f)
                 )
 
                 PollutantCard(
                     title = "PM10",
                     label = "Coarse Particles",
-                    value = "${airQuality?.pm10 ?: 12.0} µg/m³",
-                    status = if ((airQuality?.pm10 ?: 12.0) < 54.0) "Good" else "Moderate",
+                    value = airQuality?.pm10?.let { "$it µg/m³" } ?: "--",
+                    status = airQuality?.pm10?.let { if (it < 54.0) "Good" else "Moderate" } ?: "--",
                     modifier = Modifier.weight(1f)
                 )
 
                 PollutantCard(
                     title = "Ozone",
                     label = "O₃ Level",
-                    value = "${airQuality?.ozonePpb ?: 32.0} ppb",
-                    status = if ((airQuality?.ozonePpb ?: 32.0) < 54.0) "Good" else "Moderate",
+                    value = airQuality?.ozonePpb?.let { "$it ppb" } ?: "--",
+                    status = airQuality?.ozonePpb?.let { if (it < 54.0) "Good" else "Moderate" } ?: "--",
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -284,7 +287,7 @@ fun AirPollenScreen(
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "To enable live Tree, Grass, and Weed pollen counts, add a free Tomorrow.io API key in Settings. No fake values are displayed.",
+                                    text = "Pollen counts aren't connected yet — no live values are shown. A Tomorrow.io key can be stored in Settings for a future update, but it does not enable pollen data today.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color.White.copy(alpha = 0.75f)
                                 )

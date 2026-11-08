@@ -66,13 +66,6 @@ import kotlin.math.ln
 import kotlin.math.roundToInt
 import kotlin.math.tan
 
-data class MapLandmark(
-    val name: String,
-    val lat: Double,
-    val lon: Double,
-    val isRadarStation: Boolean = false
-)
-
 @Composable
 fun RadarScreen(
     state: FullWeatherState?,
@@ -85,9 +78,28 @@ fun RadarScreen(
     onEnterPiP: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // No place selected yet: the radar centres on the place, and there is
+    // no default location to centre on instead.
+    if (state == null) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color(0xFF0F172A)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Select a place to see its radar.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.8f),
+                modifier = Modifier.padding(24.dp)
+            )
+        }
+        return
+    }
+
     val context = LocalContext.current
 
-    // Zoom level and pan offsets (Zoom 8 is optimal for Northern Kentucky & Greater Cincinnati)
+    // Zoom level and pan offsets
     var zoomLevel by remember { mutableIntStateOf(8) }
     var panOffsetX by remember { mutableFloatStateOf(0f) }
     var panOffsetY by remember { mutableFloatStateOf(0f) }
@@ -117,22 +129,14 @@ fun RadarScreen(
         }
     }
 
-    // Center coordinates: selected place point or default NKY center
-    val centerLat = state?.place?.point?.lat ?: 38.9989
-    val centerLon = state?.place?.point?.lon ?: -84.6266
+    // Centre on the selected place. The location puck below marks it; there
+    // are no hardcoded landmarks — the radar station's coordinates are not
+    // part of the /points response, so it is named in the toolbar, not drawn.
+    val centerLat = state.place.point.lat
+    val centerLon = state.place.point.lon
 
-    // Geographic landmarks across Northern Kentucky and Greater Cincinnati
-    val landmarks = remember {
-        listOf(
-            MapLandmark("KILN Radar", 39.4200, -83.8200, isRadarStation = true),
-            MapLandmark("Cincinnati", 39.1031, -84.5120),
-            MapLandmark("Covington", 39.0837, -84.5086),
-            MapLandmark("Florence", 38.9989, -84.6266),
-            MapLandmark("Crittenden", 38.7915, -84.6033),
-            MapLandmark("Newport", 39.0917, -84.4922),
-            MapLandmark("CVG Airport", 39.0488, -84.6678)
-        )
-    }
+    // GIBS satellite layers are dated: use today, never a hardcoded date.
+    val gibsDate = remember { java.time.LocalDate.now().toString() }
 
     BoxWithConstraints(
         modifier = modifier
@@ -165,7 +169,7 @@ fun RadarScreen(
                     }
                 }
         ) {
-            // Render a 3x3 grid of real map tiles centered on NKY
+            // Render a 3x3 grid of real map tiles centered on the place
             for (dx in -1..1) {
                 for (dy in -1..1) {
                     val tileX = centerTileX + dx
@@ -180,12 +184,12 @@ fun RadarScreen(
 
                     val basemapUrl = "https://a.basemaps.cartocdn.com/dark_all/$zoomLevel/$tileX/$tileY.png"
                     val radarUrl = when (selectedLayer) {
-                        RadarLayer.Reflectivity, RadarLayer.KilnSite ->
+                        RadarLayer.Reflectivity, RadarLayer.LocalSite ->
                             "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$iemLayerName/$zoomLevel/$tileX/$tileY.png"
                         RadarLayer.SatelliteVis ->
-                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/2026-11-06/GoogleMapsCompatible_Level8/$zoomLevel/$tileY/$tileX.png"
+                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/$gibsDate/GoogleMapsCompatible_Level8/$zoomLevel/$tileY/$tileX.png"
                         RadarLayer.SatelliteIr ->
-                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_Band13_Clean_Infrared/default/2026-11-06/GoogleMapsCompatible_Level8/$zoomLevel/$tileY/$tileX.png"
+                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_Band13_Clean_Infrared/default/$gibsDate/GoogleMapsCompatible_Level8/$zoomLevel/$tileY/$tileX.png"
                     }
 
                     Box(
@@ -215,37 +219,6 @@ fun RadarScreen(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .alpha(0.85f)
-                        )
-                    }
-                }
-            }
-
-            // Real Geographic Landmarks overlay
-            landmarks.forEach { lm ->
-                val lmWorldX = lonToWorldPixel(lm.lon, zoomLevel) * userScale
-                val lmWorldY = latToWorldPixel(lm.lat, zoomLevel) * userScale
-                val lmScreenX = (screenWidthPx / 2f) + (lmWorldX - centerWorldX) + panOffsetX
-                val lmScreenY = (screenHeightPx / 2f) + (lmWorldY - centerWorldY) + panOffsetY
-
-                if (lmScreenX in -100f..(screenWidthPx + 100f) && lmScreenY in -100f..(screenHeightPx + 100f)) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .offset { IntOffset(lmScreenX.roundToInt() - 36, lmScreenY.roundToInt() - 16) }
-                            .width(72.dp)
-                    ) {
-                        Surface(
-                            color = if (lm.isRadarStation) Color(0xFFFF9100) else Color(0xFF1E88E5),
-                            shape = CircleShape,
-                            modifier = Modifier.size(if (lm.isRadarStation) 10.dp else 7.dp)
-                        ) {}
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = lm.name,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                            fontWeight = if (lm.isRadarStation) FontWeight.Bold else FontWeight.SemiBold,
-                            color = if (lm.isRadarStation) Color(0xFFFFB74D) else Color.White,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                     }
                 }
@@ -304,7 +277,7 @@ fun RadarScreen(
                         ) {}
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "KILN Radar (Wilmington, OH)",
+                            text = state.radarStation?.let { "$it Radar" } ?: "NEXRAD Radar",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -346,7 +319,7 @@ fun RadarScreen(
                         Text(
                             text = when (layer) {
                                 RadarLayer.Reflectivity -> "Composite"
-                                RadarLayer.KilnSite -> "KILN Site"
+                                RadarLayer.LocalSite -> "${state.radarStation ?: "Local"} Site"
                                 RadarLayer.SatelliteVis -> "Sat Visible"
                                 RadarLayer.SatelliteIr -> "Sat IR"
                             },

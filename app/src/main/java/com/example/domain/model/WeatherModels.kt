@@ -2,6 +2,7 @@ package com.example.domain.model
 
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 
 data class GeoPoint(val lat: Double, val lon: Double)
 
@@ -9,8 +10,10 @@ data class Place(
     val id: String,
     val name: String,
     val point: GeoPoint,
-    val stateCode: String = "KY",
-    val zoneId: String = "America/New_York",
+    val stateCode: String = "",
+    // Resolved per place (NWS /points timeZone, else Open-Meteo UTC offset).
+    // The device zone is only a transient starting point, never a place default.
+    val zoneId: String = ZoneId.systemDefault().id,
     val isPreset: Boolean = false
 )
 
@@ -55,7 +58,10 @@ data class HourlyPoint(
     val popPct: Int?,
     val precipMm: Double?,
     val condition: WeatherCondition,
-    val windMs: Double?
+    val windMs: Double?,
+    // Day/night for this exact hour (from NWS isDaytime, or solar position).
+    // Never assume daytime: a 2 AM entry must render a night icon.
+    val isDaytime: Boolean = true
 )
 
 data class DailyPoint(
@@ -148,10 +154,16 @@ data class FullWeatherState(
     val minutely60m: List<MinutePrecip>,
     val minuteSummary: String,
     val activeAlerts: List<WeatherAlert>,
-    val airQuality: AirQuality,
+    // Null when the air-quality provider returned nothing: the UI shows
+    // "unavailable", never an invented AQI.
+    val airQuality: AirQuality?,
     val pollen: PollenData,
     val solar: SolarTimes,
     val lunar: LunarTimes,
+    // Per-place data resolved from NWS /points for this place (null outside
+    // NWS coverage or when /points failed). Never a hardcoded station/zone.
+    val radarStation: String? = null,
+    val forecastZone: String? = null,
     val isStale: Boolean = false,
     val fetchedAt: Instant = Instant.now(),
     val errorMessage: String? = null

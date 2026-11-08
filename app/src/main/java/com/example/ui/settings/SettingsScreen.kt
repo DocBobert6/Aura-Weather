@@ -192,7 +192,7 @@ fun SettingsScreen(
             }
         }
 
-        // Saved Places & Presets
+        // Saved Places (no presets — the user adds their own places)
         item {
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(18.dp)) {
@@ -210,7 +210,7 @@ fun SettingsScreen(
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = "Saved Places & Presets",
+                                text = "Saved Places",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
@@ -250,7 +250,7 @@ fun SettingsScreen(
                             ) {
                                 Column {
                                     Text(
-                                        text = "${place.name}, ${place.stateCode}",
+                                        text = if (place.stateCode.isNotBlank()) "${place.name}, ${place.stateCode}" else place.name,
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                         color = Color.White
@@ -324,7 +324,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "Adding your Tomorrow.io key unlocks true 1-minute precipitation resolution and live Tree, Grass, and Weed pollen gauges. Core weather continues to work keyless if left blank.",
+                        text = "A Tomorrow.io key is stored here for a future update. It does not unlock anything today: 1-minute precipitation and live pollen are not connected yet, so no live values are shown with or without a key. Core weather works keyless.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.75f)
                     )

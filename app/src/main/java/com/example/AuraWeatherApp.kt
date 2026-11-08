@@ -1,23 +1,16 @@
 package com.example
 
 import android.app.Application
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 
 class AuraWeatherApp : Application() {
 
     lateinit var container: AppContainer
         private set
 
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
-        appScope.launch {
-            container.weatherRepository.initializePresets()
-        }
+        // No seeded places: on first launch the user picks a place (or uses
+        // their current location) and the app loads weather for that place.
     }
 }

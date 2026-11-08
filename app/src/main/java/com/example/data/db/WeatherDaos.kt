@@ -24,8 +24,11 @@ interface SavedPlaceDao {
     @Query("SELECT * FROM saved_places ORDER BY isPreset DESC, name ASC")
     fun getAllPlaces(): Flow<List<SavedPlaceEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertPresets(places: List<SavedPlaceEntity>)
+    @Query("SELECT * FROM saved_places")
+    suspend fun getAllPlacesList(): List<SavedPlaceEntity>
+
+    @Query("SELECT * FROM saved_places WHERE id = :placeId LIMIT 1")
+    suspend fun getPlaceById(placeId: String): SavedPlaceEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPlace(place: SavedPlaceEntity)
@@ -38,4 +41,7 @@ interface SavedPlaceDao {
 
     @Query("UPDATE saved_places SET isSelected = CASE WHEN id = :placeId THEN 1 ELSE 0 END")
     suspend fun setSelectedPlace(placeId: String)
+
+    @Query("UPDATE saved_places SET zoneId = :zoneId WHERE id = :placeId")
+    suspend fun updateZoneId(placeId: String, zoneId: String)
 }

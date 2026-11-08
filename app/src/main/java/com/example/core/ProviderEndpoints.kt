@@ -21,8 +21,8 @@ object ProviderEndpoints {
     // NASA GIBS Satellite WMTS Tiles (Keyless)
     const val NASA_GIBS_BASE = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/"
 
-    // Regional NEXRAD station for Northern Kentucky & Greater Cincinnati
-    const val DEFAULT_RADAR_STATION = "KILN" // Wilmington, OH
-    const val PRIMARY_OBS_STATION = "KCVG"  // Cincinnati/Northern Kentucky International Airport
-    const val SECONDARY_OBS_STATION = "KLUK" // Cincinnati Municipal Airport Lunken Field
+    // No default observation or radar station: the nearest station and the
+    // radar site are resolved per place from NWS /points (see WeatherRepository).
+    // There is deliberately no fallback station — a place outside NWS coverage
+    // uses Open-Meteo only, never another city's observations.
 }

@@ -53,8 +53,17 @@ import java.util.Locale
 fun AlertsScreen(
     alerts: List<WeatherAlert>,
     onViewOnRadar: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    fetchedAt: Instant? = null,
+    isStale: Boolean = false,
+    placeName: String? = null,
+    zoneId: ZoneId = ZoneId.systemDefault()
 ) {
+    // Cached alerts show their age: a stale alert list is not live data.
+    val cacheAgeText = if (isStale && fetchedAt != null) {
+        val mins = (Instant.now().epochSecond - fetchedAt.epochSecond) / 60
+        if (mins < 60) "Cached • ${mins}m ago" else "Cached • ${mins / 60}h ago"
+    } else null
     val sortedAlerts = remember(alerts) {
         alerts.sortedBy { alert ->
             when (alert.severity) {
@@ -88,10 +97,17 @@ fun AlertsScreen(
                         color = Color.White
                     )
                     Text(
-                        text = "NWS Wilmington (ILN) & Local Warnings",
+                        text = "National Weather Service alerts" + (placeName?.let { " for $it" } ?: ""),
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.White.copy(alpha = 0.65f)
                     )
+                    if (cacheAgeText != null) {
+                        Text(
+                            text = cacheAgeText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFFFB74D)
+                        )
+                    }
                 }
 
                 if (sortedAlerts.isNotEmpty()) {
@@ -119,7 +135,8 @@ fun AlertsScreen(
             items(sortedAlerts, key = { it.id }) { alert ->
                 AlertExpandableCard(
                     alert = alert,
-                    onViewOnRadar = onViewOnRadar
+                    onViewOnRadar = onViewOnRadar,
+                    zoneId = zoneId
                 )
             }
         }
@@ -158,7 +175,7 @@ private fun EmptyAlertsCard() {
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "No active watches, warnings, or advisories currently issued for Northern Kentucky and Greater Cincinnati by the National Weather Service.",
+                text = "No active watches, warnings, or advisories currently issued for this place by the National Weather Service.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = 0.75f),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -170,7 +187,8 @@ private fun EmptyAlertsCard() {
 @Composable
 private fun AlertExpandableCard(
     alert: WeatherAlert,
-    onViewOnRadar: () -> Unit
+    onViewOnRadar: () -> Unit,
+    zoneId: ZoneId = ZoneId.systemDefault()
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -182,8 +200,8 @@ private fun AlertExpandableCard(
         AlertSeverity.Unknown -> Color(0xFF5C6BC0) to "STATEMENT"
     }
 
-    val timeFormatter = remember {
-        DateTimeFormatter.ofPattern("EEE, MMM d, h:mm a", Locale.US).withZone(ZoneId.of("America/New_York"))
+    val timeFormatter = remember(zoneId) {
+        DateTimeFormatter.ofPattern("EEE, MMM d, h:mm a", Locale.US).withZone(zoneId)
     }
 
     GlassCard(
@@ -254,20 +272,22 @@ private fun AlertExpandableCard(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Text(
-                        text = "AFFECTED AREAS",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White.copy(alpha = 0.6f)
-                    )
-                    Text(
-                        text = alert.areaDesc,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
+                    if (alert.areaDesc.isNotBlank()) {
+                        Text(
+                            text = "AFFECTED AREAS",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White.copy(alpha = 0.6f)
+                        )
+                        Text(
+                            text = alert.areaDesc,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
 
                     Text(
                         text = "DETAILS",
