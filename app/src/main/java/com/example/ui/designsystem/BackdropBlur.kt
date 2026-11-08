@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.PowerManager
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
