@@ -1197,7 +1197,7 @@ private fun WeatherDetailsGrid(
                 trailing = if (windDir != null) {
                     {
                         Icon(
-                            imageVector = Icons.Default.North,
+                            imageVector = Icons.Default.ArrowUpward,
                             contentDescription = "Wind direction ${compassPoint(windDir.toDouble())}",
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
