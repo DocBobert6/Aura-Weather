@@ -15,50 +15,39 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import com.example.domain.model.WeatherCondition
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * Animated dynamic atmospheric sky background.
- * Renders gradients, sun/moon glow, drifting clouds, rain particles, snow, or stars.
+ * Animated mesh sky background (2.4a). A 3×3 grid of colour points from
+ * the condition palette ([AuraSky.gradientColors] — the single source, so
+ * sky and chrome can never disagree), blended as overlapping radial
+ * gradients over the condition's vertical gradient, with a slow drift and
+ * a small scroll parallax (the mesh moves slower than the content).
+ * Stars, the celestial glow, rain, and snow sit on top, unchanged.
+ * No touch reactivity anywhere (decision D3).
+ *
+ * The sky is static when reduced motion is on (no infinite transition is
+ * created at all), and on battery saver only the drift + glow animate —
+ * rain and stars hold still.
  */
 @Composable
 fun WeatherSky(
     condition: WeatherCondition,
     isDaytime: Boolean,
+    parallaxPx: Float = 0f,
     modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "sky_transition")
-
-    val driftOffset by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 20000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "drift"
-    )
-
-    val rainOffset by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rain"
-    )
-
-    val starAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3500, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "stars"
-    )
+    val reduceMotion = AuraMotion.rememberReducedMotion()
+    val powerSave = rememberPowerSaveMode()
+    val animateSky = !reduceMotion
+    val animateParticles = animateSky && !powerSave
+    val (driftOffset, rainOffset, starAlpha) =
+        skyAnimationValues(animateSky, animateParticles)
 
     // Precomputed particle coordinates for zero per-frame allocation
     val starCoords = remember {
@@ -73,47 +62,24 @@ fun WeatherSky(
         }
     }
 
-    // Sky gradient colors based on conditions and time of day
+    // Single source for the sky colours (2.2 token). This replaces the
+    // local `when` WeatherSky used to carry; Sleet / FreezingRain now take
+    // the snow gradient, as the token says.
     val gradientColors = remember(condition, isDaytime) {
-        when {
-            condition == WeatherCondition.Thunderstorm -> listOf(
-                Color(0xFF0F0B1E),
-                Color(0xFF1B1438),
-                Color(0xFF2E1A47)
-            )
-            condition == WeatherCondition.Rain || condition == WeatherCondition.HeavyRain || condition == WeatherCondition.Drizzle -> listOf(
-                Color(0xFF121B24),
-                Color(0xFF1E2D3D),
-                Color(0xFF2C3E50)
-            )
-            condition == WeatherCondition.Snow -> listOf(
-                Color(0xFF162534),
-                Color(0xFF233950),
-                Color(0xFF355270)
-            )
-            isDaytime && (condition == WeatherCondition.ClearDay || condition == WeatherCondition.PartlyCloudyDay) -> listOf(
-                Color(0xFF1565C0),
-                Color(0xFF1E88E5),
-                Color(0xFF42A5F5)
-            )
-            isDaytime -> listOf(
-                Color(0xFF263238),
-                Color(0xFF37474F),
-                Color(0xFF546E7A)
-            )
-            else -> listOf( // Clear / Partly Cloudy Night
-                Color(0xFF070B19),
-                Color(0xFF0D172E),
-                Color(0xFF132247)
-            )
-        }
+        AuraSky.gradientColors(condition, isDaytime)
     }
+    // Mesh points: the 3-stop gradient evaluated down the screen, centre
+    // column lightened, corners darkened, for an organic colour field.
+    val meshPoints = remember(gradientColors) { meshColors(gradientColors) }
+    // Parallax: the mesh shifts up to 64dp at 256px of scroll, back to
+    // rest at the top of the list.
+    val parallaxShiftPx = -(parallaxPx * 0.25f).coerceIn(0f, 64f)
 
     Canvas(modifier = modifier.fillMaxSize()) {
         val width = size.width
         val height = size.height
 
-        // 1. Draw atmospheric background gradient
+        // 1. Base vertical gradient (the condition's own stops).
         drawRect(
             brush = Brush.verticalGradient(
                 colors = gradientColors,
@@ -122,7 +88,30 @@ fun WeatherSky(
             )
         )
 
-        // 2. Draw stars at night
+        // 2. Mesh: 9 overlapping radial blobs, drifting slowly and
+        // shifting with the scroll parallax.
+        meshPoints.forEachIndexed { index, point ->
+            val phase = index * 0.7f
+            val driftAngle = driftOffset * 2f * PI.toFloat() + phase
+            val center = Offset(
+                x = point.xFrac * width + sin(driftAngle) * (width * 0.03f),
+                y = point.yFrac * height + cos(driftAngle) * (height * 0.015f) + parallaxShiftPx
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        point.color.copy(alpha = 0.55f),
+                        Color.Transparent
+                    ),
+                    center = center,
+                    radius = width * 0.55f
+                ),
+                radius = width * 0.55f,
+                center = center
+            )
+        }
+
+        // 3. Draw stars at night
         if (!isDaytime && condition != WeatherCondition.Cloudy && condition != WeatherCondition.Rain && condition != WeatherCondition.HeavyRain) {
             starCoords.forEach { (xFrac, yFrac) ->
                 val x = xFrac * width
@@ -135,9 +124,9 @@ fun WeatherSky(
             }
         }
 
-        // 3. Draw subtle atmospheric light glow (Sun / Moon)
+        // 4. Draw subtle atmospheric light glow (Sun / Moon)
         val celestialCenter = if (isDaytime) Offset(width * 0.75f, height * 0.16f) else Offset(width * 0.8f, height * 0.18f)
-        val celestialColor = if (isDaytime) Color(0xFFFFD54F) else Color(0xFFE0E0E0)
+        val celestialColor = AuraSky.celestialColor(isDaytime)
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
@@ -152,7 +141,7 @@ fun WeatherSky(
             center = celestialCenter
         )
 
-        // 4. Draw animated rain streaks
+        // 5. Draw animated rain streaks
         if (condition == WeatherCondition.Rain || condition == WeatherCondition.HeavyRain || condition == WeatherCondition.Thunderstorm || condition == WeatherCondition.Drizzle) {
             val strokeWidth = if (condition == WeatherCondition.HeavyRain) 2.5f else 1.5f
             val streakLength = if (condition == WeatherCondition.HeavyRain) 36f else 22f
@@ -170,7 +159,7 @@ fun WeatherSky(
             }
         }
 
-        // 5. Draw animated snow flakes
+        // 6. Draw animated snow flakes
         if (condition == WeatherCondition.Snow || condition == WeatherCondition.Sleet || condition == WeatherCondition.FreezingRain) {
             rainDrops.forEach { (xFrac, yFrac) ->
                 val startX = (xFrac * width + (driftOffset * 120f)) % width
@@ -182,5 +171,80 @@ fun WeatherSky(
                 )
             }
         }
+    }
+}
+
+/**
+ * The sky's three animation phases (drift / rain / star twinkle). When
+ * [animate] is false (reduced motion) no infinite transition is created
+ * at all, so nothing re-draws on a timer; when [animateParticles] is
+ * false (battery saver) the rain and stars hold still and only the drift
+ * + glow move.
+ */
+@Composable
+private fun skyAnimationValues(
+    animate: Boolean,
+    animateParticles: Boolean
+): Triple<Float, Float, Float> {
+    if (!animate) return Triple(0f, 0f, 1f)
+    val transition = rememberInfiniteTransition(label = "sky_transition")
+    val drift by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 20000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "drift"
+    )
+    val rain by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rain"
+    )
+    val stars by transition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 3500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "stars"
+    )
+    return Triple(drift, if (animateParticles) rain else 0f, if (animateParticles) stars else 1f)
+}
+
+/** One mesh point: grid position + colour. */
+private data class MeshPoint(val xFrac: Float, val yFrac: Float, val color: Color)
+
+/**
+ * The 3×3 mesh from a 3-stop gradient: each point's colour is the
+ * gradient evaluated at the point's height, the centre column catching a
+ * little light and the corners falling away.
+ */
+private fun meshColors(gradient: List<Color>): List<MeshPoint> {
+    val xs = listOf(0.15f, 0.5f, 0.85f)
+    val ys = listOf(0.10f, 0.45f, 0.88f)
+    return ys.flatMapIndexed { row, y ->
+        xs.mapIndexed { col, x ->
+            var color = gradientAt(gradient, y)
+            if (col == 1) color = lerp(color, Color.White, 0.10f)
+            if ((row == 0 || row == 2) && col != 1) color = lerp(color, Color.Black, 0.08f)
+            MeshPoint(x, y, color)
+        }
+    }
+}
+
+/** A 3-stop gradient evaluated at [fraction] (0 = top, 1 = bottom). */
+private fun gradientAt(gradient: List<Color>, fraction: Float): Color {
+    val f = fraction.coerceIn(0f, 1f)
+    return if (f < 0.5f) {
+        lerp(gradient[0], gradient[1], f * 2f)
+    } else {
+        lerp(gradient[1], gradient[2], (f - 0.5f) * 2f)
     }
 }

@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -80,9 +81,13 @@ object AuraBars {
 
 /**
  * The glass container for floating bars (and, from 2.5, glass cards).
- * Scheme-tinted scrim + hairline border + soft shadow. The real backdrop
- * blur lands in 2.4; until then this is the token-driven version of the
- * old fake glass — the tint comes from the scheme, not a hardcoded navy.
+ * A real backdrop blur of the recorded sky (2.4b) under a scheme-tinted
+ * scrim, a 1dp hairline border with a brighter lit top edge, and a soft
+ * ambient shadow (optionally tinted by the condition colour). When there
+ * is no backdrop to blur — Radar (its backdrop is the map), low-RAM
+ * devices, battery saver — the scrim is stronger and the blur is skipped,
+ * legibility first. A filled [color] (e.g. the Radar play button) also
+ * skips the blur: nothing shows through an opaque fill.
  */
 @Composable
 fun GlassSurface(
@@ -91,17 +96,59 @@ fun GlassSurface(
     modifier: Modifier = Modifier,
     shadowElevation: Dp = 8.dp,
     color: Color? = null,
+    progressive: Boolean = false,
+    progressiveEdge: ProgressiveEdge = ProgressiveEdge.Top,
+    shadowColor: Color? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
+    val blurState = LocalBackdropBlur.current
+    val blurOn = blurState?.enabled == true && color == null
+    val surface = MaterialTheme.colorScheme.surface
+    val scrim = if (color != null) {
+        color
+    } else {
+        val base = AuraGlass.tint(surface, level)
+        if (blurOn) base else base.copy(alpha = (base.alpha + 0.12f).coerceAtMost(0.94f))
+    }
     Surface(
-        modifier = modifier,
+        modifier = modifier.shadow(
+            elevation = shadowElevation,
+            shape = shape,
+            ambientColor = shadowColor?.copy(alpha = 0.35f) ?: Color.Black,
+            spotColor = shadowColor?.copy(alpha = 0.5f) ?: Color.Black
+        ),
         shape = shape,
-        color = color ?: AuraGlass.tint(MaterialTheme.colorScheme.surface, level),
+        color = Color.Transparent,
         tonalElevation = 0.dp,
-        shadowElevation = shadowElevation,
+        shadowElevation = 0.dp,
         border = BorderStroke(1.dp, Color.White.copy(alpha = AuraGlass.borderAlpha))
     ) {
-        Box(content = content)
+        Box {
+            if (blurOn) {
+                BackdropBlurCanvas(
+                    level = level,
+                    shape = shape,
+                    progressive = progressive,
+                    progressiveEdge = progressiveEdge
+                )
+            }
+            // Scrim over the blurred (or plain) backdrop, then the lit edge.
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(shape)
+                    .background(scrim)
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .clip(shape)
+                    .background(Color.White.copy(alpha = 0.14f))
+            )
+            content()
+        }
     }
 }
 
@@ -124,22 +171,21 @@ fun NavPillItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val springs = AuraMotion.springs(isExpressive)
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
         targetValue = if (pressed) 0.92f else 1f,
-        animationSpec = springs.press,
+        animationSpec = AuraMotion.spec(isExpressive) { press },
         label = "navPress"
     )
     val indicatorScale by animateFloatAsState(
         targetValue = if (selected) 1f else 0.6f,
-        animationSpec = springs.selection,
+        animationSpec = AuraMotion.spec(isExpressive) { selection },
         label = "navIndicatorScale"
     )
     val indicatorAlpha by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
-        animationSpec = springs.selection,
+        animationSpec = AuraMotion.spec(isExpressive) { selection },
         label = "navIndicatorAlpha"
     )
 
@@ -237,7 +283,7 @@ fun GlassIconButton(
     val pressed by interactionSource.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
         targetValue = if (pressed) 0.9f else 1f,
-        animationSpec = AuraMotion.springs(isExpressive).press,
+        animationSpec = AuraMotion.spec(isExpressive) { press },
         label = "glassButtonPress"
     )
     GlassSurface(
@@ -316,22 +362,21 @@ private fun SegmentOption(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val springs = AuraMotion.springs(isExpressive)
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
         targetValue = if (pressed) 0.95f else 1f,
-        animationSpec = springs.press,
+        animationSpec = AuraMotion.spec(isExpressive) { press },
         label = "segmentPress"
     )
     val indicatorScale by animateFloatAsState(
         targetValue = if (selected) 1f else 0.85f,
-        animationSpec = springs.selection,
+        animationSpec = AuraMotion.spec(isExpressive) { selection },
         label = "segmentIndicator"
     )
     val indicatorAlpha by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
-        animationSpec = springs.selection,
+        animationSpec = AuraMotion.spec(isExpressive) { selection },
         label = "segmentIndicatorAlpha"
     )
     Box(

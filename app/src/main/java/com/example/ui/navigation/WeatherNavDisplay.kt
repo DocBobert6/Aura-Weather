@@ -18,8 +18,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,13 +31,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.toIntSize
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.Place
 import com.example.domain.model.WeatherCondition
@@ -46,11 +53,16 @@ import com.example.ui.alerts.AlertsScreen
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraMotion
 import com.example.ui.designsystem.AuraShapes
+import com.example.ui.designsystem.AuraSky
+import com.example.ui.designsystem.BackdropBlurState
 import com.example.ui.designsystem.GlassLevel
 import com.example.ui.designsystem.GlassSurface
+import com.example.ui.designsystem.LocalBackdropBlur
 import com.example.ui.designsystem.NavPillItem
 import com.example.ui.designsystem.PillSegmentedControl
+import com.example.ui.designsystem.ProgressiveEdge
 import com.example.ui.designsystem.WeatherSky
+import com.example.ui.designsystem.rememberBackdropBlurEnabled
 import com.example.ui.home.HomeScreen
 import com.example.ui.radar.RadarScreen
 import com.example.ui.settings.SettingsScreen
@@ -102,10 +114,15 @@ fun WeatherNavDisplay(
             currentDestination != ScreenDestination.Alerts
     )
     var barHidden by remember { mutableStateOf(false) }
+    // Sky parallax (2.4a): total scrolled distance, 0..256px. The mesh
+    // shifts a quarter of it, so the sky moves slower than the content.
+    // Accumulated for every nested scroll, not only when the bar may hide.
+    var scrollAccumPx by remember { mutableStateOf(0f) }
     val nestedScrollConnection = remember {
         var downAccum = 0f
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                scrollAccumPx = (scrollAccumPx - available.y).coerceIn(0f, 256f)
                 if (!canHideBar) {
                     barHidden = false
                     downAccum = 0f
@@ -130,20 +147,52 @@ fun WeatherNavDisplay(
     }
     val barOffsetY by animateFloatAsState(
         targetValue = if (barHidden) hideOffsetPx else 0f,
-        animationSpec = AuraMotion.springs(isExpressive).bar,
+        animationSpec = AuraMotion.spec(isExpressive) { bar },
         label = "navBarOffset"
     )
 
+    // Backdrop blur (2.4b): the sky is recorded into a graphics layer so
+    // the floating glass can sample a real blurred copy of it. Off on
+    // low-RAM devices and in battery saver (tint-only fallback).
+    val skyLayer = rememberGraphicsLayer()
+    val blurEnabled = rememberBackdropBlurEnabled()
+    val backdropBlurState = remember(skyLayer, blurEnabled) {
+        BackdropBlurState(skyLayer, blurEnabled)
+    }
+    // The condition's deep sky tone, for the bars' ambient shadows (2.4b).
+    val shadowTint = remember(condition, isDaytime) {
+        AuraSky.gradientColors(condition, isDaytime).last()
+    }
+
+    CompositionLocalProvider(LocalBackdropBlur provides backdropBlurState) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val isWideScreen = maxWidth >= 600.dp
 
         Box(modifier = Modifier.fillMaxSize()) {
-            // Full-screen dynamic atmospheric sky
-            WeatherSky(
-                condition = condition,
-                isDaytime = isDaytime,
-                modifier = Modifier.fillMaxSize()
-            )
+            // Full-screen mesh sky, recorded into the backdrop-blur layer.
+            // Only the sky is recorded: the screens' own glass sits over
+            // the sky, and Radar's glass opts out (its backdrop is the
+            // map, not the sky).
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .onGloballyPositioned { coords ->
+                        backdropBlurState.skyOriginInWindow = coords.positionInWindow()
+                    }
+                    .drawWithContent {
+                        backdropBlurState.record(density, layoutDirection, size.toIntSize()) {
+                            drawContent()
+                        }
+                        drawLayer(backdropBlurState.skyLayer)
+                    }
+            ) {
+                WeatherSky(
+                    condition = condition,
+                    isDaytime = isDaytime,
+                    parallaxPx = scrollAccumPx,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
 
             if (isWideScreen) {
                 // Wide screens (tablets, foldables unfolded): floating
@@ -152,6 +201,7 @@ fun WeatherNavDisplay(
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
+                        .nestedScroll(nestedScrollConnection)
                         .windowInsetsPadding(
                             WindowInsets.safeDrawing.only(
                                 WindowInsetsSides.Top + WindowInsetsSides.Horizontal
@@ -168,6 +218,7 @@ fun WeatherNavDisplay(
                             currentDestination = currentDestination,
                             activeAlertsCount = activeAlertsCount,
                             isExpressive = isExpressive,
+                            shadowColor = shadowTint,
                             onSelect = { currentDestination = it }
                         )
                     }
@@ -236,6 +287,7 @@ fun WeatherNavDisplay(
                         currentDestination = currentDestination,
                         activeAlertsCount = activeAlertsCount,
                         isExpressive = isExpressive,
+                        shadowColor = shadowTint,
                         onSelect = { currentDestination = it },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -251,6 +303,7 @@ fun WeatherNavDisplay(
             }
         }
     }
+    }
 }
 
 /**
@@ -263,12 +316,16 @@ private fun FloatingNavBar(
     currentDestination: ScreenDestination,
     activeAlertsCount: Int,
     isExpressive: Boolean,
+    shadowColor: Color?,
     onSelect: (ScreenDestination) -> Unit,
     modifier: Modifier = Modifier
 ) {
     GlassSurface(
         level = GlassLevel.Bar,
         shape = AuraShapes.pill,
+        progressive = true,
+        progressiveEdge = ProgressiveEdge.Top,
+        shadowColor = shadowColor,
         modifier = modifier.height(AuraBars.barHeight)
     ) {
         Row(
@@ -308,12 +365,14 @@ private fun FloatingNavRail(
     currentDestination: ScreenDestination,
     activeAlertsCount: Int,
     isExpressive: Boolean,
+    shadowColor: Color?,
     onSelect: (ScreenDestination) -> Unit,
     modifier: Modifier = Modifier
 ) {
     GlassSurface(
         level = GlassLevel.Bar,
         shape = AuraShapes.pill,
+        shadowColor = shadowColor,
         modifier = modifier.width(AuraBars.railWidth)
     ) {
         Column(
@@ -380,17 +439,21 @@ private fun ScreenContent(
             onNavigateToSettings = { onNavigate(ScreenDestination.Settings) }
         )
 
-        ScreenDestination.Radar -> RadarScreen(
-            state = weatherState,
-            selectedLayer = selectedRadarLayer,
-            currentFrameIndex = currentRadarFrameIndex,
-            isPlaying = isRadarPlaying,
-            onSelectLayer = { viewModel.setRadarLayer(it) },
-            onTogglePlay = { viewModel.toggleRadarPlay() },
-            onScrubFrame = { viewModel.setRadarFrameIndex(it) },
-            onEnterPiP = onEnterPiP,
-            paletteMode = paletteMode
-        )
+        ScreenDestination.Radar -> CompositionLocalProvider(LocalBackdropBlur provides null) {
+            // Radar's backdrop is the map, not the sky: its glass falls
+            // back to the stronger tint-only scrim (2.4b).
+            RadarScreen(
+                state = weatherState,
+                selectedLayer = selectedRadarLayer,
+                currentFrameIndex = currentRadarFrameIndex,
+                isPlaying = isRadarPlaying,
+                onSelectLayer = { viewModel.setRadarLayer(it) },
+                onTogglePlay = { viewModel.toggleRadarPlay() },
+                onScrubFrame = { viewModel.setRadarFrameIndex(it) },
+                onEnterPiP = onEnterPiP,
+                paletteMode = paletteMode
+            )
+        }
 
         ScreenDestination.Alerts -> AlertsScreen(
             alerts = weatherState?.activeAlerts ?: emptyList(),

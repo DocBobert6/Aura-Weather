@@ -84,9 +84,11 @@ import com.example.domain.model.AlertSeverity
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraMotion
 import com.example.ui.designsystem.AuraShapes
+import com.example.ui.designsystem.AuraSky
 import com.example.ui.designsystem.GlassIconButton
 import com.example.ui.designsystem.GlassLevel
 import com.example.ui.designsystem.GlassSurface
+import com.example.ui.designsystem.ProgressiveEdge
 import com.example.domain.model.DailyPoint
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.HourlyPoint
@@ -159,6 +161,14 @@ fun HomeScreen(
         freshnessText == null -> null
         state?.isStale == true -> "Cached • $freshnessText"
         else -> freshnessText
+    }
+
+    // The condition's deep sky tone, for the top bar's ambient shadow (2.4b).
+    val shadowTint = remember(state?.current?.condition, state?.solar?.isDaytime) {
+        AuraSky.gradientColors(
+            state?.current?.condition ?: WeatherCondition.ClearDay,
+            state?.solar?.isDaytime ?: true
+        ).last()
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -312,6 +322,7 @@ fun HomeScreen(
         isStale = state?.isStale ?: false,
         collapsed = collapsed,
         isExpressive = paletteMode == "expressive",
+        shadowColor = shadowTint,
         menuExpanded = locationMenuExpanded,
         onToggleMenu = { locationMenuExpanded = !locationMenuExpanded },
         onSelectPlace = {
@@ -433,6 +444,7 @@ private fun FloatingTopBar(
     isStale: Boolean,
     collapsed: Boolean,
     isExpressive: Boolean,
+    shadowColor: Color?,
     menuExpanded: Boolean,
     onToggleMenu: () -> Unit,
     onSelectPlace: (String) -> Unit,
@@ -440,7 +452,7 @@ private fun FloatingTopBar(
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val springs = AuraMotion.springs(isExpressive)
+    val selectionSpec = AuraMotion.spec(isExpressive) { selection }
     val placeName = place?.let { "${it.name}${if (it.stateCode.isNotBlank()) ", ${it.stateCode}" else ""}" }
         ?: "No place selected"
 
@@ -454,6 +466,9 @@ private fun FloatingTopBar(
             GlassSurface(
                 level = GlassLevel.Bar,
                 shape = AuraShapes.pill,
+                progressive = true,
+                progressiveEdge = ProgressiveEdge.Bottom,
+                shadowColor = shadowColor,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
@@ -532,12 +547,15 @@ private fun FloatingTopBar(
         // when collapsed). Hidden entirely when nothing was ever fetched.
         AnimatedVisibility(
             visible = !collapsed && freshnessText != null,
-            enter = fadeIn() + scaleIn(animationSpec = springs.selection),
-            exit = fadeOut() + scaleOut(animationSpec = springs.selection)
+            enter = fadeIn() + scaleIn(animationSpec = selectionSpec),
+            exit = fadeOut() + scaleOut(animationSpec = selectionSpec)
         ) {
             GlassSurface(
                 level = GlassLevel.Bar,
                 shape = AuraShapes.pill,
+                progressive = true,
+                progressiveEdge = ProgressiveEdge.Bottom,
+                shadowColor = shadowColor,
                 modifier = Modifier.height(48.dp)
             ) {
                 Box(

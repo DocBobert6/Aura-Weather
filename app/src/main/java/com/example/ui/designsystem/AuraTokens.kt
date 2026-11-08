@@ -1,13 +1,19 @@
 package com.example.ui.designsystem
 
 import android.content.Context
+import android.os.PowerManager
 import android.provider.Settings
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Shapes
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.domain.model.AlertSeverity
@@ -188,6 +194,35 @@ object AuraMotion {
             Settings.Global.ANIMATOR_DURATION_SCALE,
             1f
         ) == 0f
+
+    /** Composable wrapper for [reducedMotion]: the animator scale is read once. */
+    @Composable
+    fun rememberReducedMotion(): Boolean {
+        val context = LocalContext.current
+        return remember { reducedMotion(context) }
+    }
+
+    /**
+     * The animation spec for one interactive spring (2.4d): the chosen
+     * spring set, or an instant snap when reduced motion is on. The caller
+     * picks which spring of the set with [pick] — `{ press }`, `{ bar }` …
+     */
+    @Composable
+    fun <T> spec(expressive: Boolean, pick: AuraSprings.() -> AnimationSpec<T>): AnimationSpec<T> =
+        if (rememberReducedMotion()) snap() else springs(expressive).pick()
+}
+
+/**
+ * True while the device is in battery-saver mode (2.4a guardrail: the sky
+ * keeps only drift + glow, and the backdrop blur is off).
+ */
+@Composable
+fun rememberPowerSaveMode(): Boolean {
+    val context = LocalContext.current
+    return remember {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        powerManager.isPowerSaveMode
+    }
 }
 
 /**
