@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.NightsStay
@@ -43,7 +41,11 @@ import androidx.compose.ui.unit.sp
 import com.example.domain.model.LunarTimes
 import com.example.domain.model.SolarTimes
 import com.example.ui.designsystem.AuraBars
-import com.example.ui.designsystem.GlassCard
+import com.example.ui.designsystem.AuraColors
+import com.example.ui.designsystem.AuraShapes
+import com.example.ui.designsystem.AuraSky
+import com.example.ui.designsystem.GlassLevel
+import com.example.ui.designsystem.GlassSurface
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -98,19 +100,19 @@ fun SunMoonScreen(
                     text = "SUN & MOON DYNAMICS",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = "Astronomical Solar Track & Lunar Illuminance" + (placeName?.let { " for $it" } ?: ""),
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.65f)
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                 )
             }
         }
 
         // Solar Arc Visualization Card
         item {
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
+            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -121,7 +123,7 @@ fun SunMoonScreen(
                             text = "SOLAR ARC",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White.copy(alpha = 0.7f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                         )
 
                         Text(
@@ -132,11 +134,15 @@ fun SunMoonScreen(
                             },
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFFFD54F)
+                            color = AuraSky.celestialColor(true)
                         )
                     }
 
                     Spacer(modifier = Modifier.height(18.dp))
+
+                    // The horizon line is drawn inside the Canvas (a DrawScope,
+                    // where the scheme cannot be read), so resolve it here.
+                    val horizonLineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
 
                     // Canvas Solar Arc
                     Box(
@@ -151,7 +157,7 @@ fun SunMoonScreen(
 
                             // Horizon line
                             drawLine(
-                                color = Color.White.copy(alpha = 0.2f),
+                                color = horizonLineColor,
                                 start = Offset(0f, horizonY),
                                 end = Offset(w, horizonY),
                                 strokeWidth = 1.5f
@@ -164,7 +170,7 @@ fun SunMoonScreen(
                             }
                             drawPath(
                                 path = arcPath,
-                                color = Color(0xFFFFD54F).copy(alpha = 0.35f),
+                                color = AuraSky.celestialColor(true).copy(alpha = 0.35f),
                                 style = Stroke(width = 2.5f, cap = StrokeCap.Round)
                             )
 
@@ -173,7 +179,11 @@ fun SunMoonScreen(
                             // Without real sunrise/sunset there is no arc to draw.
                             val rise = solar?.sunrise?.epochSecond ?: return@Canvas
                             val set = solar?.sunset?.epochSecond ?: return@Canvas
-                            val progress = if (now in rise..set) {
+                            // After sunset the sun is below the horizon: there is no
+                            // position to draw, so the dot is hidden instead of
+                            // parking at the arc apex (the old 0.5f fallback).
+                            val isDaytime = now in rise..set
+                            val progress = if (isDaytime) {
                                 ((now - rise).toFloat() / (set - rise).toFloat()).coerceIn(0f, 1f)
                             } else {
                                 0.5f
@@ -184,21 +194,23 @@ fun SunMoonScreen(
                             val sunX = (1 - t) * (1 - t) * (w * 0.12f) + 2 * (1 - t) * t * (w * 0.5f) + t * t * (w * 0.88f)
                             val sunY = (1 - t) * (1 - t) * horizonY + 2 * (1 - t) * t * (-h * 0.15f) + t * t * horizonY
 
-                            // Draw glowing sun
-                            drawCircle(
-                                brush = Brush.radialGradient(
-                                    colors = listOf(Color(0xFFFFD54F).copy(alpha = 0.5f), Color.Transparent),
-                                    center = Offset(sunX, sunY),
-                                    radius = 28f
-                                ),
-                                radius = 28f,
-                                center = Offset(sunX, sunY)
-                            )
-                            drawCircle(
-                                color = Color(0xFFFFD54F),
-                                radius = 8f,
-                                center = Offset(sunX, sunY)
-                            )
+                            // Draw glowing sun (only while it is up)
+                            if (isDaytime) {
+                                drawCircle(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(AuraSky.celestialColor(true).copy(alpha = 0.5f), Color.Transparent),
+                                        center = Offset(sunX, sunY),
+                                        radius = 28f
+                                    ),
+                                    radius = 28f,
+                                    center = Offset(sunX, sunY)
+                                )
+                                drawCircle(
+                                    color = AuraSky.celestialColor(true),
+                                    radius = 8f,
+                                    center = Offset(sunX, sunY)
+                                )
+                            }
                         }
                     }
 
@@ -209,18 +221,18 @@ fun SunMoonScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column {
-                            Text(text = "Sunrise", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.6f))
-                            Text(text = sunriseStr, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text(text = "Sunrise", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                            Text(text = sunriseStr, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                         }
 
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(text = "Solar Noon", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.6f))
-                            Text(text = noonStr, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text(text = "Solar Noon", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                            Text(text = noonStr, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                         }
 
                         Column(horizontalAlignment = Alignment.End) {
-                            Text(text = "Sunset", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.6f))
-                            Text(text = sunsetStr, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text(text = "Sunset", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                            Text(text = sunsetStr, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
                 }
@@ -233,7 +245,7 @@ fun SunMoonScreen(
                 text = "LIGHTING & TWILIGHT PHASES",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White.copy(alpha = 0.7f)
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
             )
         }
 
@@ -245,7 +257,7 @@ fun SunMoonScreen(
                 TwilightCard(
                     title = "Golden Hour",
                     icon = Icons.Default.CameraAlt,
-                    accentColor = Color(0xFFFFB74D),
+                    accentColor = AuraColors.Warning,
                     morning = solar?.goldenHourMorningStart?.let { timeFormatter.format(it) } ?: "--",
                     evening = solar?.goldenHourEveningStart?.let { timeFormatter.format(it) } ?: "--",
                     modifier = Modifier.weight(1f)
@@ -254,7 +266,7 @@ fun SunMoonScreen(
                 TwilightCard(
                     title = "Blue Hour",
                     icon = Icons.Default.WbTwilight,
-                    accentColor = Color(0xFF64B5F6),
+                    accentColor = AuraColors.Water,
                     morning = solar?.blueHourMorningStart?.let { timeFormatter.format(it) } ?: "--",
                     evening = solar?.blueHourEveningStart?.let { timeFormatter.format(it) } ?: "--",
                     modifier = Modifier.weight(1f)
@@ -269,7 +281,7 @@ fun SunMoonScreen(
                 text = "LUNAR CYCLE",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White.copy(alpha = 0.7f)
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
             )
         }
 
@@ -278,7 +290,7 @@ fun SunMoonScreen(
             val illFraction = lunar?.illuminatedFraction ?: 0.0
             val illPercent = (illFraction * 100).roundToInt()
 
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
+            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -294,20 +306,17 @@ fun SunMoonScreen(
                             val r = size.minDimension / 2.2f
                             val center = Offset(size.width / 2, size.height / 2)
 
-                            // Dark moon silhouette
-                            drawCircle(color = Color(0xFF1E293B), radius = r, center = center)
-
                             // Illuminated moon disk
                             drawCircle(
-                                color = Color(0xFFE2E8F0),
+                                color = AuraSky.celestialColor(false),
                                 radius = r,
                                 center = center
                             )
 
                             // Shadow mask based on illuminated fraction
-                            val shadowOffset = (1.0f - illFraction.toFloat()) * r * 1.8f
+                            val shadowOffset = illFraction.toFloat() * r * 1.8f
                             drawCircle(
-                                color = Color(0xFF0F172A),
+                                color = AuraColors.MoonShadow,
                                 radius = r * 0.98f,
                                 center = Offset(center.x - shadowOffset, center.y)
                             )
@@ -321,7 +330,7 @@ fun SunMoonScreen(
                             text = phaseName,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
 
                         Spacer(modifier = Modifier.height(4.dp))
@@ -329,7 +338,7 @@ fun SunMoonScreen(
                         Text(
                             text = if (lunar != null) "$illPercent% illuminated disk" else "--",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.8f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                         )
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -338,13 +347,13 @@ fun SunMoonScreen(
                             Text(
                                 text = lunar?.nextFullMoonDays?.let { "Next Full Moon: ${it}d" } ?: "Next Full Moon: --",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF81D4FA)
+                                color = AuraColors.MoonBlue
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
                                 text = lunar?.nextNewMoonDays?.let { "New Moon: ${it}d" } ?: "New Moon: --",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color.White.copy(alpha = 0.6f)
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             )
                         }
                     }
@@ -363,7 +372,7 @@ private fun TwilightCard(
     evening: String,
     modifier: Modifier = Modifier
 ) {
-    GlassCard(modifier = modifier) {
+    GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = modifier) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -377,7 +386,7 @@ private fun TwilightCard(
                     text = title,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
 
@@ -386,13 +395,13 @@ private fun TwilightCard(
             Text(
                 text = "Dawn / Morning",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = Color.White.copy(alpha = 0.6f)
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
             Text(
                 text = morning,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             Spacer(modifier = Modifier.height(6.dp))
@@ -400,13 +409,13 @@ private fun TwilightCard(
             Text(
                 text = "Dusk / Evening",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = Color.White.copy(alpha = 0.6f)
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
             Text(
                 text = evening,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
     }

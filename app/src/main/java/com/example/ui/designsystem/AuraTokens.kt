@@ -43,6 +43,16 @@ object AuraColors {
     val Sunset: Color = Color(0xFFFF8A65)
 
     /**
+     * Moon shadow — fixed dark in both modes. A phase shadow must read as
+     * dark; the scheme surface would go light in light mode and break the
+     * phase rendering.
+     */
+    val MoonShadow: Color = Color(0xFF0F172A)
+
+    /** Moon blue — the "Next Full Moon" text. */
+    val MoonBlue: Color = Color(0xFF81D4FA)
+
+    /**
      * Minute-cast bar colour by precipitation rate (mm/h): light rain is
      * blue, moderate amber, heavy red; the baseline is a faint neutral.
      */
