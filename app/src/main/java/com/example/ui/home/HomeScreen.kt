@@ -4,6 +4,10 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,7 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Air
@@ -51,22 +55,24 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -76,6 +82,11 @@ import androidx.compose.ui.unit.sp
 import com.example.core.UnitFormatter
 import com.example.domain.model.AlertSeverity
 import com.example.ui.designsystem.AuraBars
+import com.example.ui.designsystem.AuraMotion
+import com.example.ui.designsystem.AuraShapes
+import com.example.ui.designsystem.GlassIconButton
+import com.example.ui.designsystem.GlassLevel
+import com.example.ui.designsystem.GlassSurface
 import com.example.domain.model.DailyPoint
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.HourlyPoint
@@ -98,6 +109,7 @@ fun HomeScreen(
     loadError: String?,
     savedPlaces: List<Place>,
     unitFormatter: UnitFormatter,
+    paletteMode: String = "auto",
     onRefresh: () -> Unit,
     onSelectPlace: (String) -> Unit,
     onUseCurrentLocation: () -> Unit,
@@ -117,41 +129,53 @@ fun HomeScreen(
         }
     }
 
+    // The floating top bar collapses to the place pill alone once the list
+    // has scrolled ~48dp; the freshness detail moves into the hero card.
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    val collapsed by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0 ||
+                listState.firstVisibleItemScrollOffset > with(density) { 48.dp.toPx() }
+        }
+    }
+
+    // Freshness: no fetch yet means no freshness text at all — never the
+    // "Updated just now" the empty state used to show for nothing fetched.
+    val fetchedAt = state?.fetchedAt
+    val freshnessText: String? = when {
+        fetchedAt == null -> null
+        isRefreshing -> "Refreshing..."
+        else -> {
+            val diffMins = (Instant.now().epochSecond - fetchedAt.epochSecond) / 60
+            when {
+                diffMins <= 1 -> "Updated just now"
+                diffMins < 60 -> "Updated ${diffMins}m ago"
+                else -> "Updated ${diffMins / 60}h ago"
+            }
+        }
+    }
+    val freshnessDetail: String? = when {
+        freshnessText == null -> null
+        state?.isStale == true -> "Cached • $freshnessText"
+        else -> freshnessText
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
     LazyColumn(
-        modifier = modifier
+        state = listState,
+        modifier = Modifier
             .fillMaxSize()
             .testTag("home_screen_scroll"),
         contentPadding = PaddingValues(
             start = 16.dp,
             end = 16.dp,
-            top = 8.dp,
-            // The old trailing 24dp spacer is now this: room for the
-            // floating phone bar, so the last card never hides under it.
+            // Room for the floating top bar pinned over the list.
+            top = 56.dp,
             bottom = AuraBars.contentBottomPadding()
         ),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. Top Location Header & Freshness Bar
-        item {
-            HeaderBar(
-                place = selectedPlace ?: state?.place,
-                savedPlaces = savedPlaces,
-                isRefreshing = isRefreshing,
-                isStale = state?.isStale ?: false,
-                fetchedAt = state?.fetchedAt ?: Instant.now(),
-                menuExpanded = locationMenuExpanded,
-                onToggleMenu = { locationMenuExpanded = !locationMenuExpanded },
-                onSelectPlace = {
-                    locationMenuExpanded = false
-                    onSelectPlace(it)
-                },
-                onLocationClick = {
-                    locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-                },
-                onRefresh = onRefresh
-            )
-        }
-
         // 2. Offline / Error Banner if any
         if (state?.errorMessage != null) {
             item {
@@ -218,7 +242,10 @@ fun HomeScreen(
         item {
             HeroWeatherCard(
                 state = state,
-                unitFormatter = unitFormatter
+                unitFormatter = unitFormatter,
+                // When the top bar is collapsed, the freshness detail lives
+                // here instead of in the pill.
+                freshnessText = if (collapsed) freshnessDetail else null
             )
         }
 
@@ -271,6 +298,35 @@ fun HomeScreen(
             )
         }
         }
+    }
+
+    // Floating top bar pinned over the sky: place pill + freshness pill +
+    // circular location / refresh buttons. Safe-drawing insets are part of
+    // the bar's placement (the ScreenContent container applies them above
+    // this screen), so it never collides with the status bar.
+    FloatingTopBar(
+        place = selectedPlace ?: state?.place,
+        savedPlaces = savedPlaces,
+        isRefreshing = isRefreshing,
+        freshnessText = freshnessDetail,
+        isStale = state?.isStale ?: false,
+        collapsed = collapsed,
+        isExpressive = paletteMode == "expressive",
+        menuExpanded = locationMenuExpanded,
+        onToggleMenu = { locationMenuExpanded = !locationMenuExpanded },
+        onSelectPlace = {
+            locationMenuExpanded = false
+            onSelectPlace(it)
+        },
+        onLocationClick = {
+            locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+        },
+        onRefresh = onRefresh,
+        modifier = Modifier
+            .align(Alignment.TopCenter)
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp)
+    )
     }
 }
 
@@ -362,67 +418,74 @@ private fun LoadErrorCard(message: String, onRetry: () -> Unit) {
     }
 }
 
+/**
+ * The floating top bar pinned over the sky: a place pill (name + chevron,
+ * opens the place menu), a freshness pill, and circular location / refresh
+ * buttons. On scroll it collapses to the place pill alone and the
+ * freshness detail moves into the hero card instead.
+ */
 @Composable
-private fun HeaderBar(
+private fun FloatingTopBar(
     place: Place?,
     savedPlaces: List<Place>,
     isRefreshing: Boolean,
+    freshnessText: String?,
     isStale: Boolean,
-    fetchedAt: Instant,
+    collapsed: Boolean,
+    isExpressive: Boolean,
     menuExpanded: Boolean,
     onToggleMenu: () -> Unit,
     onSelectPlace: (String) -> Unit,
     onLocationClick: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    val springs = AuraMotion.springs(isExpressive)
     val placeName = place?.let { "${it.name}${if (it.stateCode.isNotBlank()) ", ${it.stateCode}" else ""}" }
         ?: "No place selected"
 
-    val diffMins = (Instant.now().epochSecond - fetchedAt.epochSecond) / 60
-    val freshnessText = when {
-        isRefreshing -> "Refreshing..."
-        diffMins <= 1 -> "Updated just now"
-        diffMins < 60 -> "Updated ${diffMins}m ago"
-        else -> "Updated ${(diffMins / 60)}h ago"
-    }
-
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box {
-            Row(
+        // Place pill (with the place menu anchored to it)
+        Box(modifier = Modifier.weight(1f)) {
+            GlassSurface(
+                level = GlassLevel.Bar,
+                shape = AuraShapes.pill,
                 modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .clip(AuraShapes.pill)
                     .clickable(onClick = onToggleMenu)
-                    .padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.LocationOn,
-                    contentDescription = "Location",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = placeName,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = "Select location",
-                            tint = Color.White.copy(alpha = 0.8f)
-                        )
-                    }
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = "Location",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = if (isStale) "Cached • $freshnessText" else freshnessText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isStale) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.65f)
+                        text = placeName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = "Select location",
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                     )
                 }
             }
@@ -430,7 +493,7 @@ private fun HeaderBar(
             DropdownMenu(
                 expanded = menuExpanded,
                 onDismissRequest = onToggleMenu,
-                modifier = Modifier.background(Color(0xFF1E293B))
+                containerColor = MaterialTheme.colorScheme.surface
             ) {
                 savedPlaces.forEach { p ->
                     val isCurrent = p.id == place?.id
@@ -443,7 +506,11 @@ private fun HeaderBar(
                             ) {
                                 Text(
                                     text = if (p.stateCode.isNotBlank()) "${p.name}, ${p.stateCode}" else p.name,
-                                    color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.White
+                                    color = if (isCurrent) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    }
                                 )
                                 if (isCurrent) {
                                     Icon(
@@ -461,38 +528,66 @@ private fun HeaderBar(
             }
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(
-                onClick = onLocationClick,
-                modifier = Modifier.size(40.dp)
+        // Freshness pill (expanded bar only; the hero card carries it
+        // when collapsed). Hidden entirely when nothing was ever fetched.
+        AnimatedVisibility(
+            visible = !collapsed && freshnessText != null,
+            enter = fadeIn() + scaleIn(animationSpec = springs.selection),
+            exit = fadeOut() + scaleOut(animationSpec = springs.selection)
+        ) {
+            GlassSurface(
+                level = GlassLevel.Bar,
+                shape = AuraShapes.pill,
+                modifier = Modifier.height(48.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.MyLocation,
-                    contentDescription = "Use GPS Location",
-                    tint = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            IconButton(
-                onClick = onRefresh,
-                enabled = !isRefreshing,
-                modifier = Modifier.size(40.dp)
-            ) {
-                if (isRefreshing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Refresh",
-                        tint = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(20.dp)
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
+                    Text(
+                        text = freshnessText ?: "",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isStale) {
+                            Color(0xFFFFB74D)
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                        },
+                        maxLines = 1
                     )
                 }
+            }
+        }
+
+        GlassIconButton(
+            onClick = onLocationClick,
+            isExpressive = isExpressive
+        ) {
+            Icon(
+                imageVector = Icons.Default.MyLocation,
+                contentDescription = "Use GPS Location",
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        GlassIconButton(
+            onClick = onRefresh,
+            enabled = !isRefreshing,
+            isExpressive = isExpressive
+        ) {
+            if (isRefreshing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Refresh",
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }
@@ -559,7 +654,8 @@ private fun ActiveAlertBanner(
 @Composable
 private fun HeroWeatherCard(
     state: FullWeatherState?,
-    unitFormatter: UnitFormatter
+    unitFormatter: UnitFormatter,
+    freshnessText: String? = null
 ) {
     val tempFormatted = unitFormatter.formatTemperature(state?.current?.tempC)
     val feelsLikeFormatted = unitFormatter.formatTemperature(state?.current?.feelsLikeC)
@@ -622,6 +718,17 @@ private fun HeroWeatherCard(
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White.copy(alpha = 0.85f)
+                )
+            }
+
+            // Freshness lives here when the floating top bar is collapsed
+            // (the pill that normally carries it is hidden then).
+            if (freshnessText != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = freshnessText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.65f)
                 )
             }
         }

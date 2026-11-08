@@ -1,9 +1,7 @@
 package com.example.ui.radar
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,7 +27,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -61,7 +58,13 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.domain.model.FullWeatherState
 import com.example.ui.RadarLayer
+import com.example.ui.designsystem.AuraColors
+import com.example.ui.designsystem.AuraShapes
 import com.example.ui.designsystem.GlassCard
+import com.example.ui.designsystem.GlassIconButton
+import com.example.ui.designsystem.GlassLevel
+import com.example.ui.designsystem.GlassSurface
+import com.example.ui.designsystem.PillSegmentedControl
 import kotlin.math.ln
 import kotlin.math.roundToInt
 import kotlin.math.tan
@@ -76,6 +79,7 @@ fun RadarScreen(
     onTogglePlay: () -> Unit,
     onScrubFrame: (Int) -> Unit,
     onEnterPiP: () -> Unit,
+    paletteMode: String = "auto",
     modifier: Modifier = Modifier
 ) {
     // No place selected yet: the radar centres on the place, and there is
@@ -254,7 +258,9 @@ fun RadarScreen(
             }
         }
 
-        // Top Toolbar: Station info, PiP, and status chip
+        // Top floating pill cluster: station pill + frame label pill, then
+        // the layer chooser as a pill segmented control. PiP lives on the
+        // transport pill at the bottom now.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -262,16 +268,24 @@ fun RadarScreen(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                GlassCard(shape = RoundedCornerShape(20.dp)) {
+                GlassSurface(
+                    level = GlassLevel.Bar,
+                    shape = AuraShapes.pill,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Surface(
-                            color = Color(0xFF00E676),
+                            color = AuraColors.Accent,
                             shape = CircleShape,
                             modifier = Modifier.size(10.dp)
                         ) {}
@@ -280,68 +294,63 @@ fun RadarScreen(
                             text = state.radarStation?.let { "$it Radar" } ?: "NEXRAD Radar",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
 
-                IconButton(
-                    onClick = onEnterPiP,
-                    modifier = Modifier
-                        .background(Color(0xFF131D2E).copy(alpha = 0.85f), CircleShape)
-                        .size(42.dp)
+                GlassSurface(
+                    level = GlassLevel.Bar,
+                    shape = AuraShapes.pill,
+                    modifier = Modifier.height(48.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.PictureInPicture,
-                        contentDescription = "Picture in Picture",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.padding(horizontal = 14.dp)
+                    ) {
+                        Text(
+                            text = frameLabels.getOrElse(currentFrameIndex) { "LIVE NOW" },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (currentFrameIndex == 9) {
+                                AuraColors.Accent
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                            maxLines = 1
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Layer Chooser
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                RadarLayer.entries.forEach { layer ->
-                    val isSelected = layer == selectedLayer
-                    Surface(
-                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFF1E293B).copy(alpha = 0.85f),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { onSelectLayer(layer) }
-                    ) {
-                        Text(
-                            text = when (layer) {
-                                RadarLayer.Reflectivity -> "Composite"
-                                RadarLayer.LocalSite -> "${state.radarStation ?: "Local"} Site"
-                                RadarLayer.SatelliteVis -> "Sat Visible"
-                                RadarLayer.SatelliteIr -> "Sat IR"
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) Color(0xFF0D253F) else Color.White.copy(alpha = 0.8f),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
-                    }
-                }
-            }
+            // Layer chooser as a pill segmented control.
+            PillSegmentedControl(
+                options = listOf(
+                    "Composite",
+                    "${state.radarStation ?: "Local"} Site",
+                    "Sat Visible",
+                    "Sat IR"
+                ),
+                selectedIndex = selectedLayer.ordinal,
+                onSelect = { onSelectLayer(RadarLayer.entries[it]) },
+                isExpressive = paletteMode == "expressive",
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
-        // Zoom +/- In-Map Controls
+        // Zoom +/- In-Map Controls (48dp glass buttons)
         Column(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .padding(end = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            IconButton(
+            GlassIconButton(
                 onClick = {
                     if (zoomLevel < 9) {
                         zoomLevel += 1
@@ -350,14 +359,16 @@ fun RadarScreen(
                         panOffsetY = 0f
                     }
                 },
-                modifier = Modifier
-                    .background(Color(0xFF1E293B).copy(alpha = 0.9f), CircleShape)
-                    .size(40.dp)
+                isExpressive = paletteMode == "expressive"
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Zoom In", tint = Color.White)
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "Zoom In",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
             }
 
-            IconButton(
+            GlassIconButton(
                 onClick = {
                     if (zoomLevel > 7) {
                         zoomLevel -= 1
@@ -366,24 +377,28 @@ fun RadarScreen(
                         panOffsetY = 0f
                     }
                 },
-                modifier = Modifier
-                    .background(Color(0xFF1E293B).copy(alpha = 0.9f), CircleShape)
-                    .size(40.dp)
+                isExpressive = paletteMode == "expressive"
             ) {
-                Icon(Icons.Default.Remove, contentDescription = "Zoom Out", tint = Color.White)
+                Icon(
+                    Icons.Default.Remove,
+                    contentDescription = "Zoom Out",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
             }
 
-            IconButton(
+            GlassIconButton(
                 onClick = {
                     panOffsetX = 0f
                     panOffsetY = 0f
                     userScale = 1f
                 },
-                modifier = Modifier
-                    .background(Color(0xFF1E293B).copy(alpha = 0.9f), CircleShape)
-                    .size(40.dp)
+                isExpressive = paletteMode == "expressive"
             ) {
-                Icon(Icons.Default.MyLocation, contentDescription = "Recenter", tint = Color.White)
+                Icon(
+                    Icons.Default.MyLocation,
+                    contentDescription = "Recenter",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
             }
         }
 
@@ -418,43 +433,34 @@ fun RadarScreen(
                 }
             }
 
-            // Playback card with Frame timestamp & Scrubber
-            GlassCard(shape = RoundedCornerShape(20.dp)) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+            // Floating transport pill: play/pause + frame scrubber inside
+            // the pill, PiP attached to its end. The frame label lives in
+            // the top pill now.
+            GlassSurface(
+                level = GlassLevel.Bar,
+                shape = AuraShapes.pill,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GlassIconButton(
+                        onClick = onTogglePlay,
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        isExpressive = paletteMode == "expressive"
                     ) {
-                        IconButton(
-                            onClick = onTogglePlay,
-                            modifier = Modifier
-                                .background(MaterialTheme.colorScheme.primary, CircleShape)
-                                .size(44.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (isPlaying) "Pause" else "Play",
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
-
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = frameLabels.getOrElse(currentFrameIndex) { "LIVE NOW" },
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = if (currentFrameIndex == 9) Color(0xFF00E676) else Color.White
-                            )
-                            Text(
-                                text = "NWS/IEM NEXRAD • Frame ${currentFrameIndex + 1} of 10",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White.copy(alpha = 0.6f)
-                            )
-                        }
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
                     }
-
-                    Spacer(modifier = Modifier.height(8.dp))
 
                     Slider(
                         value = currentFrameIndex.toFloat(),
@@ -466,8 +472,19 @@ fun RadarScreen(
                             activeTrackColor = MaterialTheme.colorScheme.primary,
                             inactiveTrackColor = Color.White.copy(alpha = 0.25f)
                         ),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.weight(1f)
                     )
+
+                    GlassIconButton(
+                        onClick = onEnterPiP,
+                        isExpressive = paletteMode == "expressive"
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PictureInPicture,
+                            contentDescription = "Picture in Picture",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
             }
         }

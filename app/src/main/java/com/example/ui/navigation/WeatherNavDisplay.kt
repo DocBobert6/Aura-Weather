@@ -19,9 +19,6 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,12 +49,12 @@ import com.example.ui.designsystem.AuraShapes
 import com.example.ui.designsystem.GlassLevel
 import com.example.ui.designsystem.GlassSurface
 import com.example.ui.designsystem.NavPillItem
+import com.example.ui.designsystem.PillSegmentedControl
 import com.example.ui.designsystem.WeatherSky
 import com.example.ui.home.HomeScreen
 import com.example.ui.radar.RadarScreen
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.sunmoon.SunMoonScreen
-import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.Map
@@ -373,6 +370,7 @@ private fun ScreenContent(
             loadError = loadError,
             savedPlaces = savedPlaces,
             unitFormatter = viewModel.getUnitFormatter(),
+            paletteMode = paletteMode,
             onRefresh = { viewModel.refresh() },
             onSelectPlace = { viewModel.selectPlace(it) },
             onUseCurrentLocation = { viewModel.useCurrentLocation() },
@@ -390,7 +388,8 @@ private fun ScreenContent(
             onSelectLayer = { viewModel.setRadarLayer(it) },
             onTogglePlay = { viewModel.toggleRadarPlay() },
             onScrubFrame = { viewModel.setRadarFrameIndex(it) },
-            onEnterPiP = onEnterPiP
+            onEnterPiP = onEnterPiP,
+            paletteMode = paletteMode
         )
 
         ScreenDestination.Alerts -> AlertsScreen(
@@ -408,6 +407,7 @@ private fun ScreenContent(
             AirSkyCompositeView(
                 weatherState = weatherState,
                 selectedPlace = selectedPlace,
+                paletteMode = paletteMode,
                 onNavigateToSettings = { onNavigate(ScreenDestination.Settings) }
             )
         }
@@ -431,37 +431,21 @@ private fun ScreenContent(
 private fun AirSkyCompositeView(
     weatherState: FullWeatherState?,
     selectedPlace: Place?,
+    paletteMode: String,
     onNavigateToSettings: () -> Unit
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(0) } // 0: Air & Pollen, 1: Sun & Moon
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
+        PillSegmentedControl(
+            options = listOf("Air & Pollen", "Sun & Moon"),
+            selectedIndex = selectedTab,
+            onSelect = { selectedTab = it },
+            isExpressive = paletteMode == "expressive",
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            listOf("Air & Pollen", "Sun & Moon").forEachIndexed { index, title ->
-                val isSelected = selectedTab == index
-                Surface(
-                    color = if (isSelected) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color(0xFF1E293B).copy(alpha = 0.8f),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { selectedTab = index }
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal,
-                        color = if (isSelected) androidx.compose.ui.graphics.Color(0xFF0D253F) else androidx.compose.ui.graphics.Color.White,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        modifier = Modifier.padding(vertical = 10.dp)
-                    )
-                }
-            }
-        }
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        )
 
         if (selectedTab == 0) {
             AirPollenScreen(
