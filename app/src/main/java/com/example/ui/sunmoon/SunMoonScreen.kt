@@ -34,6 +34,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -104,7 +108,7 @@ fun SunMoonScreen(
                     color = LocalSkyHeaderColor.current
                 )
                 Text(
-                    text = "Astronomical Solar Track & Lunar Illuminance" + (placeName?.let { " for $it" } ?: ""),
+                    text = "Sunrise, sunset and moon times" + (placeName?.let { " for $it" } ?: ""),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                 )
@@ -144,6 +148,7 @@ fun SunMoonScreen(
                     // The horizon line is drawn inside the Canvas (a DrawScope,
                     // where the scheme cannot be read), so resolve it here.
                     val horizonLineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                    val textMeasurer = rememberTextMeasurer()
 
                     // Canvas Solar Arc
                     Box(
@@ -211,16 +216,48 @@ fun SunMoonScreen(
                                     radius = 8f,
                                     center = Offset(sunX, sunY)
                                 )
+                                // 'Now' under the sun dot, so the marker is
+                                // labelled (not just a floating dot).
+                                val nowLayout = textMeasurer.measure(
+                                    text = "Now",
+                                    style = TextStyle(
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                )
+                                drawText(
+                                    textLayoutResult = nowLayout,
+                                    topLeft = Offset(
+                                        (sunX - nowLayout.size.width / 2f).coerceIn(0f, size.width - nowLayout.size.width),
+                                        (sunY + 14f).coerceAtMost(size.height - nowLayout.size.height)
+                                    )
+                                )
+                            } else {
+                                // Night: shade the arc dark, so the card reads
+                                // as night (not an empty daytime arc).
+                                drawRect(
+                                    color = Color.Black.copy(alpha = 0.35f),
+                                    size = size
+                                )
                             }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
+                    // The arc runs from 12% to 88% of the width; the label
+                    // Row takes the same inset, so Sunrise / Solar Noon /
+                    // Sunset sit under the arc's start / apex / end instead
+                    // of drifting to the screen's edges.
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        val inset = maxWidth * 0.12f
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = inset),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
                         Column {
                             Text(text = "Sunrise", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                             Text(text = sunriseStr, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
@@ -234,6 +271,7 @@ fun SunMoonScreen(
                         Column(horizontalAlignment = Alignment.End) {
                             Text(text = "Sunset", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                             Text(text = sunsetStr, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        }
                         }
                     }
                 }
@@ -257,10 +295,10 @@ fun SunMoonScreen(
             ) {
                 TwilightCard(
                     title = "Golden Hour",
-                    icon = Icons.Default.CameraAlt,
+                    icon = Icons.Default.WbSunny,
                     accentColor = AuraColors.Warning,
-                    morning = solar?.goldenHourMorningStart?.let { timeFormatter.format(it) } ?: "--",
-                    evening = solar?.goldenHourEveningStart?.let { timeFormatter.format(it) } ?: "--",
+                    morning = formatRange(solar?.goldenHourMorningStart, solar?.goldenHourMorningEnd, timeFormatter),
+                    evening = formatRange(solar?.goldenHourEveningStart, solar?.goldenHourEveningEnd, timeFormatter),
                     modifier = Modifier.weight(1f)
                 )
 
@@ -268,14 +306,14 @@ fun SunMoonScreen(
                     title = "Blue Hour",
                     icon = Icons.Default.WbTwilight,
                     accentColor = AuraColors.Water,
-                    morning = solar?.blueHourMorningStart?.let { timeFormatter.format(it) } ?: "--",
-                    evening = solar?.blueHourEveningStart?.let { timeFormatter.format(it) } ?: "--",
+                    morning = formatRange(solar?.blueHourMorningStart, solar?.blueHourMorningEnd, timeFormatter),
+                    evening = formatRange(solar?.blueHourEveningStart, solar?.blueHourEveningEnd, timeFormatter),
                     modifier = Modifier.weight(1f)
                 )
             }
         }
 
-        // Lunar Phase Dynamics
+        // Lunar phase
         item {
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -397,6 +435,19 @@ fun SunMoonScreen(
 }
 
 @Composable
+/**
+ * A twilight window as a start–end range ("6:56 AM – 7:13 AM"). The model
+ * has both ends; showing only the start hid half the window.
+ */
+private fun formatRange(
+    start: Instant?,
+    end: Instant?,
+    timeFormatter: DateTimeFormatter
+): String {
+    if (start == null || end == null) return "--"
+    return "${timeFormatter.format(start)} – ${timeFormatter.format(end)}"
+}
+
 private fun TwilightCard(
     title: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -426,7 +477,7 @@ private fun TwilightCard(
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = "Dawn / Morning",
+                text = "Morning",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
@@ -440,7 +491,7 @@ private fun TwilightCard(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "Dusk / Evening",
+                text = "Evening",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )

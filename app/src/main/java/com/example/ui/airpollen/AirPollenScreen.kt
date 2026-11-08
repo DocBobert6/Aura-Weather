@@ -100,13 +100,9 @@ fun AirPollenScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(24.dp),
+                        .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // The dial arcs are drawn inside the Canvas (a DrawScope,
-                    // where the scheme cannot be read), so resolve the track here.
-                    val dialTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-
                     Box(
                         modifier = Modifier.size(200.dp),
                         contentAlignment = Alignment.Center
@@ -116,20 +112,39 @@ fun AirPollenScreen(
                             val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
                             val topLeft = Offset(strokeWidth / 2, strokeWidth / 2)
 
-                            // Background arc (240 degrees)
-                            drawArc(
-                                color = dialTrackColor,
-                                startAngle = 150f,
-                                sweepAngle = 240f,
-                                useCenter = false,
-                                topLeft = topLeft,
-                                size = arcSize,
-                                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                            // Background arc, segmented by the 6 AQI bands
+                            // (0..500, so Hazardous is on the gauge — the old
+                            // code normalised the foreground to 300 and cut
+                            // it off). Each band is its scale colour at low
+                            // alpha, so the track reads as the bands. The
+                            // colours come from AuraColors.aqiColor (one
+                            // representative value per band), never hardcoded.
+                            val bandBounds = listOf(50, 100, 150, 200, 300, 500)
+                            val bandColors = listOf(
+                                AuraColors.aqiColor(25), AuraColors.aqiColor(75),
+                                AuraColors.aqiColor(125), AuraColors.aqiColor(175),
+                                AuraColors.aqiColor(250), AuraColors.aqiColor(400)
                             )
+                            var bandStart = 0
+                            bandBounds.forEachIndexed { i, bound ->
+                                val startAngle = 150f + (bandStart / 500f) * 240f
+                                val sweep = ((bound - bandStart) / 500f) * 240f
+                                drawArc(
+                                    color = bandColors[i].copy(alpha = 0.30f),
+                                    startAngle = startAngle,
+                                    sweepAngle = sweep,
+                                    useCenter = false,
+                                    topLeft = topLeft,
+                                    size = arcSize,
+                                    style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
+                                )
+                                bandStart = bound
+                            }
 
-                            // Foreground AQI progress arc (normalized 0..300).
-                            // With no AQI, the arc stays at the background.
-                            val sweep = if (aqi != null) ((aqi.coerceIn(0, 300) / 300f) * 240f).coerceAtLeast(6f) else 0f
+                            // Foreground AQI progress arc (normalised 0..500,
+                            // the same scale as the bands). With no AQI, the
+                            // arc stays at the background.
+                            val sweep = if (aqi != null) ((aqi.coerceIn(0, 500) / 500f) * 240f).coerceAtLeast(6f) else 0f
                             drawArc(
                                 color = aqiColor,
                                 startAngle = 150f,
@@ -171,7 +186,7 @@ fun AirPollenScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
                         text = guidance,
@@ -236,7 +251,7 @@ fun AirPollenScreen(
         item {
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "ALLERGEN & POLLEN OUTLOOK",
+                text = "POLLEN",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = LocalSkyHeaderColor.current.copy(alpha = 0.7f)
@@ -287,7 +302,7 @@ fun AirPollenScreen(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "Live Pollen Telemetry",
+                                        text = "Pollen counts",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
@@ -295,7 +310,7 @@ fun AirPollenScreen(
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Pollen counts aren't connected yet — no live values are shown. A Tomorrow.io key can be stored in Settings for a future update, but it does not enable pollen data today.",
+                                    text = "No pollen data yet — the pollen feed isn't connected. A Tomorrow.io key in Settings doesn't turn it on in this version.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
                                 )

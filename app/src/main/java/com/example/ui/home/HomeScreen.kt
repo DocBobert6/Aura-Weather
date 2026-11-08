@@ -787,7 +787,7 @@ private fun MinuteCastCard(
                     shape = AuraShapes.pill
                 ) {
                     Text(
-                        text = "15-min resolution",
+                        text = "Every 15 min",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
@@ -1212,7 +1212,7 @@ private fun WeatherDetailsGrid(
             // Humidity & Dew Point Card
             DetailMiniCard(
                 title = "HUMIDITY",
-                icon = Icons.Default.Opacity,
+                icon = Icons.Default.Waves,
                 mainValue = humidity,
                 subValue = "Dew point $dewPoint",
                 modifier = Modifier.weight(1f).fillMaxHeight()
@@ -1451,7 +1451,7 @@ private fun SunAndMoonSummaryCard(
                     Spacer(modifier = Modifier.width(16.dp))
 
                     Icon(
-                        imageVector = Icons.Default.NightsStay,
+                        imageVector = Icons.Default.WbTwilight,
                         contentDescription = "Sunset",
                         tint = AuraColors.Sunset,
                         modifier = Modifier.size(16.dp)

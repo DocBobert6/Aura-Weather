@@ -82,7 +82,7 @@ enum class ScreenDestination(val label: String, val icon: ImageVector) {
     Home("Forecast", Icons.Default.WbSunny),
     Radar("Radar", Icons.Default.Map),
     Alerts("Alerts", Icons.Default.Warning),
-    AirSky("Air & Sky", Icons.Default.Air),
+    AirSky("Air Quality", Icons.Default.Air),
     Settings("Settings", Icons.Default.Settings)
 }
 
