@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MyLocation
@@ -60,7 +59,6 @@ import com.example.domain.model.FullWeatherState
 import com.example.ui.RadarLayer
 import com.example.ui.designsystem.AuraColors
 import com.example.ui.designsystem.AuraShapes
-import com.example.ui.designsystem.GlassCard
 import com.example.ui.designsystem.GlassIconButton
 import com.example.ui.designsystem.GlassLevel
 import com.example.ui.designsystem.GlassSurface
@@ -88,13 +86,13 @@ fun RadarScreen(
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .background(Color(0xFF0F172A)),
+                .background(MaterialTheme.colorScheme.surface),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = "Select a place to see its radar.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.8f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
                 modifier = Modifier.padding(24.dp)
             )
         }
@@ -145,7 +143,7 @@ fun RadarScreen(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0F172A))
+            .background(MaterialTheme.colorScheme.surface)
             .testTag("radar_screen")
     ) {
         val screenWidthPx = constraints.maxWidth.toFloat()
@@ -156,7 +154,7 @@ fun RadarScreen(
         val centerTileY = latToTileY(centerLat, zoomLevel)
 
         // Base tile size in pixels (256 standard Mercator tile size, scaled by userScale)
-        val tileSizePx = 256f * LocalDensity.current.density * userScale
+        val tileSizePx = 256f * userScale
 
         // Pixel center of the central tile
         val centerWorldX = lonToWorldPixel(centerLon, zoomLevel) * userScale
@@ -180,8 +178,8 @@ fun RadarScreen(
                     val tileY = centerTileY + dy
 
                     // Calculate top-left position on screen for this tile
-                    val tileWorldLeft = (tileX * 256f * LocalDensity.current.density) * userScale
-                    val tileWorldTop = (tileY * 256f * LocalDensity.current.density) * userScale
+                    val tileWorldLeft = tileX * 256f * userScale
+                    val tileWorldTop = tileY * 256f * userScale
 
                     val screenX = (screenWidthPx / 2f) + (tileWorldLeft - centerWorldX) + panOffsetX
                     val screenY = (screenHeightPx / 2f) + (tileWorldTop - centerWorldY) + panOffsetY
@@ -241,12 +239,12 @@ fun RadarScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Surface(
-                    color = Color(0xFF00E676).copy(alpha = 0.35f),
+                    color = AuraColors.Accent.copy(alpha = 0.35f),
                     shape = CircleShape,
                     modifier = Modifier.size(24.dp)
                 ) {}
                 Surface(
-                    color = Color(0xFF00E676),
+                    color = AuraColors.Accent,
                     shape = CircleShape,
                     modifier = Modifier.size(12.dp)
                 ) {}
@@ -411,7 +409,7 @@ fun RadarScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // Radar Legend Bar
-            GlassCard(shape = RoundedCornerShape(14.dp)) {
+            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -423,13 +421,11 @@ fun RadarScreen(
                         text = "dBZ:",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White.copy(alpha = 0.7f)
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                     )
-                    LegendColorPill("Light", Color(0xFF00E676))
-                    LegendColorPill("Moderate", Color(0xFFFFEA00))
-                    LegendColorPill("Heavy", Color(0xFFFF9100))
-                    LegendColorPill("Severe", Color(0xFFFF1744))
-                    LegendColorPill("Hail", Color(0xFFD500F9))
+                    for ((label, color) in AuraColors.RadarLegend) {
+                        LegendColorPill(label, color)
+                    }
                 }
             }
 
@@ -470,7 +466,7 @@ fun RadarScreen(
                         colors = SliderDefaults.colors(
                             thumbColor = MaterialTheme.colorScheme.primary,
                             activeTrackColor = MaterialTheme.colorScheme.primary,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.25f)
+                            inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
                         ),
                         modifier = Modifier.weight(1f)
                     )
@@ -528,7 +524,7 @@ private fun LegendColorPill(label: String, color: Color) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-            color = Color.White.copy(alpha = 0.8f)
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
         )
     }
 }

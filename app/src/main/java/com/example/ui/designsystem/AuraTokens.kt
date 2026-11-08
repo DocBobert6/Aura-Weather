@@ -55,6 +55,18 @@ object AuraColors {
         }
 
     /**
+     * Radar echo-intensity legend (dBZ bands), used by the Radar screen's
+     * legend bar. These are the NWS reflectivity colours, not app accents.
+     */
+    val RadarLegend: List<Pair<String, Color>> = listOf(
+        "Light" to Color(0xFF00E676),
+        "Moderate" to Color(0xFFFFEA00),
+        "Heavy" to Color(0xFFFF9100),
+        "Severe" to Color(0xFFFF1744),
+        "Hail" to Color(0xFFD500F9),
+    )
+
+    /**
      * The one severity scale, shared by Home and Alerts (the audit found two
      * disagreeing scales). Colours are the Alerts screen's complete scale;
      * labels are its words — Minor is "ADVISORY", Unknown is "STATEMENT".
