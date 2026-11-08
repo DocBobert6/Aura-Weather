@@ -305,6 +305,7 @@ private fun ScreenContent(
             // Tab switcher or composite view for Air & Pollen and Sun & Moon
             AirSkyCompositeView(
                 weatherState = weatherState,
+                selectedPlace = selectedPlace,
                 onNavigateToSettings = { onNavigate(ScreenDestination.Settings) }
             )
         }
@@ -327,6 +328,7 @@ private fun ScreenContent(
 @Composable
 private fun AirSkyCompositeView(
     weatherState: FullWeatherState?,
+    selectedPlace: Place?,
     onNavigateToSettings: () -> Unit
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(0) } // 0: Air & Pollen, 1: Sun & Moon
