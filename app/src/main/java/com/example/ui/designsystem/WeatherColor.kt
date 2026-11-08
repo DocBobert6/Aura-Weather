@@ -176,6 +176,7 @@ object WeatherPalettes {
             WeatherCondition.Snow, WeatherCondition.Sleet, WeatherCondition.FreezingRain ->
                 if (isDaytime) snowDayKeys else snowNightKeys
             WeatherCondition.Fog -> if (isDaytime) fogDayKeys else fogNightKeys
+            WeatherCondition.Unknown -> if (isDaytime) cloudyDayKeys else cloudyNightKeys
         }
 
     private fun buildScheme(keys: SchemeKeys, dark: Boolean): ColorScheme {

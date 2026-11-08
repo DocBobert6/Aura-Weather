@@ -6,7 +6,6 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
@@ -113,30 +112,71 @@ object AuraGlass {
 }
 
 /**
- * Motion tokens: one expressive scheme for all interactive change, plus the
- * spring set every press / selection / bar / sheet animation references.
+ * Motion tokens: the spring set every press / selection / bar / sheet
+ * animation references, in a standard set and a bouncier expressive set.
  * Duration/easing curves are kept only for page enter/exit transitions.
  * Springs collapse to instant changes when reduced motion is on.
+ *
+ * Note: material3 1.4.0's MotionScheme / MaterialExpressiveTheme are
+ * `internal` (verified in the 1.4.0 sources), so there is no public
+ * theme-level expressive entry point to call. Expressive motion is
+ * delivered here, as our own spring sets applied at the animated call
+ * sites in 2.3+, selected with [AuraMotion.springs].
  */
-object AuraMotion {
-    val expressive: MotionScheme get() = MotionScheme.expressive()
-    val standard: MotionScheme get() = MotionScheme.standard()
-
+data class AuraSprings(
     /** Press squash on pills and buttons. */
-    val pressSpring: SpringSpec<Float> =
-        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
-
+    val press: SpringSpec<Float>,
     /** Selection morph on nav / tab / palette pills. */
-    val selectionSpring: SpringSpec<Float> =
-        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
-
+    val selection: SpringSpec<Float>,
     /** Floating bar hide/show. */
-    val barSpring: SpringSpec<Float> =
-        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow)
-
+    val bar: SpringSpec<Float>,
     /** Sheets and expanding cards. */
-    val sheetSpring: SpringSpec<Float> =
-        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
+    val sheet: SpringSpec<Float>
+)
+
+object AuraMotion {
+    val standardSprings: AuraSprings = AuraSprings(
+        press = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        selection = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        bar = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        sheet = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        )
+    )
+
+    /** Bouncier set for the expressive palette mode. */
+    val expressiveSprings: AuraSprings = AuraSprings(
+        press = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        selection = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        bar = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        sheet = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        )
+    )
+
+    /** The spring set for the palette mode in effect. */
+    fun springs(expressive: Boolean): AuraSprings =
+        if (expressive) expressiveSprings else standardSprings
 
     /**
      * True when the user turned animations off system-wide

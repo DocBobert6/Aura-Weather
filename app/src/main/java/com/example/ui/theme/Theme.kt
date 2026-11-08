@@ -2,15 +2,12 @@ package com.example.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import com.example.domain.model.WeatherCondition
-import com.example.ui.designsystem.AuraMotion
 import com.example.ui.designsystem.AuraShapes
 import com.example.ui.designsystem.WeatherPalettes
 
@@ -37,27 +34,16 @@ fun AuraWeatherTheme(
         }
     }
 
-    // "expressive" now does something real (audit finding 3): the expressive
-    // theme + motion scheme, instead of silently falling back to the default
-    // dark scheme. Other modes keep the standard theme and motion.
-    val motionScheme: MotionScheme =
-        if (paletteMode == "expressive") AuraMotion.expressive else AuraMotion.standard
-
-    if (paletteMode == "expressive") {
-        MaterialExpressiveTheme(
-            colorScheme = colorScheme,
-            motionScheme = motionScheme,
-            shapes = AuraShapes.materialShapes(),
-            typography = Typography,
-            content = content
-        )
-    } else {
-        MaterialTheme(
-            colorScheme = colorScheme,
-            motionScheme = motionScheme,
-            shapes = AuraShapes.materialShapes(),
-            typography = Typography,
-            content = content
-        )
-    }
+    // "expressive" now does something real (audit finding 3): it selects
+    // the bouncier AuraMotion spring set at the animated call sites in
+    // 2.3+, instead of silently falling back to the default dark scheme.
+    // There is no theme-level expressive entry point to call here —
+    // material3 1.4.0 keeps MotionScheme and MaterialExpressiveTheme
+    // internal — so the theme itself is the one public MaterialTheme.
+    MaterialTheme(
+        colorScheme = colorScheme,
+        shapes = AuraShapes.materialShapes(),
+        typography = Typography,
+        content = content
+    )
 }
