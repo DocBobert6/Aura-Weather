@@ -354,10 +354,10 @@ fun SunMoonScreen(
                         Row {
                             val fullFirst = (lunar?.nextFullMoonDays ?: Int.MAX_VALUE) <= (lunar?.nextNewMoonDays ?: Int.MAX_VALUE)
                             val fullText = lunar?.nextFullMoonDays?.let {
-                                if (it <= 0) "Full Moon today" else "Full Moon in $it day${if (it == 1) "" else "s"}"
+                                if (it <= 0) "Full Moon today" else "Full Moon in $it\u00A0day${if (it == 1) "" else "s"}"
                             } ?: "Full Moon: --"
                             val newText = lunar?.nextNewMoonDays?.let {
-                                if (it <= 0) "New Moon today" else "New Moon in $it day${if (it == 1) "" else "s"}"
+                                if (it <= 0) "New Moon today" else "New Moon in $it\u00A0day${if (it == 1) "" else "s"}"
                             } ?: "New Moon: --"
                             Text(
                                 text = fullText,

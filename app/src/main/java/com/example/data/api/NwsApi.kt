@@ -23,7 +23,21 @@ data class NwsPointsProperties(
     @Json(name = "radarStation") val radarStation: String?,
     // IANA timezone for the point, e.g. "America/Denver". This is how a
     // place's zone is resolved — never a hardcoded default.
-    @Json(name = "timeZone") val timeZone: String?
+    @Json(name = "timeZone") val timeZone: String?,
+    // Nearest named place, e.g. city "Covington", state "KY". Used to label
+    // the Current Location place with its real name.
+    @Json(name = "relativeLocation") val relativeLocation: NwsRelativeLocation?
+)
+
+@JsonClass(generateAdapter = true)
+data class NwsRelativeLocation(
+    @Json(name = "properties") val properties: NwsRelativeLocationProperties?
+)
+
+@JsonClass(generateAdapter = true)
+data class NwsRelativeLocationProperties(
+    @Json(name = "city") val city: String?,
+    @Json(name = "state") val state: String?
 )
 
 @JsonClass(generateAdapter = true)

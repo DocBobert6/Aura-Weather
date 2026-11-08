@@ -44,4 +44,7 @@ interface SavedPlaceDao {
 
     @Query("UPDATE saved_places SET zoneId = :zoneId WHERE id = :placeId")
     suspend fun updateZoneId(placeId: String, zoneId: String)
+
+    @Query("UPDATE saved_places SET name = :name WHERE id = :placeId")
+    suspend fun updateName(placeId: String, name: String)
 }

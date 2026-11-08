@@ -38,6 +38,8 @@ object AuraColors {
 
     /** Water blue — precipitation icons and rain-chance text. */
     val Water: Color = Color(0xFF64B5F6)
+    /** Rain % text: darker than Water so it reads on a light card. */
+    val PopBlue: Color = Color(0xFF1565C0)
 
     /** Sunset coral — the sunset icon. */
     val Sunset: Color = Color(0xFFFF8A65)

@@ -230,9 +230,23 @@ class WeatherRepository(
         // Resolve the place's timezone and persist it on the place row, so
         // every screen renders this place in its own zone from then on.
         val zoneId = resolvePlaceZone(points?.timeZone, openMeteoResult?.utcOffsetSeconds, place.zoneId)
-        val resolvedPlace = place.copy(zoneId = zoneId.id)
+        var resolvedPlace = place.copy(zoneId = zoneId.id)
         if (resolvedPlace.zoneId != place.zoneId) {
             runCatching { savedPlaceDao.updateZoneId(place.id, zoneId.id) }
+        }
+
+        // The Current Location place is labelled with its real name from
+        // NWS /points relativeLocation ("Covington, KY"), not the generic
+        // "Current Location". Only the current-location row is renamed —
+        // saved places keep the name the user gave them.
+        val relCity = points?.relativeLocation?.properties?.city
+        val relState = points?.relativeLocation?.properties?.state
+        if (place.id == CURRENT_LOCATION_ID && relCity != null) {
+            val realName = if (relState != null) "$relCity, $relState" else relCity
+            if (realName != place.name) {
+                runCatching { savedPlaceDao.updateName(place.id, realName) }
+                resolvedPlace = resolvedPlace.copy(name = realName)
+            }
         }
 
         // Nearest NWS station for this place (ordered by distance by the API).

@@ -337,10 +337,12 @@ fun HomeScreen(
             locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
         },
         onRefresh = onRefresh,
+        // 16dp side padding again: the freshness pill is gone (A3), so the
+        // 48dp buttons fit. The buttons stay 48dp (the tap-target minimum).
         modifier = Modifier
             .align(Alignment.TopCenter)
             .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, top = 8.dp)
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp)
     )
     }
 }
@@ -596,7 +598,7 @@ private fun ActiveAlertBanner(
             .clickable(onClick = onClick)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
@@ -802,6 +804,9 @@ private fun MinuteCastCard(
                 color = MaterialTheme.colorScheme.onSurface
             )
 
+            // No rain in the next hour: the chart is an empty ~300px box
+            // with flat 2dp bars. Collapse to the summary line alone.
+            if (minutePoints.any { it.mmPerHour > 0.0 }) {
             Spacer(modifier = Modifier.height(16.dp))
 
             // 60-Minute Canvas bar chart
@@ -843,6 +848,7 @@ private fun MinuteCastCard(
                 Text(text = "30m", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                 Text(text = "45m", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                 Text(text = "60m", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+            }
             }
         }
     }
@@ -887,7 +893,9 @@ private fun HourlyForecastCard(
                 items(hourlyPoints.take(24).size) { index ->
                     val point = hourlyPoints[index]
                     val selected = index == selectedIndex
-                    val hourLabel = timeFormatter.format(point.time)
+                    // The first hour is now — label it, so the strip reads
+                    // against the present instead of a redundant "9 AM".
+                    val hourLabel = if (index == 0) "Now" else timeFormatter.format(point.time)
                     val temp = unitFormatter.formatTemperature(point.tempC)
                     val pop = point.popPct
 
@@ -942,19 +950,22 @@ private fun HourlyForecastCard(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            if (pop != null && pop > 10) {
+                            // Rain % whenever there is any chance (not only
+                            // above 10%), in a blue dark enough to read on a
+                            // light card. 0% is clutter, so it stays hidden.
+                            if (pop != null && pop > 0) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
                                         imageVector = Icons.Default.WaterDrop,
                                         contentDescription = "Rain chance",
-                                        tint = AuraColors.Water,
+                                        tint = AuraColors.PopBlue,
                                         modifier = Modifier.size(10.dp)
                                     )
                                     Text(
                                         text = "$pop%",
                                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                         fontWeight = FontWeight.Bold,
-                                        color = AuraColors.Water
+                                        color = AuraColors.PopBlue
                                     )
                                 }
                             } else {
@@ -1110,6 +1121,40 @@ private fun DailyForecastCard(
     }
 }
 
+/**
+ * 16-point compass label for a wind direction in degrees (0 = N).
+ * "135°" means nothing to most people; "SE" does.
+ */
+private fun compassPoint(deg: Double): String {
+    val points = listOf(
+        "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+        "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"
+    )
+    val idx = ((deg % 360.0 + 360.0) % 360.0 / 22.5).roundToInt() % 16
+    return points[idx]
+}
+
+/** Pressure in hPa -> a plain descriptor. */
+private fun pressureDesc(pressurePa: Double?): String? {
+    val hpa = pressurePa?.div(100.0) ?: return null
+    return when {
+        hpa >= 1022.0 -> "High pressure"
+        hpa >= 1005.0 -> "Near average"
+        else -> "Low pressure"
+    }
+}
+
+/** Visibility in metres -> a plain descriptor. */
+private fun visibilityDesc(visibilityM: Double?): String? {
+    val m = visibilityM ?: return null
+    return when {
+        m >= 10000.0 -> "Excellent"
+        m >= 4000.0 -> "Good"
+        m >= 1000.0 -> "Moderate"
+        else -> "Poor"
+    }
+}
+
 @Composable
 private fun WeatherDetailsGrid(
     state: FullWeatherState?,
@@ -1133,17 +1178,27 @@ private fun WeatherDetailsGrid(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Wind Card
+            // Wind Card. The sub-line carries the compass point and the
+            // gust (only when there is one — "Gusts to --" is noise), and
+            // the arrow is a clean upward arrow rotated to the direction,
+            // not the Navigation triangle that reads as a play button.
             DetailMiniCard(
                 title = "WIND",
                 icon = Icons.Default.Air,
                 mainValue = windFormatted,
-                subValue = "Gusts to $gustFormatted",
+                subValue = buildString {
+                    windDir?.let { append(compassPoint(it.toDouble())) }
+                    if (state?.current?.windGustMs != null) {
+                        if (isNotEmpty()) append(" · ")
+                        append("Gusts to ${gustFormatted.replace(" ", "\u00A0")}")
+                    }
+                    if (isEmpty()) append("--")
+                },
                 trailing = if (windDir != null) {
                     {
                         Icon(
-                            imageVector = Icons.Default.Navigation,
-                            contentDescription = "Wind direction",
+                            imageVector = Icons.Default.North,
+                            contentDescription = "Wind direction ${compassPoint(windDir.toDouble())}",
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
                                 .size(24.dp)
@@ -1151,7 +1206,7 @@ private fun WeatherDetailsGrid(
                         )
                     }
                 } else null,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f).fillMaxHeight()
             )
 
             // Humidity & Dew Point Card
@@ -1160,7 +1215,7 @@ private fun WeatherDetailsGrid(
                 icon = Icons.Default.Opacity,
                 mainValue = humidity,
                 subValue = "Dew point $dewPoint",
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f).fillMaxHeight()
             )
         }
 
@@ -1173,8 +1228,8 @@ private fun WeatherDetailsGrid(
                 title = "PRESSURE",
                 icon = Icons.Default.Compress,
                 mainValue = pressureFormatted,
-                subValue = "Barometric reading",
-                modifier = Modifier.weight(1f)
+                subValue = pressureDesc(state?.current?.pressurePa) ?: "--",
+                modifier = Modifier.weight(1f).fillMaxHeight()
             )
 
             // Visibility Card
@@ -1182,8 +1237,8 @@ private fun WeatherDetailsGrid(
                 title = "VISIBILITY",
                 icon = Icons.Default.Visibility,
                 mainValue = visibilityFormatted,
-                subValue = "Clear horizon view",
-                modifier = Modifier.weight(1f)
+                subValue = visibilityDesc(state?.current?.visibilityM) ?: "--",
+                modifier = Modifier.weight(1f).fillMaxHeight()
             )
         }
 
@@ -1197,7 +1252,7 @@ private fun WeatherDetailsGrid(
                 icon = Icons.Default.WbSunny,
                 mainValue = uvIndex?.let { "${it.roundToInt()}" } ?: "--",
                 subValue = uvIndex?.let { AuraColors.uvCategory(it) } ?: "--",
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f).fillMaxHeight()
             )
 
             // Cloud Cover Card
@@ -1206,7 +1261,7 @@ private fun WeatherDetailsGrid(
                 icon = Icons.Default.Cloud,
                 mainValue = cloudCover?.let { "${it.roundToInt()}%" } ?: "--",
                 subValue = cloudCover?.let { AuraColors.cloudCoverDesc(it) } ?: "--",
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f).fillMaxHeight()
             )
         }
     }

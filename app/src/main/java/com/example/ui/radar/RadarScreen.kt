@@ -503,6 +503,9 @@ fun RadarScreen(
                         )
                     }
 
+                    // A 28dp thumb: the default thumb is a tiny dot that is
+                    // hard to grab precisely. The track keeps the default
+                    // 48dp touch height.
                     Slider(
                         value = currentFrameIndex.toFloat(),
                         onValueChange = { onScrubFrame(it.toInt()) },
@@ -513,6 +516,16 @@ fun RadarScreen(
                             activeTrackColor = MaterialTheme.colorScheme.primary,
                             inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
                         ),
+                        thumb = { _ ->
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.primary,
+                                        shape = CircleShape
+                                    )
+                            )
+                        },
                         modifier = Modifier.weight(1f)
                     )
 

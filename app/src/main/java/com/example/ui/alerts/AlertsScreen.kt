@@ -288,7 +288,7 @@ private fun AlertExpandableCard(
                     text = run {
                         val end = alert.ends ?: alert.expires
                         val minutes = java.time.Duration.between(Instant.now(), end).toMinutes()
-                        if (minutes in 0..120) "Ends in $minutes min" else "Ends ${timeFormatter.format(end)}"
+                        if (minutes in 0..120) "Ends in $minutes\u00A0min" else "Ends ${timeFormatter.format(end)}"
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface,
