@@ -48,6 +48,7 @@ import com.example.ui.designsystem.AuraShapes
 import com.example.ui.designsystem.RetroPanel
 import com.example.ui.designsystem.RetroShapes
 import com.example.ui.designsystem.RetroTokens
+import kotlin.math.roundToInt
 
 @Composable
 fun AirPollenScreen(
@@ -240,7 +241,7 @@ fun AirPollenScreen(
                 PollutantCard(
                     title = "Ozone",
                     label = "O₃ Level",
-                    value = airQuality?.ozonePpb?.let { "$it ppb" } ?: "--",
+                    value = airQuality?.ozonePpb?.let { "${it.roundToInt()} ppb" } ?: "--",
                     status = airQuality?.ozonePpb?.let { if (it < 54.0) "Good" else "Moderate" } ?: "--",
                     modifier = Modifier.weight(1f)
                 )

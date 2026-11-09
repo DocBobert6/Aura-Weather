@@ -423,8 +423,20 @@ class WeatherRepository(
             }
 
         // --- Daily (7d). Same split as hourly.
+        val omDailyList = parseOpenMeteoDaily(openMeteoResult, zoneId)
         val dailyList = parseNwsDaily(nwsForecastResult?.properties?.periods, zoneId)
-            .ifEmpty { parseOpenMeteoDaily(openMeteoResult, zoneId) }
+            .ifEmpty { omDailyList }
+            // NWS daily has no UV index (parseNwsDaily leaves uvIndexMax
+            // null), so the UV card read "--" even at midday. Merge
+            // Open-Meteo's uv_index_max in by date (audit fix D). When
+            // the list already came from Open-Meteo it carries uvIndexMax,
+            // so this is a no-op for it.
+            .let { list ->
+                if (list.any { it.uvIndexMax != null }) list else {
+                    val omUv = omDailyList.associateBy({ it.date }, { it.uvIndexMax })
+                    list.map { pt -> pt.copy(uvIndexMax = omUv[pt.date]) }
+                }
+            }
 
         // --- 60-minute nowcast (Open-Meteo minutely_15, anchored on now).
         val (minutely, minuteSentence) = WeatherMappers.interpolate15MinTo60Min(
