@@ -103,9 +103,23 @@ fun WeatherNavDisplay(
     regionalPoints: List<RegionalPoint> = emptyList(),
     musicEnabled: Boolean = false,
     onToggleMusic: () -> Unit = {},
+    alertsEnabled: Boolean = false,
+    onSetAlertsEnabled: (Boolean) -> Unit = {},
+    pendingDestination: ScreenDestination? = null,
+    highlightAlertId: String? = null,
+    onPendingDestinationConsumed: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var currentDestination by rememberSaveable { mutableStateOf(ScreenDestination.Home) }
+
+    // 3.1 notification deep link: a tap switches the shell to Alerts
+    // (and highlights the notified alert) exactly once.
+    LaunchedEffect(pendingDestination) {
+        if (pendingDestination != null) {
+            currentDestination = pendingDestination
+            onPendingDestinationConsumed()
+        }
+    }
 
     val activeAlertsCount = weatherState?.activeAlerts?.size ?: 0
 
@@ -192,7 +206,10 @@ fun WeatherNavDisplay(
                             onNavigate = { currentDestination = it },
                             onEnterPiP = onEnterPiP,
                             tickerVisible = tickerVisible,
-                            regionalPoints = regionalPoints
+                            regionalPoints = regionalPoints,
+                            alertsEnabled = alertsEnabled,
+                            onSetAlertsEnabled = onSetAlertsEnabled,
+                            highlightAlertId = highlightAlertId
                         )
                     }
 
@@ -227,7 +244,10 @@ fun WeatherNavDisplay(
                     onNavigate = { currentDestination = it },
                     onEnterPiP = onEnterPiP,
                     tickerVisible = tickerVisible,
-                    regionalPoints = regionalPoints
+                    regionalPoints = regionalPoints,
+                    alertsEnabled = alertsEnabled,
+                    onSetAlertsEnabled = onSetAlertsEnabled,
+                    highlightAlertId = highlightAlertId
                 )
             }
 
@@ -556,7 +576,10 @@ private fun ScreenContent(
     onNavigate: (ScreenDestination) -> Unit,
     onEnterPiP: () -> Unit,
     tickerVisible: Boolean,
-    regionalPoints: List<RegionalPoint> = emptyList()
+    regionalPoints: List<RegionalPoint> = emptyList(),
+    alertsEnabled: Boolean = false,
+    onSetAlertsEnabled: (Boolean) -> Unit = {},
+    highlightAlertId: String? = null
 ) {
     when (destination) {
         ScreenDestination.Home -> HomeScreen(
@@ -597,7 +620,8 @@ private fun ScreenContent(
             zoneId = runCatching { java.time.ZoneId.of(weatherState?.place?.zoneId ?: "") }
                 .getOrDefault(java.time.ZoneId.systemDefault()),
             onViewOnRadar = { onNavigate(ScreenDestination.Radar) },
-            tickerVisible = tickerVisible
+            tickerVisible = tickerVisible,
+            highlightAlertId = highlightAlertId
         )
 
         ScreenDestination.AirSky -> {
@@ -619,7 +643,9 @@ private fun ScreenContent(
             onSaveTomorrowApiKey = { viewModel.setTomorrowApiKey(it) },
             onSelectPlace = { viewModel.selectPlace(it) },
             onAddPlace = { name, state, lat, lon -> viewModel.addPlace(name, state, lat, lon) },
-            tickerVisible = tickerVisible
+            tickerVisible = tickerVisible,
+            alertsEnabled = alertsEnabled,
+            onSetAlertsEnabled = onSetAlertsEnabled
         )
     }
 }

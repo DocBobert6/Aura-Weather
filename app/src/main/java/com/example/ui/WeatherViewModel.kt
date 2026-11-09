@@ -1,11 +1,13 @@
 package com.example.ui
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.core.UnitFormatter
 import com.example.data.repo.WeatherRepository
 import com.example.data.settings.SettingsManager
+import com.example.data.work.AlertScheduler
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.Place
 import com.example.domain.model.RegionalPoint
@@ -17,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.ZoneId
@@ -33,7 +36,8 @@ enum class RadarLayer(val title: String) {
 class WeatherViewModel(
     private val weatherRepository: WeatherRepository,
     private val settingsManager: SettingsManager,
-    private val fusedLocationClient: FusedLocationProviderClient? = null
+    private val fusedLocationClient: FusedLocationProviderClient? = null,
+    private val appContext: Context? = null
 ) : ViewModel() {
 
     val weatherState: StateFlow<FullWeatherState?> = weatherRepository.weatherState
@@ -58,6 +62,10 @@ class WeatherViewModel(
 
     /** Background music toggle (Home screen): off by default. */
     val musicEnabled: StateFlow<Boolean> = settingsManager.musicEnabledFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /** 3.1 alert notifications toggle (Settings): off by default. */
+    val alertsEnabled: StateFlow<Boolean> = settingsManager.alertsEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     private val _selectedRadarLayer = MutableStateFlow(RadarLayer.Reflectivity)
@@ -92,6 +100,7 @@ class WeatherViewModel(
             } else {
                 weatherRepository.clearWeather()
             }
+            syncAlertWork()
         }
         startRadarLoop()
         startRegionalLoad()
@@ -152,6 +161,7 @@ class WeatherViewModel(
         viewModelScope.launch {
             weatherRepository.selectPlace(placeId)
             _selectedPlace.value = weatherRepository.getSelectedPlace()
+            syncAlertWork()
         }
     }
 
@@ -159,6 +169,7 @@ class WeatherViewModel(
         viewModelScope.launch {
             val place = weatherRepository.addCustomPlace(name, stateCode, lat, lon)
             _selectedPlace.value = place
+            syncAlertWork()
         }
     }
 
@@ -178,6 +189,41 @@ class WeatherViewModel(
     fun setMusicEnabled(enabled: Boolean) {
         viewModelScope.launch {
             settingsManager.setMusicEnabled(enabled)
+        }
+    }
+
+    /**
+     * 3.1: persist the alerts toggle, then start or stop the periodic
+     * check. Disabling cancels the unique work — that is the acceptance
+     * check, verified by inspection (AlertScheduler.cancel calls
+     * cancelUniqueWork with the same name enqueue used).
+     */
+    fun setAlertsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsManager.setAlertsEnabled(enabled)
+            val context = appContext ?: return@launch
+            if (enabled) {
+                syncAlertWork()
+            } else {
+                AlertScheduler.cancel(context)
+            }
+        }
+    }
+
+    /**
+     * 3.1: (re-)establish the periodic alert check when there is a place
+     * to check and alerts are on. KEEP makes repeated calls harmless.
+     * Reads the persisted flag directly (not the StateFlow value) so a
+     * place change before the flow's first emission still schedules.
+     */
+    private fun syncAlertWork() {
+        val context = appContext ?: return
+        viewModelScope.launch {
+            val enabled = settingsManager.alertsEnabledFlow.first()
+            val place = _selectedPlace.value ?: weatherRepository.getSelectedPlace()
+            if (enabled && place != null) {
+                AlertScheduler.enqueue(context)
+            }
         }
     }
 
@@ -224,6 +270,7 @@ class WeatherViewModel(
                                 lon = location.longitude
                             )
                             _selectedPlace.value = place
+                            syncAlertWork()
                             onSuccess(place.name)
                         }
                     } else {
@@ -245,11 +292,12 @@ class WeatherViewModel(
     class Factory(
         private val weatherRepository: WeatherRepository,
         private val settingsManager: SettingsManager,
-        private val fusedLocationClient: FusedLocationProviderClient?
+        private val fusedLocationClient: FusedLocationProviderClient?,
+        private val appContext: Context? = null
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return WeatherViewModel(weatherRepository, settingsManager, fusedLocationClient) as T
+            return WeatherViewModel(weatherRepository, settingsManager, fusedLocationClient, appContext) as T
         }
     }
 }

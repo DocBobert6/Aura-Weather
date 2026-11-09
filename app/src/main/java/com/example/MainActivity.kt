@@ -1,6 +1,7 @@
 package com.example
 
 import android.app.PictureInPictureParams
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
@@ -13,10 +14,13 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.work.AlertNotifier
 import com.example.music.BackgroundMusicPlayer
 import com.example.ui.WeatherViewModel
+import com.example.ui.navigation.ScreenDestination
 import com.example.ui.navigation.WeatherNavDisplay
 import com.example.ui.theme.AuraWeatherTheme
+import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
 
@@ -30,13 +34,28 @@ class MainActivity : ComponentActivity() {
         WeatherViewModel.Factory(
             weatherRepository = app.container.weatherRepository,
             settingsManager = app.container.settingsManager,
-            fusedLocationClient = app.container.fusedLocationClient
+            fusedLocationClient = app.container.fusedLocationClient,
+            appContext = applicationContext
         )
+    }
+
+    // 3.1 notification deep link: a tap opens the Alerts screen on the
+    // alert that was notified. Set from the launch intent (cold start) or
+    // onNewIntent (app already running); the shell consumes it once.
+    private val pendingDestination = MutableStateFlow<ScreenDestination?>(null)
+    private val highlightAlertId = MutableStateFlow<String?>(null)
+
+    private fun handleDeepLink(intent: Intent?) {
+        if (intent?.getStringExtra(AlertNotifier.EXTRA_DESTINATION) == AlertNotifier.DESTINATION_ALERTS) {
+            highlightAlertId.value = intent.getStringExtra(AlertNotifier.EXTRA_ALERT_ID)
+            pendingDestination.value = ScreenDestination.Alerts
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleDeepLink(intent)
 
         setContent {
             val weatherState by viewModel.weatherState.collectAsStateWithLifecycle()
@@ -51,6 +70,9 @@ class MainActivity : ComponentActivity() {
             val tomorrowApiKey by viewModel.tomorrowApiKey.collectAsStateWithLifecycle()
             val regionalPoints by viewModel.regionalPoints.collectAsStateWithLifecycle()
             val musicEnabled by viewModel.musicEnabled.collectAsStateWithLifecycle()
+            val alertsEnabled by viewModel.alertsEnabled.collectAsStateWithLifecycle()
+            val pendingNav by pendingDestination.collectAsStateWithLifecycle()
+            val highlightAlert by highlightAlertId.collectAsStateWithLifecycle()
 
             // The Home music toggle is the master switch: flip the player
             // on/off. The player itself gates on the foreground state.
@@ -81,10 +103,24 @@ class MainActivity : ComponentActivity() {
                     onEnterPiP = { enterRadarPictureInPicture() },
                     regionalPoints = regionalPoints,
                     musicEnabled = musicEnabled,
-                    onToggleMusic = { viewModel.setMusicEnabled(!musicEnabled) }
+                    onToggleMusic = { viewModel.setMusicEnabled(!musicEnabled) },
+                    alertsEnabled = alertsEnabled,
+                    onSetAlertsEnabled = { viewModel.setAlertsEnabled(it) },
+                    pendingDestination = pendingNav,
+                    highlightAlertId = highlightAlert,
+                    onPendingDestinationConsumed = {
+                        pendingDestination.value = null
+                        highlightAlertId.value = null
+                    }
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDeepLink(intent)
     }
 
     override fun onStart() {

@@ -1,5 +1,10 @@
 package com.example.ui.settings
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -45,8 +50,10 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.core.content.ContextCompat
 import java.util.Locale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -69,9 +76,43 @@ fun SettingsScreen(
     onSelectPlace: (String) -> Unit,
     onAddPlace: (String, String, Double, Double) -> Unit,
     tickerVisible: Boolean = false,
+    alertsEnabled: Boolean = false,
+    onSetAlertsEnabled: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showAddPlaceDialog by remember { mutableStateOf(false) }
+
+    // 3.1: the notification permission is requested only here — when the
+    // user turns alerts on — never on first launch. Below Android 13
+    // there is no runtime permission; it is granted at install.
+    val context = LocalContext.current
+    var showAlertRationale by remember { mutableStateOf(false) }
+    val alertPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) onSetAlertsEnabled(true)
+        // Denied: the toggle stays off — alerts cannot be delivered
+        // without the permission, so enabling the work would be pointless.
+    }
+
+    // Local function, declared before use (Kotlin local functions must be
+    // declared before the call site in the same composable).
+    fun onAlertsToggleChecked(checked: Boolean) {
+        if (!checked) {
+            onSetAlertsEnabled(false)
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            onSetAlertsEnabled(true)
+        } else {
+            showAlertRationale = true
+        }
+    }
 
     LazyColumn(
         modifier = modifier
@@ -142,6 +183,56 @@ fun SettingsScreen(
                     Switch(
                         checked = useMetric,
                         onCheckedChange = onSetUseMetric,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = RetroTokens.Yellow,
+                            checkedTrackColor = RetroTokens.PanelLight
+                        )
+                    )
+                }
+            }
+        }
+
+        // Alert Notifications (3.1): a periodic check for the selected
+        // place, every 15 minutes. Turning it on asks for the
+        // notification permission (with a rationale) the first time.
+        item {
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Alert notifications",
+                            tint = RetroTokens.Yellow,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column {
+                            Text(
+                                text = "ALERT NOTIFICATIONS",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = RetroTokens.TextPrimary
+                            )
+                            Text(
+                                text = if (alertsEnabled) "Checked every 15 minutes for your selected place" else "Get notified when the NWS issues an alert for your selected place",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = RetroTokens.TextSecondary
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = alertsEnabled,
+                        onCheckedChange = { onAlertsToggleChecked(it) },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = RetroTokens.Yellow,
                             checkedTrackColor = RetroTokens.PanelLight
@@ -434,6 +525,43 @@ fun SettingsScreen(
                 showAddPlaceDialog = false
                 onAddPlace(name, state, lat, lon)
             }
+        )
+    }
+
+    // 3.1 rationale: shown before the permission request, only when the
+    // user turns alerts on. "Not now" leaves the toggle off.
+    if (showAlertRationale) {
+        AlertDialog(
+            onDismissRequest = { showAlertRationale = false },
+            title = { Text("ALLOW NOTIFICATIONS?", color = RetroTokens.TextPrimary) },
+            text = {
+                Text(
+                    text = "Aura Weather checks for National Weather Service alerts every 15 minutes and notifies you when a new one is issued for your selected place. To receive those warnings, allow notifications.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = RetroTokens.TextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showAlertRationale = false
+                        alertPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = RetroTokens.Yellow,
+                        contentColor = RetroTokens.Background
+                    ),
+                    shape = RetroShapes.medium
+                ) {
+                    Text("ALLOW")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAlertRationale = false }) {
+                    Text("NOT NOW", color = RetroTokens.TextSecondary)
+                }
+            },
+            containerColor = RetroTokens.PanelLight
         )
     }
 }

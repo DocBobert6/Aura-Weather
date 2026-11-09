@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -31,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,7 +65,10 @@ fun AlertsScreen(
     isStale: Boolean = false,
     placeName: String? = null,
     zoneId: ZoneId = ZoneId.systemDefault(),
-    tickerVisible: Boolean = false
+    tickerVisible: Boolean = false,
+    // 3.1 notification deep link: the notified alert starts expanded and
+    // the list scrolls to it. Null on a normal visit (first card opens).
+    highlightAlertId: String? = null
 ) {
     // Cached alerts show their age: a stale alert list is not live data.
     val cacheAgeText = if (isStale && fetchedAt != null) {
@@ -82,7 +87,14 @@ fun AlertsScreen(
         }
     }
 
+    val listState = rememberLazyListState()
+    LaunchedEffect(highlightAlertId, sortedAlerts) {
+        val index = sortedAlerts.indexOfFirst { it.id == highlightAlertId }
+        if (index >= 0) listState.scrollToItem(index)
+    }
+
     LazyColumn(
+        state = listState,
         modifier = modifier
             .fillMaxSize()
             .testTag("alerts_screen"),
@@ -150,7 +162,7 @@ fun AlertsScreen(
                     alert = alert,
                     onViewOnRadar = onViewOnRadar,
                     zoneId = zoneId,
-                    initiallyExpanded = index == 0
+                    initiallyExpanded = index == 0 || alert.id == highlightAlertId
                 )
             }
         }
