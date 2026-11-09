@@ -38,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.Place
+import com.example.domain.model.RegionalPoint
 import com.example.ui.RadarLayer
 import com.example.ui.WeatherViewModel
 import com.example.ui.airpollen.AirPollenScreen
@@ -95,6 +96,7 @@ fun WeatherNavDisplay(
     currentRadarFrameIndex: Int,
     isRadarPlaying: Boolean,
     onEnterPiP: () -> Unit,
+    regionalPoints: List<RegionalPoint> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     var currentDestination by rememberSaveable { mutableStateOf(ScreenDestination.Home) }
@@ -181,7 +183,8 @@ fun WeatherNavDisplay(
                             isRadarPlaying = isRadarPlaying,
                             onNavigate = { currentDestination = it },
                             onEnterPiP = onEnterPiP,
-                            tickerVisible = tickerVisible
+                            tickerVisible = tickerVisible,
+                            regionalPoints = regionalPoints
                         )
                     }
 
@@ -215,7 +218,8 @@ fun WeatherNavDisplay(
                     isRadarPlaying = isRadarPlaying,
                     onNavigate = { currentDestination = it },
                     onEnterPiP = onEnterPiP,
-                    tickerVisible = tickerVisible
+                    tickerVisible = tickerVisible,
+                    regionalPoints = regionalPoints
                 )
             }
 
@@ -538,7 +542,8 @@ private fun ScreenContent(
     isRadarPlaying: Boolean,
     onNavigate: (ScreenDestination) -> Unit,
     onEnterPiP: () -> Unit,
-    tickerVisible: Boolean
+    tickerVisible: Boolean,
+    regionalPoints: List<RegionalPoint> = emptyList()
 ) {
     when (destination) {
         ScreenDestination.Home -> HomeScreen(
@@ -555,7 +560,8 @@ private fun ScreenContent(
             onNavigateToAirPollen = { onNavigate(ScreenDestination.AirSky) },
             onNavigateToSunMoon = { onNavigate(ScreenDestination.AirSky) },
             onNavigateToSettings = { onNavigate(ScreenDestination.Settings) },
-            tickerVisible = tickerVisible
+            tickerVisible = tickerVisible,
+            regionalPoints = regionalPoints
         )
 
         ScreenDestination.Radar -> RadarScreen(

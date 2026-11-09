@@ -12,9 +12,11 @@ import com.example.data.db.WeatherCacheEntity
 import com.example.data.mapper.InstantJsonAdapter
 import com.example.data.mapper.LocalDateJsonAdapter
 import com.example.data.mapper.WeatherMappers
+import com.example.data.mapper.destinationPoint
 import com.example.data.mapper.distanceMeters
 import com.example.data.mapper.isDaytimeAt
 import com.example.data.mapper.parseOpenMeteoUtcInstant
+import com.example.data.mapper.regionalCompassLabel
 import com.example.domain.astro.LunarCalculator
 import com.example.domain.astro.SolarCalculator
 import com.example.domain.model.CurrentConditions
@@ -25,12 +27,15 @@ import com.example.domain.model.HourlyPoint
 import com.example.domain.model.MinutePrecip
 import com.example.domain.model.Place
 import com.example.domain.model.PollenData
+import com.example.domain.model.RegionalPoint
 import com.example.domain.model.WeatherAlert
 import com.example.domain.model.WeatherCondition
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -161,6 +166,73 @@ class WeatherRepository(
             .map { it.toPlace() }
             .firstOrNull { distanceMeters(it.point, point) < NEARBY_PLACE_METERS }
     }
+
+    /**
+     * Regional map neighbours (R5): 8 points at compass bearings around
+     * [centre], [REGIONAL_NEIGHBOUR_DISTANCE_METERS] away, with current
+     * conditions. The centre itself is NOT in the returned list — the
+     * caller plots it from the already-loaded state.
+     *
+     * One multi-location Open-Meteo call fetches all 8 current
+     * conditions; if it fails or returns the wrong count, one
+     * single-location call per point is tried instead. A point whose
+     * weather fetch fails, or which has no temperature, is OMITTED —
+     * never plotted with an invented value. Names come from NWS /points
+     * relativeLocation (city, state) per point; outside NWS coverage, or
+     * when /points fails, the point is labelled by compass direction.
+     * An empty list means "hide the section".
+     */
+    suspend fun fetchRegionalNeighbours(centre: GeoPoint, zoneId: ZoneId): List<RegionalPoint> =
+        withContext(Dispatchers.IO) {
+            val bearings = listOf(0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0)
+            val destinations = bearings.map { destinationPoint(centre, it, REGIONAL_NEIGHBOUR_DISTANCE_METERS) }
+
+            val multi = runCatching {
+                openMeteoWeatherApi.getCurrentMulti(
+                    latitudes = destinations.joinToString(",") { it.lat.toString() },
+                    longitudes = destinations.joinToString(",") { it.lon.toString() }
+                )
+            }.getOrNull()?.takeIf { it.size == destinations.size }
+
+            // Current conditions per point, in bearing order. The
+            // multi-location call is preferred (one request); the
+            // per-point loop is the fallback when it fails.
+            val currents = if (multi != null) {
+                multi.map { it.current }
+            } else {
+                destinations.map { dest ->
+                    runCatching { openMeteoWeatherApi.getForecast(dest.lat, dest.lon) }
+                        .getOrNull()?.current
+                }
+            }
+
+            val now = Instant.now()
+            coroutineScope {
+                destinations.mapIndexed { index, dest ->
+                    async {
+                        val current = currents[index] ?: return@async null
+                        val tempC = current.temperature2m ?: return@async null
+                        val rel = runCatching { nwsApi.getPoints(dest.lat, dest.lon) }
+                            .getOrNull()?.properties?.relativeLocation?.properties
+                        val city = rel?.city
+                        val stateCode = rel?.state
+                        val label = if (city != null) {
+                            if (stateCode != null) "$city, $stateCode" else city
+                        } else {
+                            regionalCompassLabel(bearings[index])
+                        }
+                        val daytime = isDaytimeAt(dest, now, zoneId)
+                        RegionalPoint(
+                            point = dest,
+                            label = label,
+                            tempC = tempC,
+                            condition = WeatherMappers.mapWmoCodeToCondition(current.weatherCode, daytime),
+                            isDaytime = daytime
+                        )
+                    }
+                }.awaitAll().filterNotNull()
+            }
+        }
 
     suspend fun loadWeather(place: Place, forceRefresh: Boolean = false) = withContext(Dispatchers.IO) {
         _isRefreshing.value = true
@@ -641,6 +713,11 @@ class WeatherRepository(
 
         /** Two places closer than this are the same place (see 1.6). */
         const val NEARBY_PLACE_METERS = 500.0
+
+        /** Regional map (R5): neighbours sit this far from the centre
+         * place, at the 8 compass bearings — roughly the spacing of the
+         * classic stills' cities (~50 mi). One constant, easy to tune. */
+        const val REGIONAL_NEIGHBOUR_DISTANCE_METERS = 80_000.0
     }
 }
 

@@ -85,6 +85,7 @@ import com.example.domain.model.FullWeatherState
 import com.example.domain.model.HourlyPoint
 import com.example.domain.model.MinutePrecip
 import com.example.domain.model.Place
+import com.example.domain.model.RegionalPoint
 import com.example.domain.model.WeatherCondition
 import java.time.Instant
 import java.time.ZoneId
@@ -109,6 +110,7 @@ fun HomeScreen(
     onNavigateToSunMoon: () -> Unit,
     onNavigateToSettings: () -> Unit,
     tickerVisible: Boolean = false,
+    regionalPoints: List<RegionalPoint> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     var locationMenuExpanded by remember { mutableStateOf(false) }
@@ -294,7 +296,20 @@ fun HomeScreen(
             )
         }
 
-        // 8. 2x2 Details Grid (Wind, Humidity/Dewpoint, Pressure, Visibility)
+        // 8. Regional map forecast (R5): the current place + neighbours
+        // on a static map. Hidden entirely when the neighbour fetch
+        // produced nothing — never an empty panel.
+        if (regionalPoints.isNotEmpty()) {
+            item {
+                RegionalMapForecast(
+                    state = state,
+                    regionalPoints = regionalPoints,
+                    unitFormatter = unitFormatter
+                )
+            }
+        }
+
+        // 9. 2x2 Details Grid (Wind, Humidity/Dewpoint, Pressure, Visibility)
         item {
             WeatherDetailsGrid(
                 state = state,
@@ -302,7 +317,7 @@ fun HomeScreen(
             )
         }
 
-        // 9. Air Quality & Pollen Summary Card
+        // 10. Air Quality & Pollen Summary Card
         item {
             AirAndPollenSummaryCard(
                 state = state,
@@ -310,7 +325,7 @@ fun HomeScreen(
             )
         }
 
-        // 10. Sun & Moon Summary Card
+        // 11. Sun & Moon Summary Card
         item {
             SunAndMoonSummaryCard(
                 state = state,

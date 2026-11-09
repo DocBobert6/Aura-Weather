@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
             val currentRadarFrameIndex by viewModel.currentRadarFrameIndex.collectAsStateWithLifecycle()
             val isRadarPlaying by viewModel.isRadarPlaying.collectAsStateWithLifecycle()
             val tomorrowApiKey by viewModel.tomorrowApiKey.collectAsStateWithLifecycle()
+            val regionalPoints by viewModel.regionalPoints.collectAsStateWithLifecycle()
 
             // The app is always the dark navy retro look, so status-bar
             // icons are always light (isAppearanceLightStatusBars = false).
@@ -63,7 +64,8 @@ class MainActivity : ComponentActivity() {
                     selectedRadarLayer = selectedRadarLayer,
                     currentRadarFrameIndex = currentRadarFrameIndex,
                     isRadarPlaying = isRadarPlaying,
-                    onEnterPiP = { enterRadarPictureInPicture() }
+                    onEnterPiP = { enterRadarPictureInPicture() },
+                    regionalPoints = regionalPoints
                 )
             }
         }

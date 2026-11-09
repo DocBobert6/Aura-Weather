@@ -17,6 +17,23 @@ data class Place(
     val isPreset: Boolean = false
 )
 
+/**
+ * One plotted point on the Home regional map (R5): the current place
+ * (isCentre) or one neighbour ~80 km away. tempC is null only for the
+ * centre when the loaded state has no temperature; neighbours with no
+ * temperature are omitted by the repository, never plotted with an
+ * invented value. label is a real city name (NWS relativeLocation) or a
+ * compass label ("NE") — never an invented city name.
+ */
+data class RegionalPoint(
+    val point: GeoPoint,
+    val label: String,
+    val tempC: Double?,
+    val condition: WeatherCondition,
+    val isDaytime: Boolean = true,
+    val isCentre: Boolean = false
+)
+
 enum class WeatherCondition(val displayName: String) {
     ClearDay("Clear"),
     ClearNight("Clear"),

@@ -40,6 +40,36 @@ fun distanceMeters(a: GeoPoint, b: GeoPoint): Double {
     return 2 * earthRadiusM * Math.asin(Math.sqrt(h.coerceIn(0.0, 1.0)))
 }
 
+/**
+ * Great-circle destination point (R5): the point [distanceMeters] away
+ * from [from] along [bearingDeg] (0 = north, clockwise). Used to place
+ * the regional map's neighbour points at fixed compass bearings.
+ */
+fun destinationPoint(from: GeoPoint, bearingDeg: Double, distanceMeters: Double): GeoPoint {
+    val earthRadiusM = 6_371_000.0
+    val angular = distanceMeters / earthRadiusM
+    val bearing = Math.toRadians(bearingDeg)
+    val lat1 = Math.toRadians(from.lat)
+    val lon1 = Math.toRadians(from.lon)
+    val lat2 = Math.asin(
+        Math.sin(lat1) * Math.cos(angular) +
+            Math.cos(lat1) * Math.sin(angular) * Math.cos(bearing)
+    )
+    val lon2 = lon1 + Math.atan2(
+        Math.sin(bearing) * Math.sin(angular) * Math.cos(lat1),
+        Math.cos(angular) - Math.sin(lat1) * Math.sin(lat2)
+    )
+    return GeoPoint(Math.toDegrees(lat2), Math.toDegrees(lon2))
+}
+
+/** 8-point compass label for a bearing in degrees (0 = N). R5 fallback
+ * label for a neighbour point whose city name is unavailable. */
+fun regionalCompassLabel(bearingDeg: Double): String {
+    val points = listOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+    val idx = ((bearingDeg % 360.0 + 360.0) % 360.0 / 45.0).roundToInt() % 8
+    return points[idx]
+}
+
 object WeatherMappers {
 
     fun mapWmoCodeToCondition(code: Int?, isDaytime: Boolean = true): WeatherCondition {

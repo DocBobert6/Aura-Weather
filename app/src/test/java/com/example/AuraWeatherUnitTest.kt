@@ -2,7 +2,10 @@ package com.example
 
 import com.example.core.UnitFormatter
 import com.example.data.mapper.WeatherMappers
+import com.example.data.mapper.destinationPoint
+import com.example.data.mapper.distanceMeters
 import com.example.data.mapper.parseOpenMeteoUtcInstant
+import com.example.data.mapper.regionalCompassLabel
 import com.example.domain.astro.LunarCalculator
 import com.example.domain.astro.SolarCalculator
 import com.example.domain.model.GeoPoint
@@ -231,5 +234,47 @@ class AuraWeatherUnitTest {
         )
         assertTrue(points.isEmpty())
         assertTrue("Sentence must say unavailable, was: $sentence", sentence.contains("unavailable", ignoreCase = true))
+    }
+
+    @Test
+    fun testDestinationPoint_movesNorth80km() {
+        // Covington, KY area: 39.10 N, 84.51 W. 80 km due north is
+        // ~0.72 degrees of latitude, same longitude.
+        val from = GeoPoint(39.10, -84.51)
+        val dest = destinationPoint(from, 0.0, 80_000.0)
+        assertEquals(39.82, dest.lat, 0.01)
+        assertEquals(-84.51, dest.lon, 0.01)
+        assertEquals(80_000.0, distanceMeters(from, dest), 1.0)
+    }
+
+    @Test
+    fun testDestinationPoint_movesEast80km() {
+        val from = GeoPoint(39.10, -84.51)
+        val dest = destinationPoint(from, 90.0, 80_000.0)
+        assertEquals(39.10, dest.lat, 0.01)
+        assertTrue("East destination must be east of the start", dest.lon > -84.51)
+        assertEquals(80_000.0, distanceMeters(from, dest), 1.0)
+    }
+
+    @Test
+    fun testDestinationPoint_allEightBearingsAre80kmAway() {
+        val from = GeoPoint(39.10, -84.51)
+        for (bearing in listOf(0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0)) {
+            val dest = destinationPoint(from, bearing, 80_000.0)
+            assertEquals("Bearing $bearing must land 80 km away", 80_000.0, distanceMeters(from, dest), 1.0)
+        }
+    }
+
+    @Test
+    fun testRegionalCompassLabel_eightPoints() {
+        assertEquals("N", regionalCompassLabel(0.0))
+        assertEquals("NE", regionalCompassLabel(45.0))
+        assertEquals("E", regionalCompassLabel(90.0))
+        assertEquals("SE", regionalCompassLabel(135.0))
+        assertEquals("S", regionalCompassLabel(180.0))
+        assertEquals("SW", regionalCompassLabel(225.0))
+        assertEquals("W", regionalCompassLabel(270.0))
+        assertEquals("NW", regionalCompassLabel(315.0))
+        assertEquals("N", regionalCompassLabel(360.0))
     }
 }

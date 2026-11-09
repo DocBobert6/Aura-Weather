@@ -8,6 +8,7 @@ import com.example.data.repo.WeatherRepository
 import com.example.data.settings.SettingsManager
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.Place
+import com.example.domain.model.RegionalPoint
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.Job
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.ZoneId
 
 enum class RadarLayer(val title: String) {
     Reflectivity("NEXRAD Composite"),
@@ -65,6 +67,16 @@ class WeatherViewModel(
 
     private var radarLoopJob: Job? = null
 
+    /**
+     * Regional map points (R5): the centre place first, then its
+     * neighbours. Empty while the neighbour fetch is pending, and empty
+     * when it produced nothing — the Home section hides in both cases.
+     */
+    private val _regionalPoints = MutableStateFlow<List<RegionalPoint>>(emptyList())
+    val regionalPoints = _regionalPoints.asStateFlow()
+
+    private var regionalJob: Job? = null
+
     init {
         // Initial load — only when a place is already selected. With no
         // place, the UI shows the no-place state and nothing is fetched.
@@ -78,6 +90,46 @@ class WeatherViewModel(
             }
         }
         startRadarLoop()
+        startRegionalLoad()
+    }
+
+    /**
+     * Regional map (R5): after every main load, fetch the neighbours in
+     * their own coroutine. A slow or failed neighbour fetch never blocks
+     * the main weather, and a new place cancels the in-flight fetch.
+     */
+    private fun startRegionalLoad() {
+        viewModelScope.launch {
+            weatherRepository.weatherState.collect { state ->
+                regionalJob?.cancel()
+                if (state == null) {
+                    _regionalPoints.value = emptyList()
+                    return@collect
+                }
+                regionalJob = launch {
+                    val neighbours = runCatching {
+                        weatherRepository.fetchRegionalNeighbours(
+                            centre = state.place.point,
+                            zoneId = runCatching { ZoneId.of(state.place.zoneId) }
+                                .getOrDefault(ZoneId.systemDefault())
+                        )
+                    }.getOrElse { emptyList() }
+                    if (neighbours.isEmpty()) {
+                        _regionalPoints.value = emptyList()
+                        return@launch
+                    }
+                    val centre = RegionalPoint(
+                        point = state.place.point,
+                        label = state.place.name,
+                        tempC = state.current.tempC,
+                        condition = state.current.condition,
+                        isDaytime = state.solar.isDaytime,
+                        isCentre = true
+                    )
+                    _regionalPoints.value = listOf(centre) + neighbours
+                }
+            }
+        }
     }
 
     fun refresh() {

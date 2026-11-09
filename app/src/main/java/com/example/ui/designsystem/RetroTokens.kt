@@ -54,6 +54,9 @@ object RetroTokens {
 
     /** Bottom ticker blue (R3). */
     val TickerBlue: Color = Color(0xFF0D2B7A)
+
+    /** Hard label shadow on the map (R5): white city names over tiles. */
+    val Shadow: Color = Color(0xFF000000)
 }
 
 /** Classic radius set: square-ish corners (4–8dp), not the 20–28dp modern radii. */

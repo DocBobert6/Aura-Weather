@@ -84,6 +84,20 @@ interface OpenMeteoWeatherApi {
         // parseOpenMeteoUtcInstant (see WeatherMappers).
         @Query("timezone") timezone: String = "UTC"
     ): OpenMeteoWeatherResponse
+
+    /**
+     * Multi-location current conditions (R5 regional map): one call for
+     * several points. latitude/longitude are comma-separated lists and the
+     * response is a JSON array in the same order. `encoded = true` so the
+     * commas go through verbatim.
+     */
+    @GET("v1/forecast")
+    suspend fun getCurrentMulti(
+        @Query("latitude", encoded = true) latitudes: String,
+        @Query("longitude", encoded = true) longitudes: String,
+        @Query("current") current: String = "temperature_2m,weather_code",
+        @Query("timezone") timezone: String = "UTC"
+    ): List<OpenMeteoWeatherResponse>
 }
 
 interface OpenMeteoAirQualityApi {
