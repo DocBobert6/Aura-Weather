@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import com.example.domain.model.FullWeatherState
@@ -54,6 +56,8 @@ import com.example.ui.sunmoon.SunMoonScreen
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.MusicOff
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
@@ -143,7 +147,9 @@ fun WeatherNavDisplay(
         ) {
             RetroHeader(
                 destination = currentDestination,
-                place = selectedPlace ?: weatherState?.place
+                place = selectedPlace ?: weatherState?.place,
+                musicEnabled = musicEnabled,
+                onToggleMusic = onToggleMusic
             )
 
             if (isWideScreen) {
@@ -186,9 +192,7 @@ fun WeatherNavDisplay(
                             onNavigate = { currentDestination = it },
                             onEnterPiP = onEnterPiP,
                             tickerVisible = tickerVisible,
-                            regionalPoints = regionalPoints,
-                            musicEnabled = musicEnabled,
-                            onToggleMusic = onToggleMusic
+                            regionalPoints = regionalPoints
                         )
                     }
 
@@ -223,9 +227,7 @@ fun WeatherNavDisplay(
                     onNavigate = { currentDestination = it },
                     onEnterPiP = onEnterPiP,
                     tickerVisible = tickerVisible,
-                    regionalPoints = regionalPoints,
-                    musicEnabled = musicEnabled,
-                    onToggleMusic = onToggleMusic
+                    regionalPoints = regionalPoints
                 )
             }
 
@@ -361,6 +363,8 @@ private fun SolidNavRail(
 private fun RetroHeader(
     destination: ScreenDestination,
     place: Place?,
+    musicEnabled: Boolean = false,
+    onToggleMusic: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val zoneId = remember(place?.zoneId) {
@@ -417,6 +421,20 @@ private fun RetroHeader(
                 .weight(1f)
                 .padding(start = 12.dp, end = 8.dp)
         )
+
+        // Background music toggle: Home only. It lived in the PlaceRow
+        // and squeezed the place pill; here it costs the pill nothing.
+        // Yellow note while playing, dimmed crossed note while off.
+        if (destination == ScreenDestination.Home) {
+            IconButton(onClick = onToggleMusic) {
+                Icon(
+                    imageVector = if (musicEnabled) Icons.Default.MusicNote else Icons.Default.MusicOff,
+                    contentDescription = if (musicEnabled) "Turn music off" else "Turn music on",
+                    tint = if (musicEnabled) RetroTokens.Yellow else RetroTokens.TextPrimary.copy(alpha = 0.6f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
 
         RetroClock(zoneId = zoneId)
     }
@@ -538,9 +556,7 @@ private fun ScreenContent(
     onNavigate: (ScreenDestination) -> Unit,
     onEnterPiP: () -> Unit,
     tickerVisible: Boolean,
-    regionalPoints: List<RegionalPoint> = emptyList(),
-    musicEnabled: Boolean = false,
-    onToggleMusic: () -> Unit = {}
+    regionalPoints: List<RegionalPoint> = emptyList()
 ) {
     when (destination) {
         ScreenDestination.Home -> HomeScreen(
@@ -558,9 +574,7 @@ private fun ScreenContent(
             onNavigateToSunMoon = { onNavigate(ScreenDestination.AirSky) },
             onNavigateToSettings = { onNavigate(ScreenDestination.Settings) },
             tickerVisible = tickerVisible,
-            regionalPoints = regionalPoints,
-            musicEnabled = musicEnabled,
-            onToggleMusic = onToggleMusic
+            regionalPoints = regionalPoints
         )
 
         ScreenDestination.Radar -> RadarScreen(

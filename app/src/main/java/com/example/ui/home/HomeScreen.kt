@@ -36,8 +36,6 @@ import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.MusicOff
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.NightsStay
@@ -113,8 +111,6 @@ fun HomeScreen(
     onNavigateToSettings: () -> Unit,
     tickerVisible: Boolean = false,
     regionalPoints: List<RegionalPoint> = emptyList(),
-    musicEnabled: Boolean = false,
-    onToggleMusic: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var locationMenuExpanded by remember { mutableStateOf(false) }
@@ -173,7 +169,7 @@ fun HomeScreen(
         // so no function is lost and nothing overlays the content.
         item {
             PlaceRow(
-                place = selectedPlace ?: state?.place,
+                place = state?.place ?: selectedPlace,
                 savedPlaces = savedPlaces,
                 isRefreshing = isRefreshing,
                 menuExpanded = locationMenuExpanded,
@@ -185,9 +181,7 @@ fun HomeScreen(
                 onLocationClick = {
                     locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
                 },
-                onRefresh = onRefresh,
-                musicEnabled = musicEnabled,
-                onToggleMusic = onToggleMusic
+                onRefresh = onRefresh
             )
         }
 
@@ -450,8 +444,6 @@ private fun PlaceRow(
     onSelectPlace: (String) -> Unit,
     onLocationClick: () -> Unit,
     onRefresh: () -> Unit,
-    musicEnabled: Boolean,
-    onToggleMusic: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val placeName = place?.let { "${it.name}${if (it.stateCode.isNotBlank()) ", ${it.stateCode}" else ""}" }
@@ -487,7 +479,7 @@ private fun PlaceRow(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = placeName.uppercase(),
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp),
                         fontWeight = FontWeight.Bold,
                         color = RetroTokens.TextPrimary,
                         maxLines = 1,
@@ -571,19 +563,6 @@ private fun PlaceRow(
             }
         }
 
-        // Background music toggle: Home only. Yellow note while playing,
-        // dimmed crossed note while off. Off by default; the choice is
-        // remembered in SettingsManager (music_enabled).
-        GlassIconButton(
-            onClick = onToggleMusic
-        ) {
-            Icon(
-                imageVector = if (musicEnabled) Icons.Default.MusicNote else Icons.Default.MusicOff,
-                contentDescription = if (musicEnabled) "Turn music off" else "Turn music on",
-                tint = if (musicEnabled) RetroTokens.Yellow else RetroTokens.TextSecondary,
-                modifier = Modifier.size(20.dp)
-            )
-        }
     }
 }
 
