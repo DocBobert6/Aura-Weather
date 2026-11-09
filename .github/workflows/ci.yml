@@ -1,8 +1,10 @@
 name: CI
 
 # Runs the unit tests (including the Robolectric test) and builds the debug
-# APK. The repo ships no Gradle wrapper, so Gradle is installed by
-# gradle/actions/setup-gradle instead of ./gradlew.
+# and release APKs (the release build is the R8 check: it is unsigned in
+# CI, which has no release keystore). The repo ships no Gradle wrapper,
+# so Gradle is installed by gradle/actions/setup-gradle instead of
+# ./gradlew.
 on:
   push:
     branches: [main, fix/correctness-phase-1]
@@ -52,8 +54,8 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-      - name: Unit tests and debug build
-        run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
+      - name: Unit tests, debug and release builds
+        run: gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease --stacktrace
 
       - name: Upload test results
         if: always()
@@ -68,3 +70,10 @@ jobs:
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload release APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: app/build/outputs/apk/release/
