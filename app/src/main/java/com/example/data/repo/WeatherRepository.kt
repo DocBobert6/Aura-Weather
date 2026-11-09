@@ -32,6 +32,7 @@ import com.example.domain.model.PollenData
 import com.example.domain.model.RegionalPoint
 import com.example.domain.model.WeatherAlert
 import com.example.domain.model.WeatherCondition
+import com.example.ui.widget.WidgetState
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -111,6 +112,35 @@ class WeatherRepository(
             )
             parseNwsAlerts(response.features, Instant.now())
         }
+
+    /**
+     * 3.2: the widget's data. Reads the in-memory state first (freshest),
+     * else the Room cache. Never triggers a network fetch. Null when there
+     * is no selected place, no cache, or an unparseable cache — the widget
+     * shows the empty prompt, never invented weather.
+     */
+    suspend fun getWidgetState(useMetric: Boolean): WidgetState? = withContext(Dispatchers.IO) {
+        val place = getSelectedPlace() ?: return@withContext null
+        val state = weatherState.value?.takeIf { it.place.id == place.id }
+            ?: run {
+                val cached = weatherCacheDao.getCache(place.id) ?: return@withContext null
+                val isStale = (Instant.now().toEpochMilli() - cached.cachedAt) > 15 * 60 * 1000
+                parseCacheToState(place, cached, isStale) ?: return@withContext null
+            }
+        val today = state.daily7d.firstOrNull()
+        WidgetState(
+            placeName = state.place.name,
+            tempC = state.current.tempC,
+            condition = state.current.condition,
+            highC = today?.highC,
+            lowC = today?.lowC,
+            fetchedAt = state.fetchedAt,
+            isStale = state.isStale,
+            zoneId = state.place.zoneId,
+            useMetric = useMetric,
+            isDaytime = state.solar.isDaytime
+        )
+    }
 
     /** Clears the displayed state (used when there is no selected place). */
     fun clearWeather() {
