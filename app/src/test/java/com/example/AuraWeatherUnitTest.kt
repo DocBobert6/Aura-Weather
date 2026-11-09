@@ -8,6 +8,7 @@ import com.example.data.mapper.parseOpenMeteoUtcInstant
 import com.example.data.mapper.regionalCompassLabel
 import com.example.data.mapper.gibsTimestamp
 import com.example.data.mapper.shortMapLabel
+import com.example.data.mapper.stableAlertId
 import com.example.domain.astro.LunarCalculator
 import com.example.domain.astro.SolarCalculator
 import com.example.domain.model.GeoPoint
@@ -300,5 +301,24 @@ class AuraWeatherUnitTest {
         assertEquals("2026-11-09T12:40:00Z", gibsTimestamp(Instant.parse("2026-11-09T12:40:00Z")))
         assertEquals("2026-11-09T12:30:00Z", gibsTimestamp(Instant.parse("2026-11-09T12:39:59Z")))
         assertEquals("2026-11-09T00:00:00Z", gibsTimestamp(Instant.parse("2026-11-09T00:04:59Z")))
+    }
+
+    @Test
+    fun testStableAlertId_sameInputsSameId() {
+        val effective = Instant.parse("2026-11-09T12:00:00Z")
+        val first = stableAlertId("Tornado Warning", "Boone County", effective)
+        val second = stableAlertId("Tornado Warning", "Boone County", effective)
+        assertEquals("A refetch must produce the same id", first, second)
+        assertTrue("Derived ids carry the alert_ prefix", first.startsWith("alert_"))
+    }
+
+    @Test
+    fun testStableAlertId_differentFieldsDifferentIds() {
+        val effective = Instant.parse("2026-11-09T12:00:00Z")
+        val base = stableAlertId("Tornado Warning", "Boone County", effective)
+        assertTrue("Different event", base != stableAlertId("Severe Thunderstorm Warning", "Boone County", effective))
+        assertTrue("Different area", base != stableAlertId("Tornado Warning", "Kenton County", effective))
+        assertTrue("Different effective time", base != stableAlertId("Tornado Warning", "Boone County", Instant.parse("2026-11-09T13:00:00Z")))
+        assertTrue("Null fields still produce a stable id", stableAlertId(null, null, effective) == stableAlertId(null, null, effective))
     }
 }

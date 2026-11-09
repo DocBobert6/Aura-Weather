@@ -13,6 +13,7 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.security.MessageDigest
 import kotlin.math.roundToInt
 
 /**
@@ -92,6 +93,24 @@ fun shortMapLabel(label: String): String {
 fun gibsTimestamp(now: java.time.Instant): String {
     val rounded = now.epochSecond - (now.epochSecond % 600)
     return java.time.Instant.ofEpochSecond(rounded).toString()
+}
+
+/**
+ * Stable id for an NWS alert that arrives without one (3.1 prerequisite).
+ * The old fallback minted "alert_${System.currentTimeMillis()}", so two
+ * alerts in the same millisecond shared an id and a refetch minted a new
+ * one — dedupe-by-id could never work. This is a SHA-256 of the alert's
+ * own fields (event + area + effective time), so the same alert always
+ * produces the same id across refetches, and two different alerts
+ * produce different ones. It is a derived identifier, not invented data:
+ * every input is a real field from the feed.
+ */
+fun stableAlertId(event: String?, areaDesc: String?, effective: Instant): String {
+    val input = "${event ?: ""}|${areaDesc ?: ""}|$effective"
+    val digest = MessageDigest.getInstance("SHA-256")
+        .digest(input.toByteArray(Charsets.UTF_8))
+    val hex = digest.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+    return "alert_$hex"
 }
 
 object WeatherMappers {

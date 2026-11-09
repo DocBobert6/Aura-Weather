@@ -1,5 +1,6 @@
 package com.example.data.repo
 
+import com.example.data.api.NwsAlertFeature
 import com.example.data.api.NwsApi
 import com.example.data.api.NwsForecastPeriod
 import com.example.data.api.OpenMeteoAirQualityApi
@@ -17,6 +18,7 @@ import com.example.data.mapper.distanceMeters
 import com.example.data.mapper.isDaytimeAt
 import com.example.data.mapper.parseOpenMeteoUtcInstant
 import com.example.data.mapper.regionalCompassLabel
+import com.example.data.mapper.stableAlertId
 import com.example.domain.astro.LunarCalculator
 import com.example.domain.astro.SolarCalculator
 import com.example.domain.model.CurrentConditions
@@ -95,6 +97,20 @@ class WeatherRepository(
     suspend fun getSelectedPlace(): Place? = withContext(Dispatchers.IO) {
         savedPlaceDao.getSelectedPlace()?.toPlace()
     }
+
+    /**
+     * Active NWS alerts for one place (3.1): the alert worker's fetch.
+     * Same parser as the main refresh, so the worker and the UI never
+     * disagree about which alerts are active. Throws on a network
+     * failure — the worker retries; it never invents an empty list.
+     */
+    suspend fun getActiveAlertsForPlace(place: Place): List<WeatherAlert> =
+        withContext(Dispatchers.IO) {
+            val response = nwsApi.getActiveAlerts(
+                String.format(Locale.US, "%.4f,%.4f", place.point.lat, place.point.lon)
+            )
+            parseNwsAlerts(response.features, Instant.now())
+        }
 
     /** Clears the displayed state (used when there is no selected place). */
     fun clearWeather() {
@@ -446,32 +462,10 @@ class WeatherRepository(
             zoneId
         )
 
-        // --- Alerts. An alert with no usable id or times is dropped, not
-        // given a made-up id or expiry; expired alerts are dropped too.
-        val alerts = alertsResult?.features?.mapNotNull { feature ->
-            val props = feature.properties ?: return@mapNotNull null
-            val id = props.id ?: return@mapNotNull null
-            val effective = props.effective?.let { runCatching { Instant.parse(it) }.getOrNull() }
-                ?: return@mapNotNull null
-            val expires = props.expires?.let { runCatching { Instant.parse(it) }.getOrNull() }
-                ?: return@mapNotNull null
-            val ends = props.ends?.let { runCatching { Instant.parse(it) }.getOrNull() }
-            if (expires.isBefore(now)) return@mapNotNull null
-            WeatherAlert(
-                id = id,
-                event = props.event ?: "Weather Advisory",
-                severity = WeatherMappers.mapAlertSeverity(props.severity),
-                urgency = props.urgency ?: "Expected",
-                headline = props.headline ?: props.event ?: "Hazardous weather warning",
-                description = props.description ?: "",
-                instruction = props.instruction,
-                effective = effective,
-                expires = expires,
-                ends = ends,
-                senderName = props.senderName,
-                areaDesc = props.areaDesc ?: ""
-            )
-        } ?: emptyList()
+        // --- Alerts. Parsed by the shared parser below (also used by the
+        // 3.1 alert worker), so the app and the worker never disagree
+        // about which alerts are active.
+        val alerts = parseNwsAlerts(alertsResult?.features, now)
 
         // --- Air quality. Null when the provider returned no AQI.
         val aqCurrent = aqResult?.current
@@ -510,6 +504,44 @@ class WeatherRepository(
             isStale = false,
             fetchedAt = now
         )
+    }
+
+    /**
+     * NWS alert features → active alerts. One parser for the main refresh
+     * and the 3.1 worker. An alert with no usable times is dropped, not
+     * given a made-up expiry; expired alerts are dropped too. An alert
+     * with no NWS id gets a stable derived id (a hash of its event, area,
+     * and effective time) — never a timestamp — so a refetch produces the
+     * same id and dedupe-by-id works.
+     */
+    private fun parseNwsAlerts(
+        features: List<NwsAlertFeature>?,
+        now: Instant
+    ): List<WeatherAlert> {
+        return features?.mapNotNull { feature ->
+            val props = feature.properties ?: return@mapNotNull null
+            val effective = props.effective?.let { runCatching { Instant.parse(it) }.getOrNull() }
+                ?: return@mapNotNull null
+            val expires = props.expires?.let { runCatching { Instant.parse(it) }.getOrNull() }
+                ?: return@mapNotNull null
+            val ends = props.ends?.let { runCatching { Instant.parse(it) }.getOrNull() }
+            if (expires.isBefore(now)) return@mapNotNull null
+            val id = props.id ?: stableAlertId(props.event, props.areaDesc, effective)
+            WeatherAlert(
+                id = id,
+                event = props.event ?: "Weather Advisory",
+                severity = WeatherMappers.mapAlertSeverity(props.severity),
+                urgency = props.urgency ?: "Expected",
+                headline = props.headline ?: props.event ?: "Hazardous weather warning",
+                description = props.description ?: "",
+                instruction = props.instruction,
+                effective = effective,
+                expires = expires,
+                ends = ends,
+                senderName = props.senderName,
+                areaDesc = props.areaDesc ?: ""
+            )
+        } ?: emptyList()
     }
 
     /**
