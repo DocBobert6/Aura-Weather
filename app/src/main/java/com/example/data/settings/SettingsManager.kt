@@ -20,6 +20,7 @@ class SettingsManager(private val context: Context) {
         val KEY_TOMORROW_API_KEY = stringPreferencesKey("tomorrow_api_key")
         val KEY_AIRNOW_API_KEY = stringPreferencesKey("airnow_api_key")
         val KEY_MUSIC_ENABLED = booleanPreferencesKey("music_enabled")
+        val KEY_ALERTS_ENABLED = booleanPreferencesKey("alerts_enabled")
     }
 
     val useMetricFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -43,6 +44,13 @@ class SettingsManager(private val context: Context) {
     // Background music (Home toggle): off by default, remembered across launches.
     val musicEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[KEY_MUSIC_ENABLED] ?: false
+    }
+
+    // 3.1 alert notifications: off by default — the user opts in via the
+    // Settings toggle, which is also the moment the notification
+    // permission is requested (never on first launch).
+    val alertsEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_ALERTS_ENABLED] ?: false
     }
 
     suspend fun setUseMetric(useMetric: Boolean) {
@@ -72,6 +80,12 @@ class SettingsManager(private val context: Context) {
     suspend fun setMusicEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[KEY_MUSIC_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setAlertsEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_ALERTS_ENABLED] = enabled
         }
     }
 }
