@@ -78,10 +78,12 @@ object AuraColors {
     // polarisation product, not a dBZ threshold, so it does not belong on
     // a dBZ legend.
     val RadarLegend: List<Pair<String, Color>> = listOf(
-        "Light 5–20" to Color(0xFF00E676),
-        "Moderate 20–35" to Color(0xFFFFEA00),
-        "Heavy 35–50" to Color(0xFFFF9100),
-        "Severe 50–65" to Color(0xFFFF1744),
+        // Hyphen-minus, not an en dash: U+2013 is an empty glyph in
+        // Star4000 and renders as a blank gap ("5 20").
+        "Light 5-20" to Color(0xFF00E676),
+        "Moderate 20-35" to Color(0xFFFFEA00),
+        "Heavy 35-50" to Color(0xFFFF9100),
+        "Severe 50-65" to Color(0xFFFF1744),
     )
 
     /**

@@ -251,7 +251,7 @@ fun HomeScreen(
                 }
                 val bannerEnd = topAlert.ends ?: topAlert.expires
                 ActiveAlertBanner(
-                    alertTitle = "${topAlert.event} · Ends ${bannerTimeFormatter.format(bannerEnd)}",
+                    alertTitle = "${topAlert.event} - Ends ${bannerTimeFormatter.format(bannerEnd)}",
                     severity = topAlert.severity,
                     count = state.activeAlerts.size,
                     onClick = onNavigateToAlerts
@@ -366,7 +366,7 @@ private fun NoPlaceCard(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Aura Weather works anywhere. Use your current location, or add a place in Settings — no place is chosen for you.",
+                text = "Aura Weather works anywhere. Use your current location, or add a place in Settings - no place is chosen for you.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = RetroTokens.TextSecondary
             )
@@ -491,7 +491,7 @@ private fun PlaceRow(
                         fontWeight = FontWeight.Bold,
                         color = RetroTokens.TextPrimary,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        overflow = TextOverflow.Clip,
                         modifier = Modifier.weight(1f)
                     )
                     Icon(
@@ -612,7 +612,7 @@ private fun ActiveAlertBanner(
             ) {
                 Text(
                     text = AuraColors.severityLabel(severity) +
-                        if (count > 1) " · $count" else "",
+                        if (count > 1) " - $count" else "",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = RetroTokens.TextPrimary,
@@ -626,7 +626,7 @@ private fun ActiveAlertBanner(
                 fontWeight = FontWeight.SemiBold,
                 color = RetroTokens.TextPrimary,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                overflow = TextOverflow.Clip,
                 modifier = Modifier.weight(1f)
             )
             Text(
@@ -996,7 +996,7 @@ private fun DailyForecastCard(
                         style = MaterialTheme.typography.bodyMedium,
                         color = RetroTokens.TextPrimary,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        overflow = TextOverflow.Clip,
                         modifier = Modifier
                             .weight(1f)
                             .padding(end = 8.dp)
@@ -1092,7 +1092,7 @@ private fun WeatherDetailsGrid(
                 subValue = buildString {
                     windDir?.let { append(compassPoint(it.toDouble())) }
                     if (state?.current?.windGustMs != null) {
-                        if (isNotEmpty()) append(" · ")
+                        if (isNotEmpty()) append(" - ")
                         append("Gusts to ${gustFormatted.replace(" ", "\u00A0")}")
                     }
                     if (isEmpty()) append("--")
@@ -1220,7 +1220,7 @@ private fun DetailMiniCard(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Clip
             )
         }
     }

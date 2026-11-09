@@ -256,7 +256,7 @@ private fun RegionalCityLabel(
             fontWeight = FontWeight.Bold,
             color = RetroTokens.TextPrimary,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Clip
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(

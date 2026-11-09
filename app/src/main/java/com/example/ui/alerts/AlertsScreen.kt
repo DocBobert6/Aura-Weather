@@ -265,8 +265,8 @@ private fun AlertExpandableCard(
             Text(
                 text = buildString {
                     append("Issued ${timeFormatter.format(alert.effective)}")
-                    append(" · Ends ${timeFormatter.format(alert.ends ?: alert.expires)}")
-                    alert.senderName?.let { append(" · $it") }
+                    append(" - Ends ${timeFormatter.format(alert.ends ?: alert.expires)}")
+                    alert.senderName?.let { append(" - $it") }
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = RetroTokens.TextSecondary

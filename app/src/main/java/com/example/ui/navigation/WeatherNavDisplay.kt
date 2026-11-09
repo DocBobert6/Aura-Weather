@@ -366,22 +366,11 @@ private fun RetroHeader(
     val zoneId = remember(place?.zoneId) {
         runCatching { ZoneId.of(place?.zoneId ?: "") }.getOrDefault(ZoneId.systemDefault())
     }
-    // The title follows the current tab. On Home the place name rides
-    // along only when it is short enough to fit cleanly next to the
-    // title; a long place name is dropped rather than truncated mid-word.
-    val title = when (destination) {
-        ScreenDestination.Home -> {
-            val display = place?.let {
-                if (it.stateCode.isNotBlank()) "${it.name}, ${it.stateCode}" else it.name
-            }
-            if (display != null && display.length <= 20) {
-                "${destination.label} \u2014 ${display}".uppercase()
-            } else {
-                destination.label.uppercase()
-            }
-        }
-        else -> destination.label.uppercase()
-    }
+    // The title follows the current tab only. The place name is NOT
+    // appended here — the PlaceRow pill below the header already shows
+    // it, and appending it overflowed the title (the em dash and the
+    // ellipsis are empty glyphs in Star4000, so it truncated hard).
+    val title = destination.label.uppercase()
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -423,7 +412,7 @@ private fun RetroHeader(
             fontWeight = FontWeight.Bold,
             color = RetroTokens.Yellow,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            overflow = TextOverflow.Clip,
             modifier = Modifier
                 .weight(1f)
                 .padding(start = 12.dp, end = 8.dp)
@@ -497,7 +486,7 @@ private fun RetroTicker(
             fontWeight = FontWeight.Bold,
             color = RetroTokens.TextPrimary,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            overflow = TextOverflow.Clip,
             modifier = Modifier.padding(horizontal = 12.dp)
         )
     }

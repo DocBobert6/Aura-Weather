@@ -370,7 +370,7 @@ fun RadarScreen(
                             fontWeight = FontWeight.Bold,
                             color = RetroTokens.Yellow,
                             maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
                             modifier = Modifier.weight(1f)
                         )
                     }

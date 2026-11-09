@@ -343,7 +343,7 @@ private fun SegmentOption(
             },
             textAlign = TextAlign.Center,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            overflow = TextOverflow.Clip,
             modifier = Modifier.padding(horizontal = 4.dp)
         )
     }

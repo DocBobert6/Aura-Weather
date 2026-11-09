@@ -333,7 +333,7 @@ private fun formatRange(
     timeFormatter: DateTimeFormatter
 ): String {
     if (start == null || end == null) return "--"
-    return "${timeFormatter.format(start)} – ${timeFormatter.format(end)}"
+    return "${timeFormatter.format(start)} - ${timeFormatter.format(end)}"
 }
 
 @Composable
