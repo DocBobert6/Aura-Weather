@@ -3,12 +3,8 @@ package com.example.ui.home
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,7 +56,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -69,9 +64,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -83,7 +75,6 @@ import com.example.core.UnitFormatter
 import com.example.domain.model.AlertSeverity
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
-import com.example.ui.designsystem.AuraMotion
 import com.example.ui.designsystem.AuraShapes
 import com.example.ui.designsystem.RetroPanel
 import com.example.ui.designsystem.RetroShapes
@@ -344,21 +335,21 @@ private fun NoPlaceCard(
             Icon(
                 imageVector = Icons.Default.LocationOn,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = RetroTokens.Yellow,
                 modifier = Modifier.size(32.dp)
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "Choose a place to see its weather",
+                text = "CHOOSE A PLACE TO SEE ITS WEATHER",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = RetroTokens.TextPrimary
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "Aura Weather works anywhere. Use your current location, or add a place in Settings — no place is chosen for you.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                color = RetroTokens.TextSecondary
             )
             Spacer(modifier = Modifier.height(16.dp))
             androidx.compose.material3.Button(
@@ -370,14 +361,14 @@ private fun NoPlaceCard(
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Use current location")
+                Text("USE CURRENT LOCATION")
             }
             Spacer(modifier = Modifier.height(8.dp))
             androidx.compose.material3.TextButton(
                 onClick = onAddPlace,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Add a place in Settings", color = MaterialTheme.colorScheme.onSurface)
+                Text("ADD A PLACE IN SETTINGS", color = RetroTokens.TextPrimary)
             }
         }
     }
@@ -395,16 +386,16 @@ private fun LoadErrorCard(message: String, onRetry: () -> Unit) {
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "Couldn't load the weather",
+                text = "COULDN'T LOAD THE WEATHER",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = RetroTokens.TextPrimary
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                color = RetroTokens.TextSecondary
             )
             Spacer(modifier = Modifier.height(16.dp))
             androidx.compose.material3.Button(
@@ -416,7 +407,7 @@ private fun LoadErrorCard(message: String, onRetry: () -> Unit) {
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Try again")
+                Text("TRY AGAIN")
             }
         }
     }
@@ -588,16 +579,16 @@ private fun ActiveAlertBanner(
                         if (count > 1) " · $count" else "",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = RetroTokens.TextPrimary,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
             Text(
-                text = alertTitle,
+                text = alertTitle.uppercase(),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = RetroTokens.TextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -606,7 +597,7 @@ private fun ActiveAlertBanner(
                 text = "VIEW",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = RetroTokens.TextPrimary,
                 modifier = Modifier.padding(start = 8.dp)
             )
         }
@@ -655,68 +646,38 @@ private fun HeroWeatherCard(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = tempFormatted,
+                text = tempFormatted.uppercase(),
                 style = MaterialTheme.typography.displayLarge.copy(fontSize = 72.sp),
-                fontWeight = FontWeight.Light,
-                color = MaterialTheme.colorScheme.onSurface
+                fontWeight = FontWeight.Bold,
+                color = RetroTokens.Yellow
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Condition pill: the description as a chip, not bare text.
-            Surface(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                shape = AuraShapes.pill
-            ) {
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                )
-            }
+            // Condition as plain white text, not a pill.
+            Text(
+                text = description.uppercase(),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = RetroTokens.TextPrimary
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Feels-like and hi/lo as chips.
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                    shape = AuraShapes.pill
-                ) {
-                    Text(
-                        text = "Feels like $feelsLikeFormatted",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Surface(
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                    shape = AuraShapes.pill
-                ) {
-                    Text(
-                        text = "H: $highFormatted   L: $lowFormatted",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
-                }
-            }
+            // Feels-like and hi/lo as one plain line.
+            Text(
+                text = "FEELS LIKE $feelsLikeFormatted   H: $highFormatted L: $lowFormatted",
+                style = MaterialTheme.typography.bodyMedium,
+                color = RetroTokens.TextPrimary
+            )
 
-            // Freshness detail lives here, under the hi/lo chips.
+            // Freshness detail lives here, under the hi/lo line.
             if (freshnessText != null) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = freshnessText,
+                    text = freshnessText.uppercase(),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                    color = RetroTokens.TextSecondary
                 )
             }
         }
@@ -755,30 +716,25 @@ private fun MinuteCastCard(
                         text = "NEXT 60 MINUTES",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        color = RetroTokens.Yellow
                     )
                 }
 
-                Surface(
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                    shape = AuraShapes.pill
-                ) {
-                    Text(
-                        text = "Every 15 min",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                    )
-                }
+                // Plain text, not a glass pill.
+                Text(
+                    text = "EVERY 15 MIN",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = RetroTokens.TextSecondary
+                )
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = summarySentence,
+                text = summarySentence.uppercase(),
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = RetroTokens.TextPrimary
             )
 
             // No rain in the next hour: the chart is an empty ~300px box
@@ -820,11 +776,11 @@ private fun MinuteCastCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(text = "Now", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
-                Text(text = "15m", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
-                Text(text = "30m", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
-                Text(text = "45m", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
-                Text(text = "60m", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                Text(text = "NOW", style = MaterialTheme.typography.labelSmall, color = RetroTokens.TextSecondary)
+                Text(text = "15M", style = MaterialTheme.typography.labelSmall, color = RetroTokens.TextSecondary)
+                Text(text = "30M", style = MaterialTheme.typography.labelSmall, color = RetroTokens.TextSecondary)
+                Text(text = "45M", style = MaterialTheme.typography.labelSmall, color = RetroTokens.TextSecondary)
+                Text(text = "60M", style = MaterialTheme.typography.labelSmall, color = RetroTokens.TextSecondary)
             }
             }
         }
@@ -841,11 +797,6 @@ private fun HourlyForecastCard(
         DateTimeFormatter.ofPattern("h a", Locale.US).withZone(zoneId)
     }
 
-    // Tapping an hour selects it (pill highlight); the press squashes
-    // with the press spring (2.4d). The selection is visual — it marks
-    // the hour under the finger, nothing else reads it yet.
-    var selectedIndex by remember { mutableIntStateOf(0) }
-
     RetroPanel(shape = RetroShapes.medium, 
         modifier = Modifier
             .fillMaxWidth()
@@ -856,7 +807,7 @@ private fun HourlyForecastCard(
                 text = "48-HOUR FORECAST",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                color = RetroTokens.Yellow,
                 modifier = Modifier.padding(horizontal = 18.dp)
             )
 
@@ -868,85 +819,60 @@ private fun HourlyForecastCard(
             ) {
                 items(hourlyPoints.take(24).size) { index ->
                     val point = hourlyPoints[index]
-                    val selected = index == selectedIndex
                     // The first hour is now — label it, so the strip reads
                     // against the present instead of a redundant "9 AM".
-                    val hourLabel = if (index == 0) "Now" else timeFormatter.format(point.time)
+                    val hourLabel = if (index == 0) "NOW" else timeFormatter.format(point.time).uppercase()
                     val temp = unitFormatter.formatTemperature(point.tempC)
                     val pop = point.popPct
 
-                    val interactionSource = remember { MutableInteractionSource() }
-                    val pressed by interactionSource.collectIsPressedAsState()
-                    val pressScale by animateFloatAsState(
-                        targetValue = if (pressed) 0.92f else 1f,
-                        animationSpec = AuraMotion.spec { press },
-                        label = "hour_press"
-                    )
-
-                    Box(
+                    // Plain cell on the navy panel: no glass, no pill
+                    // highlight. "Now" is plain yellow text, not a fill.
+                    Column(
                         modifier = Modifier
                             .width(52.dp)
-                            .graphicsLayer {
-                                scaleX = pressScale
-                                scaleY = pressScale
-                            }
-                            .clip(AuraShapes.pill)
-                            .background(
-                                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-                                else Color.Transparent
-                            )
-                            .clickable(
-                                interactionSource = interactionSource,
-                                indication = null
-                            ) { selectedIndex = index }
                             .padding(vertical = 8.dp),
-                        contentAlignment = Alignment.Center
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = hourLabel,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Icon(
-                                imageVector = getWeatherIcon(point.condition, isDaytime = point.isDaytime),
-                                contentDescription = point.condition.displayName,
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(28.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = temp,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            // Rain % whenever there is any chance (not only
-                            // above 10%), in a blue dark enough to read on a
-                            // light card. 0% is clutter, so it stays hidden.
-                            if (pop != null && pop > 0) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.WaterDrop,
-                                        contentDescription = "Rain chance",
-                                        tint = AuraColors.PopBlue,
-                                        modifier = Modifier.size(10.dp)
-                                    )
-                                    Text(
-                                        text = "$pop%",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                        fontWeight = FontWeight.Bold,
-                                        color = AuraColors.PopBlue
-                                    )
-                                }
-                            } else {
-                                Text(text = " ", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp))
+                        Text(
+                            text = hourLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (index == 0) FontWeight.Bold else FontWeight.Normal,
+                            color = if (index == 0) RetroTokens.Yellow else RetroTokens.TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Icon(
+                            imageVector = getWeatherIcon(point.condition, isDaytime = point.isDaytime),
+                            contentDescription = point.condition.displayName,
+                            tint = RetroTokens.TextPrimary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = temp.uppercase(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = RetroTokens.Yellow
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        // Rain % whenever there is any chance (not only
+                        // above 10%). 0% is clutter, so it stays hidden.
+                        if (pop != null && pop > 0) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.WaterDrop,
+                                    contentDescription = "Rain chance",
+                                    tint = AuraColors.PopBlue,
+                                    modifier = Modifier.size(10.dp)
+                                )
+                                Text(
+                                    text = "$pop%",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    fontWeight = FontWeight.Bold,
+                                    color = AuraColors.PopBlue
+                                )
                             }
+                        } else {
+                            Text(text = " ", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp))
                         }
                     }
                 }
@@ -962,11 +888,6 @@ private fun DailyForecastCard(
 ) {
     val dayFormatter = remember { DateTimeFormatter.ofPattern("EEE", Locale.US) }
 
-    // The week's overall min/max, so each day's range bar is scaled to the
-    // week (a 29–45° day is visibly shorter than a 43–64° day).
-    val weekMin = dailyPoints.mapNotNull { it.lowC }.minOrNull()
-    val weekMax = dailyPoints.mapNotNull { it.highC }.maxOrNull()
-
     RetroPanel(shape = RetroShapes.medium, 
         modifier = Modifier
             .fillMaxWidth()
@@ -977,7 +898,7 @@ private fun DailyForecastCard(
                 text = "7-DAY OUTLOOK",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                color = RetroTokens.Yellow
             )
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -995,11 +916,11 @@ private fun DailyForecastCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = dayName,
+                        text = dayName.uppercase(),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = if (index == 0) FontWeight.Bold else FontWeight.Normal,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.width(60.dp)
+                        color = RetroTokens.TextPrimary,
+                        modifier = Modifier.width(48.dp)
                     )
 
                     // The icon must agree with the rain chance: a sun icon
@@ -1013,13 +934,13 @@ private fun DailyForecastCard(
                     }
 
                     Row(
-                        modifier = Modifier.width(65.dp),
+                        modifier = Modifier.width(56.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = getWeatherIcon(displayCondition, isDaytime = true),
                             contentDescription = displayCondition.displayName,
-                            tint = MaterialTheme.colorScheme.onSurface,
+                            tint = RetroTokens.TextPrimary,
                             modifier = Modifier.size(24.dp)
                         )
                         if (pop > 0) {
@@ -1027,74 +948,39 @@ private fun DailyForecastCard(
                             Text(
                                 text = "$pop%",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = AuraColors.Water
+                                color = AuraColors.PopBlue
                             )
                         }
                     }
 
+                    // Condition as a text column, not a bar: the tabular
+                    // form of the classic 3-day panels.
                     Text(
-                        text = lo,
+                        text = displayCondition.displayName.uppercase(),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                        textAlign = TextAlign.End,
-                        modifier = Modifier.width(36.dp)
-                    )
-
-                    // Temperature range bar, scaled to the week's min/max and
-                    // coloured by the actual temperature (not a fixed gradient).
-                    Row(
+                        color = RetroTokens.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
                             .weight(1f)
-                            .height(6.dp)
-                            .padding(horizontal = 8.dp)
-                            .background(
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                                shape = RoundedCornerShape(3.dp)
-                            ),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (weekMin != null && weekMax != null && weekMax > weekMin && point.lowC != null && point.highC != null) {
-                            val startFrac = ((point.lowC - weekMin) / (weekMax - weekMin)).toFloat().coerceIn(0f, 1f)
-                            val endFrac = ((point.highC - weekMin) / (weekMax - weekMin)).toFloat().coerceIn(0f, 1f)
-                            // weight() throws unless it is strictly greater than
-                            // zero, so a spacer is only drawn when it has room:
-                            // the coldest day starts at the left edge (startFrac
-                            // 0) and the warmest day ends at the right edge
-                            // (endFrac 1). The old code passed 0 and crashed.
-                            if (startFrac > 0f) Spacer(modifier = Modifier.weight(startFrac))
-                            Box(
-                                modifier = Modifier
-                                    .weight((endFrac - startFrac).coerceAtLeast(0.02f))
-                                    .fillMaxHeight()
-                                    .background(
-                                        brush = Brush.horizontalGradient(
-                                            colors = listOf(AuraColors.tempColor(point.lowC), AuraColors.tempColor(point.highC))
-                                        ),
-                                        shape = RoundedCornerShape(3.dp)
-                                    )
-                            )
-                            if (endFrac < 1f) Spacer(modifier = Modifier.weight(1f - endFrac))
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .background(
-                                        brush = Brush.horizontalGradient(
-                                            colors = listOf(AuraColors.Water, AuraColors.Warning)
-                                        ),
-                                        shape = RoundedCornerShape(3.dp)
-                                    )
-                            )
-                        }
-                    }
+                            .padding(end = 8.dp)
+                    )
 
                     Text(
-                        text = hi,
+                        text = "LO $lo",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = RetroTokens.TextSecondary,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.width(54.dp)
+                    )
+
+                    Text(
+                        text = "HI $hi",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.width(36.dp)
+                        color = RetroTokens.Yellow,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.width(54.dp)
                     )
                 }
             }
@@ -1426,7 +1312,7 @@ private fun SunAndMoonSummaryCard(
                         text = sunrise,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = RetroTokens.TextPrimary
                     )
 
                     Spacer(modifier = Modifier.width(16.dp))
@@ -1442,21 +1328,21 @@ private fun SunAndMoonSummaryCard(
                         text = sunset,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = RetroTokens.TextPrimary
                     )
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "$moonPhase ($illumination)",
+                    text = "$moonPhase ($illumination)".uppercase(),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    color = RetroTokens.TextSecondary
                 )
             }
 
             Icon(
                 imageVector = Icons.Default.ExpandMore,
                 contentDescription = "View Sun and Moon details",
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                tint = RetroTokens.TextSecondary,
                 modifier = Modifier.rotate(270f)
             )
         }
