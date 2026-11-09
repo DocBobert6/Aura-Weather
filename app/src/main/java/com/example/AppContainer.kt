@@ -85,6 +85,10 @@ class AppContainer(private val context: Context) {
         WeatherDatabase.getInstance(context)
     }
 
+    val seenAlertDao by lazy {
+        database.seenAlertDao()
+    }
+
     val settingsManager: SettingsManager by lazy {
         SettingsManager(context)
     }

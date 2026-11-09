@@ -48,3 +48,21 @@ interface SavedPlaceDao {
     @Query("UPDATE saved_places SET name = :name WHERE id = :placeId")
     suspend fun updateName(placeId: String, name: String)
 }
+
+/**
+ * The 3.1 seen-set: alerts the worker has already processed. REPLACE on
+ * insert, so a re-poll refreshes the severity (and the first-seen clock)
+ * for an alert that is still active; rows for alerts that expired stop
+ * being refreshed and are pruned by age.
+ */
+@Dao
+interface SeenAlertDao {
+    @Query("SELECT * FROM seen_alerts")
+    suspend fun getAll(): List<SeenAlertEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(seen: SeenAlertEntity)
+
+    @Query("DELETE FROM seen_alerts WHERE firstSeenAt < :olderThanMillis")
+    suspend fun deleteOlderThan(olderThanMillis: Long)
+}

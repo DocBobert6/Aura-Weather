@@ -37,3 +37,20 @@ data class SavedPlaceEntity(
     // Open-Meteo UTC offset). Empty until the first successful fetch.
     val zoneId: String = ""
 )
+
+/**
+ * One row per alert the 3.1 worker has already notified about (or seen
+ * and decided not to notify). The seen-set is what makes "two polls with
+ * the same active alert → one notification" work, and it must survive a
+ * reboot — so it lives in Room, never only in memory. firstSeenAt is the
+ * epoch-millis of the first poll that saw the alert; rows older than 7
+ * days are pruned by the worker so the table cannot grow without bound.
+ * severity is the AlertSeverity name at the last poll, so a later
+ * escalation (Moderate → Severe) on the same id can be detected.
+ */
+@Entity(tableName = "seen_alerts")
+data class SeenAlertEntity(
+    @PrimaryKey val alertId: String,
+    val firstSeenAt: Long,
+    val severity: String
+)

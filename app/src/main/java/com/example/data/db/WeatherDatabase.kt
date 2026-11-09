@@ -29,14 +29,33 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
+/**
+ * Version 3 changes (Phase 3.1):
+ * - seen_alerts table (alertId, firstSeenAt, severity): the persisted
+ *   dedupe set for alert notifications. A fresh install creates it with
+ *   the database; an upgrade runs MIGRATION_2_3.
+ */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `seen_alerts` (" +
+                "`alertId` TEXT NOT NULL, " +
+                "`firstSeenAt` INTEGER NOT NULL, " +
+                "`severity` TEXT NOT NULL, " +
+                "PRIMARY KEY(`alertId`))"
+        )
+    }
+}
+
 @Database(
-    entities = [WeatherCacheEntity::class, SavedPlaceEntity::class],
-    version = 2,
+    entities = [WeatherCacheEntity::class, SavedPlaceEntity::class, SeenAlertEntity::class],
+    version = 3,
     exportSchema = false
 )
 abstract class WeatherDatabase : RoomDatabase() {
     abstract fun weatherCacheDao(): WeatherCacheDao
     abstract fun savedPlaceDao(): SavedPlaceDao
+    abstract fun seenAlertDao(): SeenAlertDao
 
     companion object {
         @Volatile
@@ -48,7 +67,7 @@ abstract class WeatherDatabase : RoomDatabase() {
                     context.applicationContext,
                     WeatherDatabase::class.java,
                     "aura_weather.db"
-                ).addMigrations(MIGRATION_1_2).build()
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
                 INSTANCE = instance
                 instance
             }
