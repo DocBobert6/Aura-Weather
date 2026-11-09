@@ -122,7 +122,7 @@ private fun conditionIconRes(icon: WidgetConditionIcon): Int = when (icon) {
     WidgetConditionIcon.Storm -> R.drawable.ic_widget_storm
 }
 
-private fun iconTint(icon: WidgetConditionIcon): ColorProvider =
+private fun iconTint(icon: WidgetConditionIcon) =
     if (icon == WidgetConditionIcon.Sunny) WidgetColors.temp else WidgetColors.icon
 
 @Composable
