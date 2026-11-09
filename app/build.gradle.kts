@@ -9,7 +9,7 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.auraweather.kxmv"
+    applicationId = "com.docbobert6.auraweather"
     minSdk = 24
     targetSdk = 36
     versionCode = 4
@@ -18,15 +18,21 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
-  // Do not remove or modify these signingConfigs. They are necessary for building, installing,
-  // and updating Android apps in AI Studio.
+  // Release signing uses the app's own keystore, kept outside the repo
+  // (aura-weather/keystore/, never committed). The properties file holds
+  // the passwords. CI has no keystore, so its release APK is unsigned;
+  // the build still verifies R8.
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      val keystoreFile = file("${rootDir}/../keystore/auraweather-release.jks")
+      val propsFile = file("${rootDir}/../keystore/keystore.properties")
+      if (keystoreFile.exists() && propsFile.exists()) {
+        val props = java.util.Properties().apply { load(propsFile.inputStream()) }
+        storeFile = keystoreFile
+        storePassword = props.getProperty("storePassword")
+        keyAlias = props.getProperty("keyAlias")
+        keyPassword = props.getProperty("keyPassword")
+      }
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
@@ -41,13 +47,13 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
-      // AI Studio.
-      signingConfig = signingConfigs.getByName("release")
+      // Signed only when the app's own keystore exists (local release
+      // builds). CI has no keystore, so its release APK is unsigned.
+      if (file("${rootDir}/../keystore/auraweather-release.jks").exists()) {
+        signingConfig = signingConfigs.getByName("release")
+      }
     }
     debug {
-      // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
-      // AI Studio.
       signingConfig = signingConfigs.getByName("debugConfig")
     }
   }
