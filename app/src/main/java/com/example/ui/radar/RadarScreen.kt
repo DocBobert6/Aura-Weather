@@ -64,8 +64,8 @@ import com.example.domain.model.FullWeatherState
 import com.example.ui.RadarLayer
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
-import com.example.ui.designsystem.AuraShapes
 import com.example.ui.designsystem.RetroPanel
+import com.example.ui.designsystem.RetroTokens
 import com.example.ui.designsystem.RetroShapes
 import com.example.ui.designsystem.GlassIconButton
 import com.example.ui.designsystem.PillSegmentedControl
@@ -108,13 +108,13 @@ fun RadarScreen(
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface),
+                .background(RetroTokens.Background),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = "Select a place to see its radar.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                color = RetroTokens.TextSecondary,
                 modifier = Modifier.padding(24.dp)
             )
         }
@@ -184,7 +184,7 @@ fun RadarScreen(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
+            .background(RetroTokens.Background)
             .testTag("radar_screen")
     ) {
         val screenWidthPx = constraints.maxWidth.toFloat()
@@ -334,7 +334,7 @@ fun RadarScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 RetroPanel(
-                    shape = AuraShapes.pill,
+                    shape = RetroShapes.medium,
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp)
@@ -356,7 +356,7 @@ fun RadarScreen(
                         // composite, the place name for the local site
                         // ('Covington Radar', not 'KILN Radar').
                         Text(
-                            text = when (selectedLayer) {
+                            text = (when (selectedLayer) {
                                 RadarLayer.Reflectivity -> "Composite Radar"
                                 RadarLayer.LocalSite -> {
                                     val area = state.place.name.ifBlank { null }
@@ -365,10 +365,10 @@ fun RadarScreen(
                                 }
                                 RadarLayer.SatelliteVis -> "Visible Satellite"
                                 RadarLayer.SatelliteIr -> "Infrared Satellite"
-                            },
-                            style = MaterialTheme.typography.labelMedium,
+                            }).uppercase(),
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = RetroTokens.Yellow,
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
@@ -377,7 +377,7 @@ fun RadarScreen(
                 }
 
                 RetroPanel(
-                    shape = AuraShapes.pill,
+                    shape = RetroShapes.medium,
                     modifier = Modifier.height(48.dp)
                 ) {
                     Box(
@@ -385,13 +385,13 @@ fun RadarScreen(
                         modifier = Modifier.padding(horizontal = 14.dp)
                     ) {
                         Text(
-                            text = frameLabels.getOrElse(currentFrameIndex) { "LIVE NOW" },
+                            text = frameLabels.getOrElse(currentFrameIndex) { "LIVE NOW" }.uppercase(),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = if (currentFrameIndex == 9) {
-                                AuraColors.Accent
+                                RetroTokens.Yellow
                             } else {
-                                MaterialTheme.colorScheme.onSurface
+                                RetroTokens.TextPrimary
                             },
                             maxLines = 1
                         )
@@ -415,7 +415,7 @@ fun RadarScreen(
             )
         }
 
-        // Zoom +/- In-Map Controls (48dp glass buttons)
+        // Zoom +/- In-Map Controls (48dp solid navy buttons)
         Column(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
@@ -431,12 +431,12 @@ fun RadarScreen(
                         panOffsetY = 0f
                     }
                 },
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                containerColor = RetroTokens.Panel,
             ) {
                 Icon(
                     Icons.Default.Add,
                     contentDescription = "Zoom In",
-                    tint = MaterialTheme.colorScheme.onSurface
+                    tint = RetroTokens.TextPrimary
                 )
             }
 
@@ -449,12 +449,12 @@ fun RadarScreen(
                         panOffsetY = 0f
                     }
                 },
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                containerColor = RetroTokens.Panel,
             ) {
                 Icon(
                     Icons.Default.Remove,
                     contentDescription = "Zoom Out",
-                    tint = MaterialTheme.colorScheme.onSurface
+                    tint = RetroTokens.TextPrimary
                 )
             }
 
@@ -464,12 +464,12 @@ fun RadarScreen(
                     panOffsetY = 0f
                     userScale = 1f
                 },
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                containerColor = RetroTokens.Panel,
             ) {
                 Icon(
                     Icons.Default.MyLocation,
                     contentDescription = "Recenter",
-                    tint = MaterialTheme.colorScheme.onSurface
+                    tint = RetroTokens.TextPrimary
                 )
             }
         }
@@ -500,10 +500,10 @@ fun RadarScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "dBZ:",
+                        text = "DBZ:",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        color = RetroTokens.Yellow
                     )
                     for ((label, color) in AuraColors.RadarLegend) {
                         LegendColorPill(label, color)
@@ -517,15 +517,15 @@ fun RadarScreen(
             Text(
                 text = "Lightest echoes can be clear-air returns, not rain.",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                color = RetroTokens.TextSecondary,
                 modifier = Modifier.padding(horizontal = 4.dp)
             )
 
-            // Floating transport pill: play/pause + frame scrubber inside
+            // Classic transport pill: play/pause + frame scrubber inside
             // the pill, PiP attached to its end. The frame label lives in
             // the top pill now.
             RetroPanel(
-                shape = AuraShapes.pill,
+                shape = RetroShapes.medium,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(64.dp)
@@ -539,12 +539,12 @@ fun RadarScreen(
                 ) {
                     GlassIconButton(
                         onClick = onTogglePlay,
-                        containerColor = MaterialTheme.colorScheme.primary,
+                        containerColor = RetroTokens.Yellow,
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = MaterialTheme.colorScheme.onPrimary
+                            tint = RetroTokens.Background
                         )
                     }
 
@@ -554,9 +554,9 @@ fun RadarScreen(
                     // The loop's range, flanking the scrubber so it costs
                     // no extra row: -45m (first frame) to Now (frame 9).
                     Text(
-                        text = "-45m",
+                        text = "-45M",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        color = RetroTokens.Yellow
                     )
 
                     Slider(
@@ -565,16 +565,16 @@ fun RadarScreen(
                         valueRange = 0f..9f,
                         steps = 8,
                         colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary,
-                            inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
+                            thumbColor = RetroTokens.Yellow,
+                            activeTrackColor = RetroTokens.Yellow,
+                            inactiveTrackColor = RetroTokens.Border
                         ),
                         thumb = { _ ->
                             Box(
                                 modifier = Modifier
                                     .size(28.dp)
                                     .background(
-                                        color = MaterialTheme.colorScheme.primary,
+                                        color = RetroTokens.Yellow,
                                         shape = CircleShape
                                     )
                             )
@@ -583,16 +583,16 @@ fun RadarScreen(
                     )
 
                     Text(
-                        text = "Now",
+                        text = "NOW",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        color = RetroTokens.Yellow
                     )
 
                     // Labelled 'PiP': the icon alone did not say what it
                     // does. A small pill with the icon + text.
                     Surface(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                        shape = AuraShapes.pill,
+                        color = RetroTokens.PanelLight,
+                        shape = RetroShapes.small,
                         modifier = Modifier.clickable(
                             onClick = onEnterPiP,
                             role = Role.Button
@@ -605,7 +605,7 @@ fun RadarScreen(
                             Icon(
                                 imageVector = Icons.Default.PictureInPicture,
                                 contentDescription = "Picture in Picture",
-                                tint = MaterialTheme.colorScheme.onSurface,
+                                tint = RetroTokens.TextPrimary,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
@@ -613,7 +613,7 @@ fun RadarScreen(
                                 text = "PiP",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = RetroTokens.TextPrimary
                             )
                         }
                     }
@@ -658,9 +658,9 @@ private fun LegendColorPill(label: String, color: Color) {
         ) {}
         Spacer(modifier = Modifier.width(4.dp))
         Text(
-            text = label,
+            text = label.uppercase(),
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+            color = RetroTokens.TextPrimary
         )
     }
 }

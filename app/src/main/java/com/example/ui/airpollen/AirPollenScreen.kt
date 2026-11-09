@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
@@ -85,12 +84,12 @@ fun AirPollenScreen(
                     text = "AIR QUALITY & POLLEN",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = RetroTokens.TextPrimary
+                    color = RetroTokens.Yellow
                 )
                 Text(
-                    text = "Open-Meteo Air Quality",
+                    text = "OPEN-METEO AIR QUALITY",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                    color = RetroTokens.TextSecondary
                 )
             }
         }
@@ -162,12 +161,12 @@ fun AirPollenScreen(
                                 text = aqi?.toString() ?: "--",
                                 style = MaterialTheme.typography.displayMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = RetroTokens.Yellow
                             )
                             Text(
                                 text = "US AQI",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                                color = RetroTokens.TextSecondary
                             )
                         }
                     }
@@ -175,14 +174,14 @@ fun AirPollenScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Surface(
-                        color = aqiColor.copy(alpha = 0.2f),
+                        color = aqiColor,
                         shape = AuraShapes.pill
                     ) {
                         Text(
                             text = category.uppercase(),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = aqiColor,
+                            color = Color.White,
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                         )
                     }
@@ -192,7 +191,7 @@ fun AirPollenScreen(
                     Text(
                         text = guidance,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                        color = RetroTokens.TextPrimary,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
 
@@ -201,7 +200,7 @@ fun AirPollenScreen(
                     Text(
                         text = "Source: ${airQuality?.source ?: "Open-Meteo Air Quality"}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                        color = RetroTokens.TextSecondary
                     )
                 }
             }
@@ -213,7 +212,7 @@ fun AirPollenScreen(
                 text = "POLLUTANT CONCENTRATION",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = RetroTokens.TextSecondary
+                color = RetroTokens.Yellow
             )
         }
 
@@ -255,7 +254,7 @@ fun AirPollenScreen(
                 text = "POLLEN",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = RetroTokens.TextSecondary
+                color = RetroTokens.Yellow
             )
         }
 
@@ -289,7 +288,7 @@ fun AirPollenScreen(
                     if (pollen?.hasKey != true) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            color = RetroTokens.PanelLight,
                             shape = AuraShapes.medium,
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -298,35 +297,33 @@ fun AirPollenScreen(
                                     Icon(
                                         imageVector = Icons.Default.Key,
                                         contentDescription = "Key required",
-                                        tint = MaterialTheme.colorScheme.primary,
+                                        tint = RetroTokens.Yellow,
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "Pollen counts",
+                                        text = "POLLEN COUNTS",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        color = RetroTokens.TextPrimary
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = "No pollen data yet — the pollen feed isn't connected. A Tomorrow.io key in Settings doesn't turn it on in this version.",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                                    color = RetroTokens.TextSecondary
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Button(
                                     onClick = onNavigateToSettings,
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                                        // onPrimaryContainer (dark) reads on the pale gold;
-                                        // primary (gold) on pale gold was washed out.
-                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                        containerColor = RetroTokens.Yellow,
+                                        contentColor = RetroTokens.Background
                                     ),
-                                    shape = RoundedCornerShape(8.dp)
+                                    shape = RetroShapes.small
                                 ) {
-                                    Text(text = "Configure in Settings", style = MaterialTheme.typography.labelSmall)
+                                    Text(text = "CONFIGURE IN SETTINGS", style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
@@ -351,29 +348,29 @@ private fun PollutantCard(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = RetroTokens.TextPrimary
             )
             Text(
-                text = label,
+                text = label.uppercase(),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                color = RetroTokens.TextSecondary
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = RetroTokens.Yellow
             )
             Spacer(modifier = Modifier.height(4.dp))
             Surface(
-                color = AuraColors.Accent.copy(alpha = 0.2f),
+                color = RetroTokens.PanelLight,
                 shape = AuraShapes.pill
             ) {
                 Text(
-                    text = status,
+                    text = status.uppercase(),
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    color = AuraColors.Accent,
+                    color = RetroTokens.TextPrimary,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
@@ -392,21 +389,21 @@ private fun PollenGauge(
         Icon(
             imageVector = icon,
             contentDescription = title,
-            tint = if (hasKey) AuraColors.PollenActive else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+            tint = if (hasKey) AuraColors.PollenActive else RetroTokens.TextSecondary,
             modifier = Modifier.size(32.dp)
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = title,
+            text = title.uppercase(),
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface
+            color = RetroTokens.TextPrimary
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = if (hasKey && level != null) "$level / 5" else "--",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            color = RetroTokens.TextSecondary
         )
     }
 }

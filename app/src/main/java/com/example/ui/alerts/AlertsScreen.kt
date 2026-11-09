@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExpandLess
@@ -108,16 +107,16 @@ fun AlertsScreen(
                         text = "WEATHER ALERTS",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = RetroTokens.TextPrimary
+                        color = RetroTokens.Yellow
                     )
                     Text(
-                        text = "National Weather Service alerts" + (placeName?.let { " for $it" } ?: ""),
+                        text = ("National Weather Service alerts" + (placeName?.let { " for $it" } ?: "")).uppercase(),
                         style = MaterialTheme.typography.labelSmall,
                         color = RetroTokens.TextSecondary
                     )
                     if (cacheAgeText != null) {
                         Text(
-                            text = cacheAgeText,
+                            text = cacheAgeText.uppercase(),
                             style = MaterialTheme.typography.labelSmall,
                             color = AuraColors.Warning
                         )
@@ -175,17 +174,17 @@ private fun EmptyAlertsCard() {
             Icon(
                 imageVector = Icons.Default.CheckCircle,
                 contentDescription = "No alerts",
-                tint = AuraColors.Accent,
+                tint = RetroTokens.Yellow,
                 modifier = Modifier.size(56.dp)
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "All Clear in the Region",
+                text = "ALL CLEAR IN THE REGION",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = RetroTokens.Yellow
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -193,7 +192,7 @@ private fun EmptyAlertsCard() {
             Text(
                 text = "No active watches, warnings, or advisories currently issued for this place by the National Weather Service.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                color = RetroTokens.TextSecondary,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
@@ -245,7 +244,7 @@ private fun AlertExpandableCard(
                 Icon(
                     imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                     contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    tint = RetroTokens.TextSecondary
                 )
             }
 
@@ -255,7 +254,7 @@ private fun AlertExpandableCard(
                 text = alert.event,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = RetroTokens.TextPrimary
             )
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -270,27 +269,25 @@ private fun AlertExpandableCard(
                     alert.senderName?.let { append(" · $it") }
                 },
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
+                color = RetroTokens.TextSecondary
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Freshness pill: a Warning-tinted background with onSurface
-            // text. Pale amber (Warning) text on the light pill was washed
-            // out; onSurface reads in both modes and the tint keeps the
-            // warning meaning.
+            // Ends pill: a solid severity-colour block with white text,
+            // matching the badge above.
             Surface(
-                color = AuraColors.Warning.copy(alpha = 0.18f),
+                color = AuraColors.severityColor(alert.severity),
                 shape = AuraShapes.pill
             ) {
                 Text(
                     text = run {
                         val end = alert.ends ?: alert.expires
                         val minutes = java.time.Duration.between(Instant.now(), end).toMinutes()
-                        if (minutes in 0..120) "Ends in $minutes\u00A0min" else "Ends ${timeFormatter.format(end)}"
+                        if (minutes in 0..120) "ENDS IN $minutes\u00A0MIN" else "ENDS ${timeFormatter.format(end).uppercase()}"
                     },
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = Color.White,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )
@@ -299,7 +296,7 @@ private fun AlertExpandableCard(
             AnimatedVisibility(visible = expanded) {
                 Column(modifier = Modifier.padding(top = 14.dp)) {
                     Surface(
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
+                        color = RetroTokens.Border,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(1.dp)
@@ -312,12 +309,12 @@ private fun AlertExpandableCard(
                             text = "AFFECTED AREAS",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            color = RetroTokens.TextSecondary
                         )
                         Text(
                             text = alert.areaDesc,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                            color = RetroTokens.TextPrimary,
                             modifier = Modifier.padding(top = 2.dp)
                         )
 
@@ -328,12 +325,12 @@ private fun AlertExpandableCard(
                         text = "DETAILS",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        color = RetroTokens.TextSecondary
                     )
                     Text(
                         text = alert.description,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                        color = RetroTokens.TextPrimary,
                         modifier = Modifier.padding(top = 2.dp)
                     )
 
@@ -343,12 +340,12 @@ private fun AlertExpandableCard(
                             text = "SAFETY INSTRUCTIONS",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = AuraColors.Accent
+                            color = RetroTokens.Yellow
                         )
                         Text(
                             text = alert.instruction,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = RetroTokens.TextPrimary,
                             modifier = Modifier.padding(top = 2.dp)
                         )
                     }
@@ -358,10 +355,10 @@ private fun AlertExpandableCard(
                     Button(
                         onClick = onViewOnRadar,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
+                            containerColor = RetroTokens.Yellow,
+                            contentColor = RetroTokens.Background
                         ),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RetroShapes.medium,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(
@@ -370,7 +367,7 @@ private fun AlertExpandableCard(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "View Radar & Warning Area")
+                        Text(text = "VIEW RADAR & WARNING AREA")
                     }
                 }
             }

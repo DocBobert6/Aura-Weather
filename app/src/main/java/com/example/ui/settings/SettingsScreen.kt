@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -57,6 +56,7 @@ import com.example.ui.designsystem.AuraColors
 import com.example.ui.designsystem.AuraShapes
 import com.example.ui.designsystem.RetroPanel
 import com.example.ui.designsystem.RetroShapes
+import com.example.ui.designsystem.RetroTokens
 
 @Composable
 fun SettingsScreen(
@@ -93,12 +93,12 @@ fun SettingsScreen(
                     text = "SETTINGS & REGION",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = RetroTokens.Yellow
                 )
                 Text(
-                    text = "Unit preferences, locations and data sources",
+                    text = "UNIT PREFERENCES, LOCATIONS AND DATA SOURCES",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                    color = RetroTokens.TextSecondary
                 )
             }
         }
@@ -120,21 +120,21 @@ fun SettingsScreen(
                         Icon(
                             imageVector = Icons.Default.Straighten,
                             contentDescription = "Units",
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = RetroTokens.Yellow,
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(14.dp))
                         Column {
                             Text(
-                                text = "Units of Measurement",
+                                text = "UNITS OF MEASUREMENT",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = RetroTokens.TextPrimary
                             )
                             Text(
                                 text = if (useMetric) "SI Metric (°C, km/h, hPa, mm)" else "US Customary (°F, mph, inHg, in)",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                color = RetroTokens.TextSecondary
                             )
                         }
                     }
@@ -143,8 +143,8 @@ fun SettingsScreen(
                         checked = useMetric,
                         onCheckedChange = onSetUseMetric,
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.primary,
-                            checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
+                            checkedThumbColor = RetroTokens.Yellow,
+                            checkedTrackColor = RetroTokens.PanelLight
                         )
                     )
                 }
@@ -164,29 +164,29 @@ fun SettingsScreen(
                             Icon(
                                 imageVector = Icons.Default.Place,
                                 contentDescription = "Places",
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = RetroTokens.Yellow,
                                 modifier = Modifier.size(22.dp)
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = "Saved Places",
+                                text = "SAVED PLACES",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = RetroTokens.TextPrimary
                             )
                         }
 
                         Button(
                             onClick = { showAddPlaceDialog = true },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                                contentColor = MaterialTheme.colorScheme.primary
+                                containerColor = RetroTokens.Yellow,
+                                contentColor = RetroTokens.Background
                             ),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = RetroShapes.small
                         ) {
                             Icon(imageVector = Icons.Default.Add, contentDescription = "Add Place", modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(text = "Add", style = MaterialTheme.typography.labelSmall)
+                            Text(text = "ADD", style = MaterialTheme.typography.labelSmall)
                         }
                     }
 
@@ -195,7 +195,7 @@ fun SettingsScreen(
                     savedPlaces.forEach { place ->
                         val isSelected = place.id == selectedPlaceId
                         Surface(
-                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                            color = if (isSelected) RetroTokens.PanelLight else RetroTokens.Panel,
                             shape = AuraShapes.small,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -212,12 +212,12 @@ fun SettingsScreen(
                                         text = if (place.stateCode.isNotBlank()) "${place.name}, ${place.stateCode}" else place.name,
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        color = RetroTokens.TextPrimary
                                     )
                                     Text(
                                         text = "${"%.2f".format(Locale.US, place.point.lat)}, ${"%.2f".format(Locale.US, place.point.lon)}",
                                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                        color = RetroTokens.TextSecondary
                                     )
                                 }
 
@@ -225,7 +225,7 @@ fun SettingsScreen(
                                     Icon(
                                         imageVector = Icons.Default.Check,
                                         contentDescription = "Selected",
-                                        tint = MaterialTheme.colorScheme.primary
+                                        tint = RetroTokens.Yellow
                                     )
                                 }
                             }
@@ -257,23 +257,23 @@ fun SettingsScreen(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "Tomorrow.io API Key",
+                                text = "TOMORROW.IO API KEY",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = RetroTokens.TextPrimary
                             )
                         }
 
                         if (tomorrowApiKey.isNotBlank()) {
                             Surface(
-                                color = AuraColors.Accent.copy(alpha = 0.2f),
+                                color = RetroTokens.Yellow,
                                 shape = AuraShapes.pill
                             ) {
                                 Text(
                                     text = "KEY ACTIVE",
                                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                     fontWeight = FontWeight.Bold,
-                                    color = AuraColors.Accent,
+                                    color = RetroTokens.Background,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                 )
                             }
@@ -285,7 +285,7 @@ fun SettingsScreen(
                     Text(
                         text = "A Tomorrow.io key is stored here for a future update. It does not unlock anything today: 1-minute precipitation and live pollen are not connected yet, so no live values are shown with or without a key. Core weather works keyless.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                        color = RetroTokens.TextSecondary
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -305,15 +305,15 @@ fun SettingsScreen(
                                 Icon(
                                     imageVector = if (isKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                                     contentDescription = if (isKeyVisible) "Hide key" else "Show key",
-                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                    tint = RetroTokens.TextSecondary
                                 )
                             }
                         },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
+                            focusedTextColor = RetroTokens.TextPrimary,
+                            unfocusedTextColor = RetroTokens.TextPrimary,
+                            focusedBorderColor = RetroTokens.Yellow,
+                            unfocusedBorderColor = RetroTokens.Border
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -332,7 +332,7 @@ fun SettingsScreen(
                                     onSaveTomorrowApiKey("")
                                 }
                             ) {
-                                Text("Clear", color = MaterialTheme.colorScheme.error)
+                                Text("Clear", color = RetroTokens.HeaderRed)
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                         }
@@ -343,12 +343,12 @@ fun SettingsScreen(
                                 isSavedMessageVisible = true
                             },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
+                                containerColor = RetroTokens.Yellow,
+                                contentColor = RetroTokens.Background
                             ),
-                            shape = RoundedCornerShape(10.dp)
+                            shape = RetroShapes.medium
                         ) {
-                            Text(if (isSavedMessageVisible) "Saved!" else "Save Key")
+                            Text(if (isSavedMessageVisible) "SAVED!" else "SAVE KEY")
                         }
                     }
 
@@ -357,7 +357,7 @@ fun SettingsScreen(
                     Text(
                         text = "Need a key? Free API keys with 500 calls/day are available at tomorrow.io/weather-api",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                        color = RetroTokens.TextSecondary
                     )
                 }
             }
@@ -371,15 +371,15 @@ fun SettingsScreen(
                         Icon(
                             imageVector = Icons.Default.Info,
                             contentDescription = "Sources",
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = RetroTokens.Yellow,
                             modifier = Modifier.size(22.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "Data Sources & Attribution",
+                            text = "DATA SOURCES & ATTRIBUTION",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = RetroTokens.TextPrimary
                         )
                     }
 
@@ -415,7 +415,7 @@ fun SettingsScreen(
                     Text(
                         text = "Not an official NWS product. In an active tornado warning or severe weather emergency, always prioritize official National Weather Service broadcasts, NOAA Weather Radio, and local emergency management sirens.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                        color = RetroTokens.TextSecondary
                     )
                 }
             }
@@ -441,15 +441,15 @@ fun SettingsScreen(
 private fun AttributionRow(title: String, source: String) {
     Column(modifier = Modifier.padding(vertical = 4.dp)) {
         Text(
-            text = title,
+            text = title.uppercase(),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface
+            color = RetroTokens.TextPrimary
         )
         Text(
             text = source,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+            color = RetroTokens.TextSecondary
         )
     }
 }
@@ -467,7 +467,7 @@ private fun AddPlaceDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add Custom Location", color = MaterialTheme.colorScheme.onSurface) },
+        title = { Text("ADD CUSTOM LOCATION", color = RetroTokens.TextPrimary) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
@@ -475,8 +475,8 @@ private fun AddPlaceDialog(
                     onValueChange = { name = it },
                     label = { Text("City or Place Name") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                        focusedTextColor = RetroTokens.TextPrimary,
+                        unfocusedTextColor = RetroTokens.TextPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -486,8 +486,8 @@ private fun AddPlaceDialog(
                     onValueChange = { stateCode = it },
                     label = { Text("State Code (e.g. KY, OH)") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                        focusedTextColor = RetroTokens.TextPrimary,
+                        unfocusedTextColor = RetroTokens.TextPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -497,8 +497,8 @@ private fun AddPlaceDialog(
                     onValueChange = { latStr = it },
                     label = { Text("Latitude (e.g. 39.08)") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                        focusedTextColor = RetroTokens.TextPrimary,
+                        unfocusedTextColor = RetroTokens.TextPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -508,14 +508,14 @@ private fun AddPlaceDialog(
                     onValueChange = { lonStr = it },
                     label = { Text("Longitude (e.g. -84.51)") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                        focusedTextColor = RetroTokens.TextPrimary,
+                        unfocusedTextColor = RetroTokens.TextPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
 
                 if (errorMsg != null) {
-                    Text(text = errorMsg!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    Text(text = errorMsg!!, color = RetroTokens.HeaderRed, style = MaterialTheme.typography.bodySmall)
                 }
             }
         },
@@ -531,14 +531,14 @@ private fun AddPlaceDialog(
                     }
                 }
             ) {
-                Text("Add Location")
+                Text("ADD LOCATION")
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                Text("Cancel", color = RetroTokens.TextSecondary)
             }
         },
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        containerColor = RetroTokens.PanelLight
     )
 }

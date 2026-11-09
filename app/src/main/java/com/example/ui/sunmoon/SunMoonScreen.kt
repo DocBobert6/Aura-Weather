@@ -28,16 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -104,178 +95,49 @@ fun SunMoonScreen(
                     text = "SUN & MOON DYNAMICS",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = RetroTokens.TextPrimary
+                    color = RetroTokens.Yellow
                 )
                 Text(
-                    text = "Sunrise, sunset and moon times" + (placeName?.let { " for $it" } ?: ""),
+                    text = ("Sunrise, sunset and moon times" + (placeName?.let { " for $it" } ?: "")).uppercase(),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                    color = RetroTokens.TextSecondary
                 )
             }
         }
 
-        // Solar Arc Visualization Card
+        // Sun times as a classic table (R4): label + time rows, numbers in
+        // yellow. The solar-arc Canvas is dropped — the golden/blue-hour
+        // ranges below carry the twilight detail as text.
         item {
             RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "SOLAR ARC",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                        )
+                    Text(
+                        text = "SUN TIMES",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = RetroTokens.Yellow
+                    )
 
-                        Text(
-                            text = if (dayHours != null && dayMinutes != null && deltaMins != null) {
-                                "Daylight: ${dayHours}h ${dayMinutes}m (${if (deltaMins >= 0) "+$deltaMins min" else "$deltaMins min"})"
-                            } else {
-                                "Daylight: --"
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = RetroTokens.Yellow
-                        )
-                    }
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    Spacer(modifier = Modifier.height(18.dp))
-
-                    // The horizon line is drawn inside the Canvas (a DrawScope,
-                    // where the scheme cannot be read), so resolve it here.
-                    val horizonLineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                    val textMeasurer = rememberTextMeasurer()
-                    // The 'Now' label colour is resolved here (a @Composable
-                    // read) — it cannot be read inside the Canvas DrawScope.
-                    val nowLabelColor = MaterialTheme.colorScheme.onSurface
-
-                    // Canvas Solar Arc
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(140.dp)
-                    ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val w = size.width
-                            val h = size.height
-                            val horizonY = h * 0.85f
-
-                            // Horizon line
-                            drawLine(
-                                color = horizonLineColor,
-                                start = Offset(0f, horizonY),
-                                end = Offset(w, horizonY),
-                                strokeWidth = 1.5f
-                            )
-
-                            // Solar trajectory arc
-                            val arcPath = Path().apply {
-                                moveTo(w * 0.12f, horizonY)
-                                quadraticBezierTo(w * 0.5f, -h * 0.15f, w * 0.88f, horizonY)
-                            }
-                            drawPath(
-                                path = arcPath,
-                                color = RetroTokens.Yellow.copy(alpha = 0.35f),
-                                style = Stroke(width = 2.5f, cap = StrokeCap.Round)
-                            )
-
-                            // Sun position calculation
-                            val now = Instant.now().epochSecond
-                            // Without real sunrise/sunset there is no arc to draw.
-                            val rise = solar?.sunrise?.epochSecond ?: return@Canvas
-                            val set = solar?.sunset?.epochSecond ?: return@Canvas
-                            // After sunset the sun is below the horizon: there is no
-                            // position to draw, so the dot is hidden instead of
-                            // parking at the arc apex (the old 0.5f fallback).
-                            val isDaytime = now in rise..set
-                            val progress = if (isDaytime) {
-                                ((now - rise).toFloat() / (set - rise).toFloat()).coerceIn(0f, 1f)
-                            } else {
-                                0.5f
-                            }
-
-                            // Quadratic Bezier point on arc: B(t) = (1-t)^2 P0 + 2(1-t)t P1 + t^2 P2
-                            val t = progress
-                            val sunX = (1 - t) * (1 - t) * (w * 0.12f) + 2 * (1 - t) * t * (w * 0.5f) + t * t * (w * 0.88f)
-                            val sunY = (1 - t) * (1 - t) * horizonY + 2 * (1 - t) * t * (-h * 0.15f) + t * t * horizonY
-
-                            // Draw glowing sun (only while it is up)
-                            if (isDaytime) {
-                                drawCircle(
-                                    brush = Brush.radialGradient(
-                                        colors = listOf(RetroTokens.Yellow.copy(alpha = 0.5f), Color.Transparent),
-                                        center = Offset(sunX, sunY),
-                                        radius = 28f
-                                    ),
-                                    radius = 28f,
-                                    center = Offset(sunX, sunY)
-                                )
-                                drawCircle(
-                                    color = RetroTokens.Yellow,
-                                    radius = 8f,
-                                    center = Offset(sunX, sunY)
-                                )
-                                // 'Now' under the sun dot, so the marker is
-                                // labelled (not just a floating dot).
-                                val nowLayout = textMeasurer.measure(
-                                    text = "Now",
-                                    style = TextStyle(
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = nowLabelColor
-                                    )
-                                )
-                                drawText(
-                                    textLayoutResult = nowLayout,
-                                    topLeft = Offset(
-                                        (sunX - nowLayout.size.width / 2f).coerceIn(0f, size.width - nowLayout.size.width),
-                                        (sunY + 14f).coerceAtMost(size.height - nowLayout.size.height)
-                                    )
-                                )
-                            } else {
-                                // Night: shade the arc dark, so the card reads
-                                // as night (not an empty daytime arc).
-                                drawRect(
-                                    color = Color.Black.copy(alpha = 0.35f),
-                                    size = size
-                                )
-                            }
-                        }
-                    }
+                    SunTimeRow(label = "SUNRISE", time = sunriseStr)
+                    SunTimeRow(label = "SOLAR NOON", time = noonStr)
+                    SunTimeRow(label = "SUNSET", time = sunsetStr)
+                    SunTimeRow(label = "CIVIL DAWN", time = dawnStr)
+                    SunTimeRow(label = "CIVIL DUSK", time = duskStr)
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // The arc runs from 12% to 88% of the width; the label
-                    // Row takes the same inset, so Sunrise / Solar Noon /
-                    // Sunset sit under the arc's start / apex / end instead
-                    // of drifting to the screen's edges.
-                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                        val inset = maxWidth * 0.12f
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = inset),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                        Column {
-                            Text(text = "Sunrise", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                            Text(text = sunriseStr, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                        }
-
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(text = "Solar Noon", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                            Text(text = noonStr, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                        }
-
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(text = "Sunset", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                            Text(text = sunsetStr, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                        }
-                        }
-                    }
+                    Text(
+                        text = if (dayHours != null && dayMinutes != null && deltaMins != null) {
+                            "DAYLIGHT: ${dayHours}H ${dayMinutes}M (${if (deltaMins >= 0) "+$deltaMins MIN" else "$deltaMins MIN"})"
+                        } else {
+                            "DAYLIGHT: --"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = RetroTokens.Yellow
+                    )
                 }
             }
         }
@@ -286,7 +148,7 @@ fun SunMoonScreen(
                 text = "LIGHTING & TWILIGHT PHASES",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = RetroTokens.TextSecondary
+                color = RetroTokens.Yellow
             )
         }
 
@@ -298,7 +160,7 @@ fun SunMoonScreen(
                 TwilightCard(
                     title = "Golden Hour",
                     icon = Icons.Default.WbSunny,
-                    accentColor = AuraColors.Warning,
+                    accentColor = RetroTokens.Yellow,
                     morning = formatRange(solar?.goldenHourMorningStart, solar?.goldenHourMorningEnd, timeFormatter),
                     evening = formatRange(solar?.goldenHourEveningStart, solar?.goldenHourEveningEnd, timeFormatter),
                     modifier = Modifier.weight(1f)
@@ -307,7 +169,7 @@ fun SunMoonScreen(
                 TwilightCard(
                     title = "Blue Hour",
                     icon = Icons.Default.WbTwilight,
-                    accentColor = AuraColors.Water,
+                    accentColor = RetroTokens.Border,
                     morning = formatRange(solar?.blueHourMorningStart, solar?.blueHourMorningEnd, timeFormatter),
                     evening = formatRange(solar?.blueHourEveningStart, solar?.blueHourEveningEnd, timeFormatter),
                     modifier = Modifier.weight(1f)
@@ -322,7 +184,7 @@ fun SunMoonScreen(
                 text = "LUNAR CYCLE",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = RetroTokens.TextSecondary
+                color = RetroTokens.Yellow
             )
         }
 
@@ -376,7 +238,7 @@ fun SunMoonScreen(
                             text = phaseName,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = RetroTokens.TextPrimary
                         )
 
                         Spacer(modifier = Modifier.height(4.dp))
@@ -384,7 +246,7 @@ fun SunMoonScreen(
                         Text(
                             text = if (lunar != null) "$illPercent% illuminated disk" else "--",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                            color = RetroTokens.TextSecondary
                         )
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -400,17 +262,17 @@ fun SunMoonScreen(
                                 if (it <= 0) "New Moon today" else "New Moon in $it\u00A0day${if (it == 1) "" else "s"}"
                             } ?: "New Moon: --"
                             Text(
-                                text = fullText,
+                                text = fullText.uppercase(),
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = if (fullFirst) FontWeight.Bold else FontWeight.Normal,
-                                color = if (fullFirst) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                color = if (fullFirst) RetroTokens.TextPrimary else RetroTokens.TextSecondary
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = newText,
+                                text = newText.uppercase(),
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = if (!fullFirst) FontWeight.Bold else FontWeight.Normal,
-                                color = if (!fullFirst) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                color = if (!fullFirst) RetroTokens.TextPrimary else RetroTokens.TextSecondary
                             )
                         }
 
@@ -418,21 +280,46 @@ fun SunMoonScreen(
 
                         Row {
                             Text(
-                                text = "Moonrise ${lunar?.moonrise?.let { timeFormatter.format(it) } ?: "--"}",
+                                text = "MOONRISE ${lunar?.moonrise?.let { timeFormatter.format(it) } ?: "--"}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                                color = RetroTokens.TextSecondary
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = "Moonset ${lunar?.moonset?.let { timeFormatter.format(it) } ?: "--"}",
+                                text = "MOONSET ${lunar?.moonset?.let { timeFormatter.format(it) } ?: "--"}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                                color = RetroTokens.TextSecondary
                             )
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/** One row of the classic sun-times table: label left, time right. */
+@Composable
+private fun SunTimeRow(label: String, time: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = RetroTokens.TextSecondary
+        )
+        Text(
+            text = time.uppercase(),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = RetroTokens.Yellow
+        )
     }
 }
 
@@ -469,39 +356,39 @@ private fun TwilightCard(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = title,
+                    text = title.uppercase(),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = RetroTokens.TextPrimary
                 )
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = "Morning",
+                text = "MORNING",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                color = RetroTokens.TextSecondary
             )
             Text(
                 text = morning,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = RetroTokens.TextPrimary
             )
 
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "Evening",
+                text = "EVENING",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                color = RetroTokens.TextSecondary
             )
             Text(
                 text = evening,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = RetroTokens.TextPrimary
             )
         }
     }
