@@ -54,6 +54,12 @@ object AuraBars {
     /** Solid bottom bar height. */
     val barHeight: Dp = 64.dp
 
+    /** Classic header bar height (R3). */
+    val headerHeight: Dp = 56.dp
+
+    /** Bottom ticker bar height (R3). */
+    val tickerHeight: Dp = 32.dp
+
     /** Solid wide rail width. */
     val railWidth: Dp = 72.dp
 
@@ -61,12 +67,14 @@ object AuraBars {
      * Bottom content padding for a screen whose content sits above the
      * docked bottom bar: bar height + the system bottom inset, so the
      * last item is never hidden behind the bar. In wide mode (side rail)
-     * this is just harmless extra space at the list end.
+     * this is just harmless extra space at the list end. When the R3
+     * ticker is visible the ticker's height is added too, so the last
+     * item is never hidden behind the ticker either.
      */
     @Composable
-    fun contentBottomPadding(): Dp {
+    fun contentBottomPadding(tickerVisible: Boolean = false): Dp {
         val bottomInset = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding()
-        return barHeight + bottomInset
+        return barHeight + (if (tickerVisible) tickerHeight else 0.dp) + bottomInset
     }
 }
 

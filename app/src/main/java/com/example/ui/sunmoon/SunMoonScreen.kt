@@ -63,7 +63,8 @@ fun SunMoonScreen(
     lunar: LunarTimes?,
     modifier: Modifier = Modifier,
     zoneId: String? = null,
-    placeName: String? = null
+    placeName: String? = null,
+    tickerVisible: Boolean = false
 ) {
     val zone = remember(zoneId) {
         runCatching { ZoneId.of(zoneId ?: "") }.getOrDefault(ZoneId.systemDefault())
@@ -93,7 +94,7 @@ fun SunMoonScreen(
             top = 16.dp,
             // Room for the floating phone bar, so the last row never
             // hides under it.
-            bottom = AuraBars.contentBottomPadding()
+            bottom = AuraBars.contentBottomPadding(tickerVisible)
         ),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {

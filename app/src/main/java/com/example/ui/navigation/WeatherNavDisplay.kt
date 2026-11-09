@@ -14,19 +14,28 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.Place
 import com.example.ui.RadarLayer
@@ -47,6 +56,14 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
+import com.example.core.UnitFormatter
+import com.example.ui.designsystem.RetroShapes
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 
 enum class ScreenDestination(val label: String, val icon: ImageVector) {
     Home("Forecast", Icons.Default.WbSunny),
@@ -84,6 +101,22 @@ fun WeatherNavDisplay(
 
     val activeAlertsCount = weatherState?.activeAlerts?.size ?: 0
 
+    // Ticker facts come from the loaded weather only; a missing fact is
+    // skipped, never invented — so an empty list means "no ticker bar".
+    val unitFormatter = viewModel.getUnitFormatter()
+    val tickerItems = remember(weatherState, useMetric) {
+        buildTickerItems(weatherState, unitFormatter)
+    }
+    val tickerVisible = tickerItems.isNotEmpty()
+    var tickerIndex by remember(tickerItems) { mutableStateOf(0) }
+    LaunchedEffect(tickerItems) {
+        while (tickerItems.size > 1) {
+            delay(6000)
+            tickerIndex = (tickerIndex + 1) % tickerItems.size
+        }
+    }
+    val tickerText = tickerItems.getOrNull(tickerIndex) ?: tickerItems.firstOrNull()
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -91,17 +124,31 @@ fun WeatherNavDisplay(
     ) {
         val isWideScreen = maxWidth >= 600.dp
 
-        if (isWideScreen) {
+        // The classic header sits at the top of the shell, above every
+        // screen, in normal flow — it never overlays content. The
+        // safe-drawing insets live on this column now (they used to live
+        // on each branch's container), so the header clears the status bar.
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Top + WindowInsetsSides.Horizontal
+                    )
+                )
+        ) {
+            RetroHeader(
+                destination = currentDestination,
+                place = selectedPlace ?: weatherState?.place
+            )
+
+            if (isWideScreen) {
             // Wide screens (tablets, foldables unfolded): solid navy side
             // rail on the left, content filling the rest.
             Row(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .windowInsetsPadding(
-                        WindowInsets.safeDrawing.only(
-                            WindowInsetsSides.Top + WindowInsetsSides.Horizontal
-                        )
-                    )
+                    .weight(1f)
+                    .fillMaxWidth()
             ) {
                 SolidNavRail(
                     currentDestination = currentDestination,
@@ -109,68 +156,79 @@ fun WeatherNavDisplay(
                     onSelect = { currentDestination = it }
                 )
 
-                Box(
+                Column(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
                 ) {
-                    ScreenContent(
-                        destination = currentDestination,
-                        viewModel = viewModel,
-                        weatherState = weatherState,
-                        isRefreshing = isRefreshing,
-                        selectedPlace = selectedPlace,
-                        loadError = loadError,
-                        savedPlaces = savedPlaces,
-                        useMetric = useMetric,
-                        tomorrowApiKey = tomorrowApiKey,
-                        selectedRadarLayer = selectedRadarLayer,
-                        currentRadarFrameIndex = currentRadarFrameIndex,
-                        isRadarPlaying = isRadarPlaying,
-                        onNavigate = { currentDestination = it },
-                        onEnterPiP = onEnterPiP
-                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    ) {
+                        ScreenContent(
+                            destination = currentDestination,
+                            viewModel = viewModel,
+                            weatherState = weatherState,
+                            isRefreshing = isRefreshing,
+                            selectedPlace = selectedPlace,
+                            loadError = loadError,
+                            savedPlaces = savedPlaces,
+                            useMetric = useMetric,
+                            tomorrowApiKey = tomorrowApiKey,
+                            selectedRadarLayer = selectedRadarLayer,
+                            currentRadarFrameIndex = currentRadarFrameIndex,
+                            isRadarPlaying = isRadarPlaying,
+                            onNavigate = { currentDestination = it },
+                            onEnterPiP = onEnterPiP,
+                            tickerVisible = tickerVisible
+                        )
+                    }
+
+                    if (tickerVisible && tickerText != null) {
+                        RetroTicker(text = tickerText)
+                    }
                 }
             }
         } else {
-            // Compact screens (standard phones): content above a docked
-            // solid bottom bar. The screens reserve the bar's height in
-            // their own bottom content padding.
-            Column(modifier = Modifier.fillMaxSize()) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .windowInsetsPadding(
-                            WindowInsets.safeDrawing.only(
-                                WindowInsetsSides.Top + WindowInsetsSides.Horizontal
-                            )
-                        )
-                ) {
-                    ScreenContent(
-                        destination = currentDestination,
-                        viewModel = viewModel,
-                        weatherState = weatherState,
-                        isRefreshing = isRefreshing,
-                        selectedPlace = selectedPlace,
-                        loadError = loadError,
-                        savedPlaces = savedPlaces,
-                        useMetric = useMetric,
-                        tomorrowApiKey = tomorrowApiKey,
-                        selectedRadarLayer = selectedRadarLayer,
-                        currentRadarFrameIndex = currentRadarFrameIndex,
-                        isRadarPlaying = isRadarPlaying,
-                        onNavigate = { currentDestination = it },
-                        onEnterPiP = onEnterPiP
-                    )
-                }
-
-                SolidNavBar(
-                    currentDestination = currentDestination,
-                    activeAlertsCount = activeAlertsCount,
-                    onSelect = { currentDestination = it }
+            // Compact screens (standard phones): content above the ticker
+            // (when there is one) and a docked solid bottom bar. The
+            // screens reserve the bar's height — plus the ticker's when
+            // it is visible — in their own bottom content padding.
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                ScreenContent(
+                    destination = currentDestination,
+                    viewModel = viewModel,
+                    weatherState = weatherState,
+                    isRefreshing = isRefreshing,
+                    selectedPlace = selectedPlace,
+                    loadError = loadError,
+                    savedPlaces = savedPlaces,
+                    useMetric = useMetric,
+                    tomorrowApiKey = tomorrowApiKey,
+                    selectedRadarLayer = selectedRadarLayer,
+                    currentRadarFrameIndex = currentRadarFrameIndex,
+                    isRadarPlaying = isRadarPlaying,
+                    onNavigate = { currentDestination = it },
+                    onEnterPiP = onEnterPiP,
+                    tickerVisible = tickerVisible
                 )
             }
+
+            if (tickerVisible && tickerText != null) {
+                RetroTicker(text = tickerText)
+            }
+
+            SolidNavBar(
+                currentDestination = currentDestination,
+                activeAlertsCount = activeAlertsCount,
+                onSelect = { currentDestination = it }
+            )
+        }
         }
     }
 }
@@ -281,6 +339,189 @@ private fun SolidNavRail(
     }
 }
 
+/**
+ * The classic header (R3): a red/orange gradient band across the top,
+ * the "Aura Weather" logo box on the left, the segment title in yellow
+ * in the middle, and a live clock on the right. It sits in normal flow
+ * at the top of the shell — never an overlay — so content is never
+ * hidden under it. Our own box with our own name: the real Weather
+ * Channel logo is a trademark and is not reproduced.
+ */
+@Composable
+private fun RetroHeader(
+    destination: ScreenDestination,
+    place: Place?,
+    modifier: Modifier = Modifier
+) {
+    val zoneId = remember(place?.zoneId) {
+        runCatching { ZoneId.of(place?.zoneId ?: "") }.getOrDefault(ZoneId.systemDefault())
+    }
+    // The title follows the current tab. On Home the place name rides
+    // along only when it is short enough to fit cleanly next to the
+    // title; a long place name is dropped rather than truncated mid-word.
+    val title = when (destination) {
+        ScreenDestination.Home -> {
+            val display = place?.let {
+                if (it.stateCode.isNotBlank()) "${it.name}, ${it.stateCode}" else it.name
+            }
+            if (display != null && display.length <= 20) {
+                "${destination.label} \u2014 ${display}".uppercase()
+            } else {
+                destination.label.uppercase()
+            }
+        }
+        else -> destination.label.uppercase()
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(AuraBars.headerHeight)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(RetroTokens.HeaderRed, RetroTokens.HeaderOrange)
+                )
+            )
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Logo box: a rounded blue square with our name in white.
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .background(RetroTokens.PanelLight, RetroShapes.medium),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "AURA",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = RetroTokens.TextPrimary
+                )
+                Text(
+                    text = "WEATHER",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = RetroTokens.TextPrimary
+                )
+            }
+        }
+
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = RetroTokens.Yellow,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 12.dp, end = 8.dp)
+        )
+
+        RetroClock(zoneId = zoneId)
+    }
+}
+
+/**
+ * A live clock in the stills' shape: time on one line, day/date on the
+ * next, in the place's zone (or the device zone when no place is loaded).
+ * Ticks every second; the loop is cancelled when the header leaves.
+ */
+@Composable
+private fun RetroClock(
+    zoneId: ZoneId,
+    modifier: Modifier = Modifier
+) {
+    var now by remember(zoneId) { mutableStateOf(ZonedDateTime.now(zoneId)) }
+    val timeFormatter = remember(zoneId) {
+        DateTimeFormatter.ofPattern("h:mm:ss a", Locale.US).withZone(zoneId)
+    }
+    val dateFormatter = remember(zoneId) {
+        DateTimeFormatter.ofPattern("EEE MMM d", Locale.US).withZone(zoneId)
+    }
+    LaunchedEffect(zoneId) {
+        while (true) {
+            delay(1000)
+            now = ZonedDateTime.now(zoneId)
+        }
+    }
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.End
+    ) {
+        Text(
+            text = timeFormatter.format(now).uppercase(),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp),
+            fontWeight = FontWeight.Bold,
+            color = RetroTokens.TextPrimary
+        )
+        Text(
+            text = dateFormatter.format(now).uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            color = RetroTokens.TextPrimary
+        )
+    }
+}
+
+/**
+ * The bottom ticker bar (R3): solid ticker blue, white all-caps text,
+ * one fact at a time. The rotation lives in [WeatherNavDisplay]; this is
+ * just the bar. Hidden entirely when there is nothing to show.
+ */
+@Composable
+private fun RetroTicker(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(AuraBars.tickerHeight)
+            .background(RetroTokens.TickerBlue),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = RetroTokens.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 12.dp)
+        )
+    }
+}
+
+/**
+ * Ticker facts from the loaded weather only. A missing fact is skipped —
+ * never "--", never an invented value. There is no ceiling field in the
+ * data model, so there is deliberately no ceiling item.
+ */
+private fun buildTickerItems(
+    state: FullWeatherState?,
+    unitFormatter: UnitFormatter
+): List<String> {
+    val current = state?.current ?: return emptyList()
+    val items = mutableListOf<String>()
+    current.visibilityM?.let {
+        items.add("VISIB: ${unitFormatter.formatVisibility(it).uppercase()}")
+    }
+    current.pressurePa?.let {
+        items.add("BAROMETRIC PRESSURE: ${unitFormatter.formatPressure(it).uppercase()}")
+    }
+    current.windMs?.let {
+        items.add("WIND: ${unitFormatter.formatWindSpeed(it).uppercase()}")
+    }
+    current.humidityPct?.let {
+        items.add("HUMIDITY: ${it.roundToInt()}%")
+    }
+    current.dewPointC?.let {
+        items.add("DEW POINT: ${unitFormatter.formatTemperature(it).uppercase()}")
+    }
+    return items
+}
+
 @Composable
 private fun ScreenContent(
     destination: ScreenDestination,
@@ -296,7 +537,8 @@ private fun ScreenContent(
     currentRadarFrameIndex: Int,
     isRadarPlaying: Boolean,
     onNavigate: (ScreenDestination) -> Unit,
-    onEnterPiP: () -> Unit
+    onEnterPiP: () -> Unit,
+    tickerVisible: Boolean
 ) {
     when (destination) {
         ScreenDestination.Home -> HomeScreen(
@@ -312,7 +554,8 @@ private fun ScreenContent(
             onNavigateToAlerts = { onNavigate(ScreenDestination.Alerts) },
             onNavigateToAirPollen = { onNavigate(ScreenDestination.AirSky) },
             onNavigateToSunMoon = { onNavigate(ScreenDestination.AirSky) },
-            onNavigateToSettings = { onNavigate(ScreenDestination.Settings) }
+            onNavigateToSettings = { onNavigate(ScreenDestination.Settings) },
+            tickerVisible = tickerVisible
         )
 
         ScreenDestination.Radar -> RadarScreen(
@@ -323,7 +566,8 @@ private fun ScreenContent(
             onSelectLayer = { viewModel.setRadarLayer(it) },
             onTogglePlay = { viewModel.toggleRadarPlay() },
             onScrubFrame = { viewModel.setRadarFrameIndex(it) },
-            onEnterPiP = onEnterPiP
+            onEnterPiP = onEnterPiP,
+            tickerVisible = tickerVisible
         )
 
         ScreenDestination.Alerts -> AlertsScreen(
@@ -333,7 +577,8 @@ private fun ScreenContent(
             placeName = selectedPlace?.name,
             zoneId = runCatching { java.time.ZoneId.of(weatherState?.place?.zoneId ?: "") }
                 .getOrDefault(java.time.ZoneId.systemDefault()),
-            onViewOnRadar = { onNavigate(ScreenDestination.Radar) }
+            onViewOnRadar = { onNavigate(ScreenDestination.Radar) },
+            tickerVisible = tickerVisible
         )
 
         ScreenDestination.AirSky -> {
@@ -341,6 +586,7 @@ private fun ScreenContent(
             AirSkyCompositeView(
                 weatherState = weatherState,
                 selectedPlace = selectedPlace,
+                tickerVisible = tickerVisible,
                 onNavigateToSettings = { onNavigate(ScreenDestination.Settings) }
             )
         }
@@ -353,7 +599,8 @@ private fun ScreenContent(
             onSetUseMetric = { viewModel.setUseMetric(it) },
             onSaveTomorrowApiKey = { viewModel.setTomorrowApiKey(it) },
             onSelectPlace = { viewModel.selectPlace(it) },
-            onAddPlace = { name, state, lat, lon -> viewModel.addPlace(name, state, lat, lon) }
+            onAddPlace = { name, state, lat, lon -> viewModel.addPlace(name, state, lat, lon) },
+            tickerVisible = tickerVisible
         )
     }
 }
@@ -362,6 +609,7 @@ private fun ScreenContent(
 private fun AirSkyCompositeView(
     weatherState: FullWeatherState?,
     selectedPlace: Place?,
+    tickerVisible: Boolean,
     onNavigateToSettings: () -> Unit
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(0) } // 0: Air & Pollen, 1: Sun & Moon
@@ -380,12 +628,14 @@ private fun AirSkyCompositeView(
             AirPollenScreen(
                 airQuality = weatherState?.airQuality,
                 pollen = weatherState?.pollen,
+                tickerVisible = tickerVisible,
                 onNavigateToSettings = onNavigateToSettings
             )
         } else {
             SunMoonScreen(
                 solar = weatherState?.solar,
                 lunar = weatherState?.lunar,
+                tickerVisible = tickerVisible,
                 zoneId = weatherState?.place?.zoneId,
                 placeName = selectedPlace?.name
             )

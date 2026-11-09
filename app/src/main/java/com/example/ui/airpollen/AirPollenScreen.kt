@@ -55,6 +55,7 @@ fun AirPollenScreen(
     airQuality: AirQuality?,
     pollen: PollenData?,
     onNavigateToSettings: () -> Unit,
+    tickerVisible: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     // No AQI from the provider means "unavailable" — never a made-up 28/Good.
@@ -74,7 +75,7 @@ fun AirPollenScreen(
             top = 16.dp,
             // Room for the floating phone bar, so the last row never
             // hides under it.
-            bottom = AuraBars.contentBottomPadding()
+            bottom = AuraBars.contentBottomPadding(tickerVisible)
         ),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {

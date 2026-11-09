@@ -99,6 +99,7 @@ fun RadarScreen(
     onTogglePlay: () -> Unit,
     onScrubFrame: (Int) -> Unit,
     onEnterPiP: () -> Unit,
+    tickerVisible: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     // No place selected yet: the radar centres on the place, and there is
@@ -485,7 +486,7 @@ fun RadarScreen(
                     start = 16.dp,
                     end = 16.dp,
                     top = 16.dp,
-                    bottom = AuraBars.contentBottomPadding()
+                    bottom = AuraBars.contentBottomPadding(tickerVisible)
                 ),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {

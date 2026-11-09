@@ -63,7 +63,8 @@ fun AlertsScreen(
     fetchedAt: Instant? = null,
     isStale: Boolean = false,
     placeName: String? = null,
-    zoneId: ZoneId = ZoneId.systemDefault()
+    zoneId: ZoneId = ZoneId.systemDefault(),
+    tickerVisible: Boolean = false
 ) {
     // Cached alerts show their age: a stale alert list is not live data.
     val cacheAgeText = if (isStale && fetchedAt != null) {
@@ -92,7 +93,7 @@ fun AlertsScreen(
             top = 16.dp,
             // Room for the floating phone bar, so the last row never
             // hides under it.
-            bottom = AuraBars.contentBottomPadding()
+            bottom = AuraBars.contentBottomPadding(tickerVisible)
         ),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {

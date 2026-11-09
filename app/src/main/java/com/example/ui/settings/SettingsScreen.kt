@@ -68,6 +68,7 @@ fun SettingsScreen(
     onSaveTomorrowApiKey: (String) -> Unit,
     onSelectPlace: (String) -> Unit,
     onAddPlace: (String, String, Double, Double) -> Unit,
+    tickerVisible: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var showAddPlaceDialog by remember { mutableStateOf(false) }
@@ -82,7 +83,7 @@ fun SettingsScreen(
             top = 16.dp,
             // Room for the floating phone bar, so the last row never
             // hides under it.
-            bottom = AuraBars.contentBottomPadding()
+            bottom = AuraBars.contentBottomPadding(tickerVisible)
         ),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {

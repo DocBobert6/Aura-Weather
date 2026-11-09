@@ -108,6 +108,7 @@ fun HomeScreen(
     onNavigateToAirPollen: () -> Unit,
     onNavigateToSunMoon: () -> Unit,
     onNavigateToSettings: () -> Unit,
+    tickerVisible: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var locationMenuExpanded by remember { mutableStateOf(false) }
@@ -152,14 +153,36 @@ fun HomeScreen(
         contentPadding = PaddingValues(
             start = 16.dp,
             end = 16.dp,
-            // Room for the floating top bar pinned over the list, plus a
-            // 16dp gap below it on startup so the bar never touches the
-            // first card — the alert banner / hero sat flush against it.
-            top = 72.dp,
-            bottom = AuraBars.contentBottomPadding()
+            // The classic header lives in the shell now, in normal flow
+            // above this list — nothing overlays it — so the list just
+            // needs its usual 16dp of breathing room at the top.
+            top = 16.dp,
+            bottom = AuraBars.contentBottomPadding(tickerVisible)
         ),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // 1. Place row: the place pill (with its menu) + location /
+        // refresh buttons. This is what the old floating top bar carried;
+        // it lives in the list now, under the shell's classic header,
+        // so no function is lost and nothing overlays the content.
+        item {
+            PlaceRow(
+                place = selectedPlace ?: state?.place,
+                savedPlaces = savedPlaces,
+                isRefreshing = isRefreshing,
+                menuExpanded = locationMenuExpanded,
+                onToggleMenu = { locationMenuExpanded = !locationMenuExpanded },
+                onSelectPlace = {
+                    locationMenuExpanded = false
+                    onSelectPlace(it)
+                },
+                onLocationClick = {
+                    locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                },
+                onRefresh = onRefresh
+            )
+        }
+
         // 2. Offline / Error Banner if any
         if (state?.errorMessage != null) {
             item {
@@ -297,31 +320,6 @@ fun HomeScreen(
         }
     }
 
-    // Top bar pinned over the list: place pill + circular
-    // location / refresh buttons. Safe-drawing insets are part of the
-    // bar's placement (the ScreenContent container applies them above
-    // this screen), so it never collides with the status bar.
-    FloatingTopBar(
-        place = selectedPlace ?: state?.place,
-        savedPlaces = savedPlaces,
-        isRefreshing = isRefreshing,
-        menuExpanded = locationMenuExpanded,
-        onToggleMenu = { locationMenuExpanded = !locationMenuExpanded },
-        onSelectPlace = {
-            locationMenuExpanded = false
-            onSelectPlace(it)
-        },
-        onLocationClick = {
-            locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-        },
-        onRefresh = onRefresh,
-        // 16dp side padding again: the freshness pill is gone (A3), so the
-        // 48dp buttons fit. The buttons stay 48dp (the tap-target minimum).
-        modifier = Modifier
-            .align(Alignment.TopCenter)
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 8.dp)
-    )
     }
 }
 
@@ -414,13 +412,15 @@ private fun LoadErrorCard(message: String, onRetry: () -> Unit) {
 }
 
 /**
- * The floating top bar pinned over the sky: a place pill (name + chevron,
- * opens the place menu), a freshness pill, and circular location / refresh
- * buttons. On scroll it collapses to the place pill alone and the
- * freshness detail moves into the hero card instead.
+ * The place row at the top of the Home list: a place pill (name +
+ * chevron, opens the place menu) and plain retro location / refresh
+ * buttons. This is what the old floating top bar carried; it lives in
+ * the list now, under the shell's classic header, so the place, location
+ * and refresh functions are all still reachable and nothing overlays
+ * the content. The freshness text already lives on the hero card.
  */
 @Composable
-private fun FloatingTopBar(
+private fun PlaceRow(
     place: Place?,
     savedPlaces: List<Place>,
     isRefreshing: Boolean,
@@ -458,15 +458,15 @@ private fun FloatingTopBar(
                     Icon(
                         imageVector = Icons.Default.LocationOn,
                         contentDescription = "Location",
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = RetroTokens.Yellow,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = placeName,
+                        text = placeName.uppercase(),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = RetroTokens.TextPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -474,7 +474,7 @@ private fun FloatingTopBar(
                     Icon(
                         imageVector = Icons.Default.ArrowDropDown,
                         contentDescription = "Select location",
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                        tint = RetroTokens.TextSecondary
                     )
                 }
             }
@@ -482,7 +482,7 @@ private fun FloatingTopBar(
             DropdownMenu(
                 expanded = menuExpanded,
                 onDismissRequest = onToggleMenu,
-                containerColor = MaterialTheme.colorScheme.surface
+                containerColor = RetroTokens.Panel
             ) {
                 savedPlaces.forEach { p ->
                     val isCurrent = p.id == place?.id
@@ -496,16 +496,16 @@ private fun FloatingTopBar(
                                 Text(
                                     text = if (p.stateCode.isNotBlank()) "${p.name}, ${p.stateCode}" else p.name,
                                     color = if (isCurrent) {
-                                        MaterialTheme.colorScheme.primary
+                                        RetroTokens.Yellow
                                     } else {
-                                        MaterialTheme.colorScheme.onSurface
+                                        RetroTokens.TextPrimary
                                     }
                                 )
                                 if (isCurrent) {
                                     Icon(
                                         imageVector = Icons.Default.Check,
                                         contentDescription = "Selected",
-                                        tint = MaterialTheme.colorScheme.primary,
+                                        tint = RetroTokens.Yellow,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
@@ -517,14 +517,13 @@ private fun FloatingTopBar(
             }
         }
 
-
         GlassIconButton(
             onClick = onLocationClick
         ) {
             Icon(
                 imageVector = Icons.Default.MyLocation,
                 contentDescription = "Use GPS Location",
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                tint = RetroTokens.TextPrimary,
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -537,13 +536,13 @@ private fun FloatingTopBar(
                 CircularProgressIndicator(
                     modifier = Modifier.size(18.dp),
                     strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.primary
+                    color = RetroTokens.Yellow
                 )
             } else {
                 Icon(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = "Refresh",
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                    tint = RetroTokens.TextPrimary,
                     modifier = Modifier.size(20.dp)
                 )
             }
