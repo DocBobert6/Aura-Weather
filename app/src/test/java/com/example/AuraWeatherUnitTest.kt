@@ -6,6 +6,7 @@ import com.example.data.mapper.destinationPoint
 import com.example.data.mapper.distanceMeters
 import com.example.data.mapper.parseOpenMeteoUtcInstant
 import com.example.data.mapper.regionalCompassLabel
+import com.example.data.mapper.gibsTimestamp
 import com.example.data.mapper.shortMapLabel
 import com.example.domain.astro.LunarCalculator
 import com.example.domain.astro.SolarCalculator
@@ -291,5 +292,13 @@ class AuraWeatherUnitTest {
     fun testShortMapLabel_compassFallbackUnchanged() {
         assertEquals("NE", shortMapLabel("NE"))
         assertEquals("SW", shortMapLabel("SW"))
+    }
+
+    @Test
+    fun testGibsTimestamp_roundsDownToLatestTenMinuteScan() {
+        assertEquals("2026-11-09T12:40:00Z", gibsTimestamp(Instant.parse("2026-11-09T12:43:27Z")))
+        assertEquals("2026-11-09T12:40:00Z", gibsTimestamp(Instant.parse("2026-11-09T12:40:00Z")))
+        assertEquals("2026-11-09T12:30:00Z", gibsTimestamp(Instant.parse("2026-11-09T12:39:59Z")))
+        assertEquals("2026-11-09T00:00:00Z", gibsTimestamp(Instant.parse("2026-11-09T00:04:59Z")))
     }
 }

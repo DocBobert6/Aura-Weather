@@ -46,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -60,6 +61,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.imageLoader
 import coil.request.ImageRequest
+import com.example.data.mapper.gibsTimestamp
 import com.example.domain.model.FullWeatherState
 import com.example.ui.RadarLayer
 import com.example.ui.designsystem.AuraBars
@@ -69,6 +71,7 @@ import com.example.ui.designsystem.RetroTokens
 import com.example.ui.designsystem.RetroShapes
 import com.example.ui.designsystem.GlassIconButton
 import com.example.ui.designsystem.PillSegmentedControl
+import java.time.Instant
 import kotlin.math.ln
 import kotlin.math.roundToInt
 import kotlin.math.tan
@@ -150,14 +153,22 @@ fun RadarScreen(
         else -> zoomLevel
     }
 
+    // Satellite layers are a single image (no loop, no dBZ): the legend,
+    // the clear-air caption and the transport pill are radar-only
+    // (audit fix E).
+    val isSatellite = selectedLayer == RadarLayer.SatelliteVis || selectedLayer == RadarLayer.SatelliteIr
+
     // Centre on the selected place. The location puck below marks it; there
     // are no hardcoded landmarks — the radar station's coordinates are not
     // part of the /points response, so it is named in the toolbar, not drawn.
     val centerLat = state.place.point.lat
     val centerLon = state.place.point.lon
 
-    // GIBS satellite layers are dated: use today, never a hardcoded date.
-    val gibsDate = remember { java.time.LocalDate.now().toString() }
+    // GIBS satellite layers need a full UTC timestamp: a date-only
+    // value resolves to 00:00 UTC (a nighttime image at noon). Use the
+    // latest 10-minute GOES scan, refreshed when the layer changes
+    // (audit fix E). Never a hardcoded date.
+    val gibsTime = remember(selectedLayer) { gibsTimestamp(Instant.now()) }
 
     // Prefetch the current and next loop frames' radar tiles so a frame
     // switch is atomic. Without this, the 9 tiles reload independently on
@@ -213,6 +224,10 @@ fun RadarScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                // Tiles are offset outside this Box when panning/zooming;
+                // without a clip they paint over the header above
+                // (audit fix E).
+                .clipToBounds()
                 .pointerInput(zoomLevel) {
                     detectTransformGestures { _, pan, zoom, _ ->
                         userScale = (userScale * zoom).coerceIn(0.75f, 2.0f)
@@ -239,9 +254,9 @@ fun RadarScreen(
                         RadarLayer.Reflectivity, RadarLayer.LocalSite ->
                             "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$iemLayerName/$effectiveZoomLevel/$tileX/$tileY.png"
                         RadarLayer.SatelliteVis ->
-                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/$gibsDate/GoogleMapsCompatible_Level7/$effectiveZoomLevel/$tileY/$tileX.png"
+                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/$gibsTime/GoogleMapsCompatible_Level7/$effectiveZoomLevel/$tileY/$tileX.png"
                         RadarLayer.SatelliteIr ->
-                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_Band13_Clean_Infrared/default/$gibsDate/GoogleMapsCompatible_Level6/$effectiveZoomLevel/$tileY/$tileX.png"
+                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_Band13_Clean_Infrared/default/$gibsTime/GoogleMapsCompatible_Level6/$effectiveZoomLevel/$tileY/$tileX.png"
                     }
 
                     Box(
@@ -477,7 +492,10 @@ fun RadarScreen(
         // Bottom Controls: Legend, Playback & Scrub Slider. The bottom
         // padding is the nav-bar clearance (bar height + margin + inset),
         // not a fixed 16dp — with 16dp the transport pill sat behind the
-        // floating nav bar and was unusable.
+        // floating nav bar and was unusable. Radar layers only: satellite
+        // is a single image, so there is no dBZ legend and no loop to
+        // play (audit fix E).
+        if (!isSatellite) {
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -619,6 +637,7 @@ fun RadarScreen(
                     }
                 }
             }
+        }
         }
     }
 }

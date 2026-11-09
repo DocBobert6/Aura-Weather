@@ -83,6 +83,17 @@ fun shortMapLabel(label: String): String {
     return first.ifEmpty { city }
 }
 
+/** GIBS satellite timestamp (audit fix E): the full UTC time of the
+ * latest 10-minute GOES scan, as ISO-8601 ("2026-11-09T12:40:00Z").
+ * GIBS resolves a date-only time to 00:00 UTC (7 PM EST the prior
+ * evening), so a date-only value shows a nighttime city-lights image
+ * at noon. Rounding down to the latest 10-minute boundary lands on a
+ * real GOES scan. */
+fun gibsTimestamp(now: java.time.Instant): String {
+    val rounded = now.epochSecond - (now.epochSecond % 600)
+    return java.time.Instant.ofEpochSecond(rounded).toString()
+}
+
 object WeatherMappers {
 
     fun mapWmoCodeToCondition(code: Int?, isDaytime: Boolean = true): WeatherCondition {
