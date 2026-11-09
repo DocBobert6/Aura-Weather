@@ -126,7 +126,7 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(14.dp))
                         Column {
                             Text(
-                                text = "UNITS OF MEASUREMENT",
+                                text = "USE METRIC UNITS",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = RetroTokens.TextPrimary
@@ -209,7 +209,7 @@ fun SettingsScreen(
                             ) {
                                 Column {
                                     Text(
-                                        text = if (place.stateCode.isNotBlank()) "${place.name}, ${place.stateCode}" else place.name,
+                                        text = (if (place.stateCode.isNotBlank()) "${place.name}, ${place.stateCode}" else place.name).uppercase(),
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                         color = RetroTokens.TextPrimary

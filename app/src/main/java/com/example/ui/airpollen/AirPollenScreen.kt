@@ -239,7 +239,7 @@ fun AirPollenScreen(
                 )
 
                 PollutantCard(
-                    title = "Ozone",
+                    title = "OZONE",
                     label = "O₃ Level",
                     value = airQuality?.ozonePpb?.let { "${it.roundToInt()} ppb" } ?: "--",
                     status = airQuality?.ozonePpb?.let { if (it < 54.0) "Good" else "Moderate" } ?: "--",

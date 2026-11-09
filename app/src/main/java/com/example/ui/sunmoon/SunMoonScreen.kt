@@ -235,7 +235,7 @@ fun SunMoonScreen(
 
                     Column {
                         Text(
-                            text = phaseName,
+                            text = phaseName.uppercase(),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = RetroTokens.TextPrimary

@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.domain.model.AlertSeverity
+import com.example.ui.theme.Star4000Small
 
 /**
  * Shared pill primitives for Phase 2.3. Every floating bar, pill control,
@@ -334,7 +335,11 @@ private fun SegmentOption(
         )
         Text(
             text = label,
-            style = MaterialTheme.typography.labelMedium,
+            // labelMedium is not defined in the app Typography, so it
+            // falls back to Material3's default sans face. The switcher
+            // labels (Air & Pollen / Sun & Moon, radar layers) take the
+            // Star4000Small face explicitly (audit fix F).
+            style = MaterialTheme.typography.labelMedium.copy(fontFamily = Star4000Small),
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
             color = if (selected) {
                 RetroTokens.Background
