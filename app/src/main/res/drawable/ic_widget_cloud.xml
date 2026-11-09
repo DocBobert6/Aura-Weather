@@ -1,0 +1,11 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Cloud: three overlapping discs on a flat base. White-filled so
+         Glance can tint it. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M8 10 A3.5 3.5 0 1 1 8 17 A3.5 3.5 0 1 1 8 10 Z M13.5 7 A4.5 4.5 0 1 1 13.5 16 A4.5 4.5 0 1 1 13.5 7 Z M17.5 11.5 A3 3 0 1 1 17.5 17.5 A3 3 0 1 1 17.5 11.5 Z M5 14 L19 14 L19 18.5 L5 18.5 Z" />
+</vector>
