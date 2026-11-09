@@ -1,7 +1,7 @@
 package com.example.ui.widget
 
 import android.content.Context
-import android.content.Intent
+import android.content.ComponentName
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpSize
@@ -24,17 +24,14 @@ import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
-import androidx.glance.layout.defaultWeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.layout.width
-import androidx.glance.text.Font
-import androidx.glance.text.FontFamily
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
-import androidx.glance.unit.ColorProvider
+import androidx.glance.color.ColorProvider
 import com.example.AuraWeatherApp
 import com.example.MainActivity
 import com.example.R
@@ -67,9 +64,7 @@ class AuraWeatherWidget : GlanceAppWidget() {
         val useMetric = container.settingsManager.useMetricFlow.first()
         val state = container.weatherRepository.getWidgetState(useMetric)
         val openApp = actionStartActivity(
-            Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
+            ComponentName(context, MainActivity::class.java)
         )
         provideContent {
             val size = LocalSize.current
@@ -117,9 +112,6 @@ private object WidgetColors {
     )
 }
 
-private val largeFont = FontFamily(Font(R.font.star4000_large))
-private val smallFont = FontFamily(Font(R.font.star4000_small))
-
 private fun conditionIconRes(icon: WidgetConditionIcon): Int = when (icon) {
     WidgetConditionIcon.Sunny -> R.drawable.ic_widget_sunny
     WidgetConditionIcon.Moon -> R.drawable.ic_widget_moon
@@ -143,7 +135,6 @@ private fun WidgetEmptyContent() {
         Text(
             text = "AURA WEATHER",
             style = TextStyle(
-                fontFamily = smallFont,
                 fontSize = 13.sp,
                 color = WidgetColors.temp
             )
@@ -152,7 +143,6 @@ private fun WidgetEmptyContent() {
         Text(
             text = "OPEN AURA WEATHER TO LOAD",
             style = TextStyle(
-                fontFamily = smallFont,
                 fontSize = 13.sp,
                 color = WidgetColors.primary
             )
@@ -179,7 +169,6 @@ private fun WidgetWideContent(state: WidgetState) {
             Text(
                 text = state.placeName.uppercase(Locale.US),
                 style = TextStyle(
-                    fontFamily = smallFont,
                     fontSize = 13.sp,
                     color = WidgetColors.primary
                 ),
@@ -188,7 +177,6 @@ private fun WidgetWideContent(state: WidgetState) {
             Text(
                 text = display.tempText,
                 style = TextStyle(
-                    fontFamily = largeFont,
                     fontSize = 36.sp,
                     color = WidgetColors.temp
                 )
@@ -196,7 +184,6 @@ private fun WidgetWideContent(state: WidgetState) {
             Text(
                 text = display.conditionText,
                 style = TextStyle(
-                    fontFamily = smallFont,
                     fontSize = 12.sp,
                     color = WidgetColors.primary
                 ),
@@ -207,7 +194,6 @@ private fun WidgetWideContent(state: WidgetState) {
             Text(
                 text = display.highLowText,
                 style = TextStyle(
-                    fontFamily = smallFont,
                     fontSize = 13.sp,
                     color = WidgetColors.primary
                 ),
@@ -217,7 +203,6 @@ private fun WidgetWideContent(state: WidgetState) {
             Text(
                 text = display.updatedText,
                 style = TextStyle(
-                    fontFamily = smallFont,
                     fontSize = 11.sp,
                     color = WidgetColors.primary
                 ),
@@ -246,7 +231,6 @@ private fun WidgetSquareContent(state: WidgetState) {
         Text(
             text = display.tempText,
             style = TextStyle(
-                fontFamily = largeFont,
                 fontSize = 32.sp,
                 color = WidgetColors.temp
             )
@@ -254,7 +238,6 @@ private fun WidgetSquareContent(state: WidgetState) {
         Text(
             text = state.placeName.uppercase(Locale.US),
             style = TextStyle(
-                fontFamily = smallFont,
                 fontSize = 12.sp,
                 color = WidgetColors.primary
             ),
@@ -264,7 +247,6 @@ private fun WidgetSquareContent(state: WidgetState) {
         Text(
             text = display.highLowText,
             style = TextStyle(
-                fontFamily = smallFont,
                 fontSize = 12.sp,
                 color = WidgetColors.primary
             ),
@@ -273,7 +255,6 @@ private fun WidgetSquareContent(state: WidgetState) {
         Text(
             text = display.updatedText,
             style = TextStyle(
-                fontFamily = smallFont,
                 fontSize = 10.sp,
                 color = WidgetColors.primary
             ),

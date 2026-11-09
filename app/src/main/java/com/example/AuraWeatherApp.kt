@@ -1,6 +1,7 @@
 package com.example
 
 import android.app.Application
+import androidx.glance.appwidget.updateAll
 import com.example.data.work.AlertNotifier
 import com.example.data.work.AlertScheduler
 import com.example.ui.widget.AuraWeatherWidget
