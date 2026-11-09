@@ -69,6 +69,7 @@ import com.example.data.mapper.iemLayerNameFor
 import com.example.data.mapper.latToTileY
 import com.example.data.mapper.lonToTileX
 import com.example.data.mapper.radarPrefetchUrls
+import com.example.data.mapper.satelliteZoomLevel
 import com.example.domain.model.FullWeatherState
 import com.example.ui.RadarLayer
 import com.example.ui.designsystem.AuraBars
@@ -137,13 +138,14 @@ fun RadarScreen(
     // IEM NEXRAD composite layer names corresponding to 0..9
     val iemLayerName = remember(currentFrameIndex) { iemLayerNameFor(currentFrameIndex) }
 
-    // Satellite layers have a max zoom in GIBS (GeoColor Level7, Band13
-    // Level6) below the radar zoom range (7..9), so clamp the effective
-    // zoom per layer. The stored zoomLevel is untouched, so switching back
-    // to radar restores the radar zoom.
+    // Satellite layers have a max zoom in GIBS below the radar zoom range
+    // (7..9), so clamp the effective zoom per layer. The stored zoomLevel
+    // is untouched, so switching back to radar restores the radar zoom.
+    // The cap is the set's max MATRIX, not its level count: Level7 holds
+    // matrices 0..6 and Level6 holds 0..5 (see satelliteZoomLevel).
     val effectiveZoomLevel = when (selectedLayer) {
-        RadarLayer.SatelliteVis -> minOf(zoomLevel, 7)
-        RadarLayer.SatelliteIr -> minOf(zoomLevel, 6)
+        RadarLayer.SatelliteVis -> satelliteZoomLevel(isVisible = true, zoomLevel)
+        RadarLayer.SatelliteIr -> satelliteZoomLevel(isVisible = false, zoomLevel)
         else -> zoomLevel
     }
 

@@ -296,11 +296,14 @@ class AuraWeatherUnitTest {
     }
 
     @Test
-    fun testGibsTimestamp_roundsDownToLatestTenMinuteScan() {
-        assertEquals("2026-11-09T12:40:00Z", gibsTimestamp(Instant.parse("2026-11-09T12:43:27Z")))
-        assertEquals("2026-11-09T12:40:00Z", gibsTimestamp(Instant.parse("2026-11-09T12:40:00Z")))
-        assertEquals("2026-11-09T12:30:00Z", gibsTimestamp(Instant.parse("2026-11-09T12:39:59Z")))
-        assertEquals("2026-11-09T00:00:00Z", gibsTimestamp(Instant.parse("2026-11-09T00:04:59Z")))
+    fun testGibsTimestamp_backsOffSixtyMinutesThenRoundsDown() {
+        // GIBS publishes GOES scans behind real time (GeoColor ~41-51 min,
+        // Band13 ~21-31 min, measured 2026-11-09), so the latest 10-minute
+        // boundary 404s. Back off 60 minutes first, then round down.
+        assertEquals("2026-11-09T11:40:00Z", gibsTimestamp(Instant.parse("2026-11-09T12:43:27Z")))
+        assertEquals("2026-11-09T11:40:00Z", gibsTimestamp(Instant.parse("2026-11-09T12:40:00Z")))
+        assertEquals("2026-11-09T11:30:00Z", gibsTimestamp(Instant.parse("2026-11-09T12:39:59Z")))
+        assertEquals("2026-11-08T23:00:00Z", gibsTimestamp(Instant.parse("2026-11-09T00:04:59Z")))
     }
 
     @Test

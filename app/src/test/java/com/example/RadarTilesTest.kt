@@ -5,6 +5,7 @@ import com.example.data.mapper.iemTileUrl
 import com.example.data.mapper.latToTileY
 import com.example.data.mapper.lonToTileX
 import com.example.data.mapper.radarPrefetchUrls
+import com.example.data.mapper.satelliteZoomLevel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -48,6 +49,18 @@ class RadarTilesTest {
     fun testIemLayerNameFor_allTenDistinct() {
         val names = (0..9).map { iemLayerNameFor(it) }.toSet()
         assertEquals(10, names.size)
+    }
+
+    @Test
+    fun testSatelliteZoomLevel_capsAtMaxMatrixNotLevelCount() {
+        // Level7 holds matrices 0..6, Level6 holds 0..5: the cap is the
+        // max matrix, not the set's level count (7 / 6 404s/400s).
+        assertEquals(6, satelliteZoomLevel(isVisible = true, zoom = 8))
+        assertEquals(5, satelliteZoomLevel(isVisible = false, zoom = 8))
+        assertEquals(6, satelliteZoomLevel(isVisible = true, zoom = 7))
+        assertEquals(5, satelliteZoomLevel(isVisible = false, zoom = 7))
+        assertEquals(6, satelliteZoomLevel(isVisible = true, zoom = 9))
+        assertEquals(5, satelliteZoomLevel(isVisible = false, zoom = 9))
     }
 
     @Test

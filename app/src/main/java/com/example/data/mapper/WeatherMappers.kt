@@ -84,14 +84,20 @@ fun shortMapLabel(label: String): String {
     return first.ifEmpty { city }
 }
 
-/** GIBS satellite timestamp (audit fix E): the full UTC time of the
- * latest 10-minute GOES scan, as ISO-8601 ("2026-11-09T12:40:00Z").
+/** GIBS satellite timestamp (audit fix E, backoff added in the
+ * post-Phase-3 batch): the full UTC time of a GOES scan GIBS has
+ * actually published, as ISO-8601 ("2026-11-09T11:40:00Z").
  * GIBS resolves a date-only time to 00:00 UTC (7 PM EST the prior
  * evening), so a date-only value shows a nighttime city-lights image
- * at noon. Rounding down to the latest 10-minute boundary lands on a
- * real GOES scan. */
+ * at noon. Rounding down to the latest 10-minute boundary is not
+ * enough on its own: GIBS publishes GOES scans behind real time
+ * (measured 2026-11-09, GeoColor lags ~41-51 min and Band13
+ * ~21-31 min), so the latest boundary 404s. Back off 60 minutes
+ * first, then round down, so the timestamp lands on a scan GIBS
+ * has actually published. A ~1-hour-old image beats a blank map. */
 fun gibsTimestamp(now: java.time.Instant): String {
-    val rounded = now.epochSecond - (now.epochSecond % 600)
+    val backedOff = now.epochSecond - 3600
+    val rounded = backedOff - (backedOff % 600)
     return java.time.Instant.ofEpochSecond(rounded).toString()
 }
 
