@@ -70,6 +70,19 @@ fun regionalCompassLabel(bearingDeg: Double): String {
     return points[idx]
 }
 
+/** Short display label for a regional-map point (audit fix C): drop the
+ * ", ST" suffix and, for hyphenated city names, keep the first part, so
+ * "LEXINGTON-FAYETTE, KY" -> "LEXINGTON" and "SEVEN MILE, OH" ->
+ * "SEVEN MILE". The full "CITY, ST" label is unchanged everywhere else;
+ * this only shortens the map overlay so it cannot collide with the
+ * map's own place names. Compass fallback labels pass through
+ * unchanged. */
+fun shortMapLabel(label: String): String {
+    val city = label.substringBefore(",").trim()
+    val first = city.substringBefore("-").trim()
+    return first.ifEmpty { city }
+}
+
 object WeatherMappers {
 
     fun mapWmoCodeToCondition(code: Int?, isDaytime: Boolean = true): WeatherCondition {

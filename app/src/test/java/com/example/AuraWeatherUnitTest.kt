@@ -6,6 +6,7 @@ import com.example.data.mapper.destinationPoint
 import com.example.data.mapper.distanceMeters
 import com.example.data.mapper.parseOpenMeteoUtcInstant
 import com.example.data.mapper.regionalCompassLabel
+import com.example.data.mapper.shortMapLabel
 import com.example.domain.astro.LunarCalculator
 import com.example.domain.astro.SolarCalculator
 import com.example.domain.model.GeoPoint
@@ -276,5 +277,19 @@ class AuraWeatherUnitTest {
         assertEquals("W", regionalCompassLabel(270.0))
         assertEquals("NW", regionalCompassLabel(315.0))
         assertEquals("N", regionalCompassLabel(360.0))
+    }
+
+    @Test
+    fun testShortMapLabel_dropsStateAndHyphenatedTail() {
+        assertEquals("LEXINGTON", shortMapLabel("LEXINGTON-FAYETTE, KY"))
+        assertEquals("SEVEN MILE", shortMapLabel("SEVEN MILE, OH"))
+        assertEquals("CRITTENDEN", shortMapLabel("CRITTENDEN, KY"))
+        assertEquals("BATESVILLE", shortMapLabel("BATESVILLE, IN"))
+    }
+
+    @Test
+    fun testShortMapLabel_compassFallbackUnchanged() {
+        assertEquals("NE", shortMapLabel("NE"))
+        assertEquals("SW", shortMapLabel("SW"))
     }
 }

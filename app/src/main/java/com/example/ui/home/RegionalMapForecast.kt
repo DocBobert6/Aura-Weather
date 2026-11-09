@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.core.UnitFormatter
+import com.example.data.mapper.shortMapLabel
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.RegionalPoint
 import com.example.ui.designsystem.RetroPanel
@@ -158,8 +159,15 @@ private fun RegionalStaticMap(
                             .offset { IntOffset(screenX.roundToInt(), screenY.roundToInt()) }
                             .size(tileSizeDp)
                     ) {
-                        // 1. Esri World Dark Gray Base (dark, keyless) —
-                        // the same basemap the radar uses.
+                        // Esri World Dark Gray Base (dark, keyless) —
+                        // the same basemap the radar uses. It is the ONLY
+                        // tile layer here: the Esri reference layer
+                        // (World_Boundaries_and_Places) used to be drawn on
+                        // top, but it paints its own place names
+                        // ("Dayton", "Lexington") under our overlay labels
+                        // and the two collide (audit fix C). The base keeps
+                        // the geography and its own administrative
+                        // boundaries, so the map still reads as a map.
                         AsyncImage(
                             model = ImageRequest.Builder(context)
                                 .data("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/$REGIONAL_MAP_ZOOM/$tileY/$tileX")
@@ -170,18 +178,6 @@ private fun RegionalStaticMap(
                             modifier = Modifier.fillMaxSize()
                         )
 
-                        // 2. Esri reference layer (boundaries + place
-                        // names, keyless) on top, as on the radar — so
-                        // the map reads as a map between our labels.
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/$REGIONAL_MAP_ZOOM/$tileY/$tileX")
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "Place labels",
-                            contentScale = ContentScale.FillBounds,
-                            modifier = Modifier.fillMaxSize()
-                        )
                     }
                 }
             }
@@ -251,7 +247,7 @@ private fun RegionalCityLabel(
     )
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text = point.label.uppercase(),
+            text = shortMapLabel(point.label).uppercase(),
             style = MaterialTheme.typography.labelSmall.copy(shadow = hardShadow),
             fontWeight = FontWeight.Bold,
             color = RetroTokens.TextPrimary,
