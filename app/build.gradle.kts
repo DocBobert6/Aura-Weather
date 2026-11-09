@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
@@ -27,7 +29,7 @@ android {
       val keystoreFile = file("${rootDir}/../keystore/auraweather-release.jks")
       val propsFile = file("${rootDir}/../keystore/keystore.properties")
       if (keystoreFile.exists() && propsFile.exists()) {
-        val props = java.util.Properties().apply { load(propsFile.inputStream()) }
+        val props = Properties().apply { load(propsFile.inputStream()) }
         storeFile = keystoreFile
         storePassword = props.getProperty("storePassword")
         keyAlias = props.getProperty("keyAlias")
