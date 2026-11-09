@@ -7,7 +7,7 @@ package com.example.core
 object ProviderEndpoints {
     // National Weather Service (US Government, Keyless)
     const val NWS_BASE_URL = "https://api.weather.gov/"
-    const val NWS_USER_AGENT = "AuraWeather/1.0 (contact@auraweather.local)"
+    const val NWS_USER_AGENT = "AuraWeather/1.0 (https://github.com/DocBobert6/Aura-Weather)"
     const val NWS_ACCEPT_HEADER = "application/geo+json"
 
     // Open-Meteo Weather & Air Quality (Free, Keyless, CC BY 4.0)
@@ -21,8 +21,8 @@ object ProviderEndpoints {
     // NASA GIBS Satellite WMTS Tiles (Keyless)
     const val NASA_GIBS_BASE = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/"
 
-    // Regional NEXRAD station for Northern Kentucky & Greater Cincinnati
-    const val DEFAULT_RADAR_STATION = "KILN" // Wilmington, OH
-    const val PRIMARY_OBS_STATION = "KCVG"  // Cincinnati/Northern Kentucky International Airport
-    const val SECONDARY_OBS_STATION = "KLUK" // Cincinnati Municipal Airport Lunken Field
+    // No default observation or radar station: the nearest station and the
+    // radar site are resolved per place from NWS /points (see WeatherRepository).
+    // There is deliberately no fallback station — a place outside NWS coverage
+    // uses Open-Meteo only, never another city's observations.
 }

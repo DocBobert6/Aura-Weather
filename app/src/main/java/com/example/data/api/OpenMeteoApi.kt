@@ -9,6 +9,7 @@ import retrofit2.http.Query
 data class OpenMeteoWeatherResponse(
     @Json(name = "latitude") val latitude: Double?,
     @Json(name = "longitude") val longitude: Double?,
+    @Json(name = "utc_offset_seconds") val utcOffsetSeconds: Int?,
     @Json(name = "current") val current: OpenMeteoCurrent?,
     @Json(name = "hourly") val hourly: OpenMeteoHourly?,
     @Json(name = "minutely_15") val minutely15: OpenMeteoMinutely15?,
@@ -25,7 +26,8 @@ data class OpenMeteoCurrent(
     @Json(name = "weather_code") val weatherCode: Int?,
     @Json(name = "wind_speed_10m") val windSpeed10m: Double?,
     @Json(name = "wind_direction_10m") val windDirection10m: Double?,
-    @Json(name = "surface_pressure") val surfacePressure: Double?
+    @Json(name = "surface_pressure") val surfacePressure: Double?,
+    @Json(name = "cloud_cover") val cloudCover: Double?
 )
 
 @JsonClass(generateAdapter = true)
@@ -72,12 +74,30 @@ interface OpenMeteoWeatherApi {
     suspend fun getForecast(
         @Query("latitude") lat: Double,
         @Query("longitude") lon: Double,
-        @Query("current") current: String = "temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure",
+        @Query("current") current: String = "temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,cloud_cover",
         @Query("hourly") hourly: String = "temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m",
         @Query("minutely_15") minutely15: String = "precipitation",
         @Query("daily") daily: String = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,uv_index_max",
-        @Query("timezone") timezone: String = "auto"
+        // Request UTC explicitly. The old "auto" value returned local wall
+        // times, which the repository then parsed as UTC ("${t}:00Z") and
+        // shifted every hour 4-5 hours. All parsing goes through
+        // parseOpenMeteoUtcInstant (see WeatherMappers).
+        @Query("timezone") timezone: String = "UTC"
     ): OpenMeteoWeatherResponse
+
+    /**
+     * Multi-location current conditions (R5 regional map): one call for
+     * several points. latitude/longitude are comma-separated lists and the
+     * response is a JSON array in the same order. `encoded = true` so the
+     * commas go through verbatim.
+     */
+    @GET("v1/forecast")
+    suspend fun getCurrentMulti(
+        @Query("latitude", encoded = true) latitudes: String,
+        @Query("longitude", encoded = true) longitudes: String,
+        @Query("current") current: String = "temperature_2m,weather_code",
+        @Query("timezone") timezone: String = "UTC"
+    ): List<OpenMeteoWeatherResponse>
 }
 
 interface OpenMeteoAirQualityApi {

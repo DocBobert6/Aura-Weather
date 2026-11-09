@@ -1,9 +1,9 @@
 package com.example.ui.radar
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MyLocation
@@ -29,25 +28,29 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -58,21 +61,31 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.imageLoader
+import coil.request.CachePolicy
 import coil.request.ImageRequest
+import com.example.data.mapper.gibsTimestamp
+import com.example.data.mapper.iemLayerNameFor
+import com.example.data.mapper.latToTileY
+import com.example.data.mapper.lonToTileX
+import com.example.data.mapper.radarPrefetchUrls
 import com.example.domain.model.FullWeatherState
 import com.example.ui.RadarLayer
-import com.example.ui.designsystem.GlassCard
+import com.example.ui.designsystem.AuraBars
+import com.example.ui.designsystem.AuraColors
+import com.example.ui.designsystem.RetroPanel
+import com.example.ui.designsystem.RetroTokens
+import com.example.ui.designsystem.RetroShapes
+import com.example.ui.designsystem.GlassIconButton
+import com.example.ui.designsystem.PillSegmentedControl
+import java.time.Instant
 import kotlin.math.ln
 import kotlin.math.roundToInt
 import kotlin.math.tan
+import kotlinx.coroutines.delay
 
-data class MapLandmark(
-    val name: String,
-    val lat: Double,
-    val lon: Double,
-    val isRadarStation: Boolean = false
-)
-
+// The scrubber's custom thumb is an experimental Material3 API.
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RadarScreen(
     state: FullWeatherState?,
@@ -83,11 +96,31 @@ fun RadarScreen(
     onTogglePlay: () -> Unit,
     onScrubFrame: (Int) -> Unit,
     onEnterPiP: () -> Unit,
+    tickerVisible: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    // No place selected yet: the radar centres on the place, and there is
+    // no default location to centre on instead.
+    if (state == null) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(RetroTokens.Background),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Select a place to see its radar.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = RetroTokens.TextSecondary,
+                modifier = Modifier.padding(24.dp)
+            )
+        }
+        return
+    }
+
     val context = LocalContext.current
 
-    // Zoom level and pan offsets (Zoom 8 is optimal for Northern Kentucky & Greater Cincinnati)
+    // Zoom level and pan offsets
     var zoomLevel by remember { mutableIntStateOf(8) }
     var panOffsetX by remember { mutableFloatStateOf(0f) }
     var panOffsetY by remember { mutableFloatStateOf(0f) }
@@ -102,61 +135,122 @@ fun RadarScreen(
     }
 
     // IEM NEXRAD composite layer names corresponding to 0..9
-    val iemLayerName = remember(currentFrameIndex) {
-        when (currentFrameIndex) {
-            9 -> "nexrad-n0q-900913"
-            8 -> "nexrad-n0q-900913-m05m"
-            7 -> "nexrad-n0q-900913-m10m"
-            6 -> "nexrad-n0q-900913-m15m"
-            5 -> "nexrad-n0q-900913-m20m"
-            4 -> "nexrad-n0q-900913-m25m"
-            3 -> "nexrad-n0q-900913-m30m"
-            2 -> "nexrad-n0q-900913-m35m"
-            1 -> "nexrad-n0q-900913-m40m"
-            else -> "nexrad-n0q-900913-m45m"
+    val iemLayerName = remember(currentFrameIndex) { iemLayerNameFor(currentFrameIndex) }
+
+    // Satellite layers have a max zoom in GIBS (GeoColor Level7, Band13
+    // Level6) below the radar zoom range (7..9), so clamp the effective
+    // zoom per layer. The stored zoomLevel is untouched, so switching back
+    // to radar restores the radar zoom.
+    val effectiveZoomLevel = when (selectedLayer) {
+        RadarLayer.SatelliteVis -> minOf(zoomLevel, 7)
+        RadarLayer.SatelliteIr -> minOf(zoomLevel, 6)
+        else -> zoomLevel
+    }
+
+    // Satellite layers are a single image (no loop, no dBZ): the legend,
+    // the clear-air caption and the transport pill are radar-only
+    // (audit fix E).
+    val isSatellite = selectedLayer == RadarLayer.SatelliteVis || selectedLayer == RadarLayer.SatelliteIr
+
+    // The radar loop lives here now (3.3), not in the ViewModel: it runs
+    // only while this screen is composed and playing, and only for radar
+    // layers. Leaving the screen cancels the effect, so no radar job runs
+    // when the screen was never visited. The ViewModel keeps only the
+    // frame index + play state. rememberUpdatedState keeps the frame
+    // index fresh inside the loop without restarting the effect on every
+    // frame advance (which would reset the 750ms delay each time).
+    val latestFrameIndex by rememberUpdatedState(currentFrameIndex)
+    val latestOnScrubFrame by rememberUpdatedState(onScrubFrame)
+    LaunchedEffect(isPlaying, isSatellite) {
+        if (!isPlaying || isSatellite) return@LaunchedEffect
+        while (true) {
+            delay(750)
+            latestOnScrubFrame((latestFrameIndex + 1) % 10)
         }
     }
 
-    // Center coordinates: selected place point or default NKY center
-    val centerLat = state?.place?.point?.lat ?: 38.9989
-    val centerLon = state?.place?.point?.lon ?: -84.6266
+    // Centre on the selected place. The location puck below marks it; there
+    // are no hardcoded landmarks — the radar station's coordinates are not
+    // part of the /points response, so it is named in the toolbar, not drawn.
+    val centerLat = state.place.point.lat
+    val centerLon = state.place.point.lon
 
-    // Geographic landmarks across Northern Kentucky and Greater Cincinnati
-    val landmarks = remember {
-        listOf(
-            MapLandmark("KILN Radar", 39.4200, -83.8200, isRadarStation = true),
-            MapLandmark("Cincinnati", 39.1031, -84.5120),
-            MapLandmark("Covington", 39.0837, -84.5086),
-            MapLandmark("Florence", 38.9989, -84.6266),
-            MapLandmark("Crittenden", 38.7915, -84.6033),
-            MapLandmark("Newport", 39.0917, -84.4922),
-            MapLandmark("CVG Airport", 39.0488, -84.6678)
-        )
-    }
+    // GIBS satellite layers need a full UTC timestamp: a date-only
+    // value resolves to 00:00 UTC (a nighttime image at noon). Use the
+    // latest 10-minute GOES scan, refreshed when the layer changes
+    // (audit fix E). Never a hardcoded date.
+    val gibsTime = remember(selectedLayer) { gibsTimestamp(Instant.now()) }
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0F172A))
+            .background(RetroTokens.Background)
             .testTag("radar_screen")
     ) {
         val screenWidthPx = constraints.maxWidth.toFloat()
         val screenHeightPx = constraints.maxHeight.toFloat()
 
         // Tile coordinates at zoomLevel
-        val centerTileX = lonToTileX(centerLon, zoomLevel)
-        val centerTileY = latToTileY(centerLat, zoomLevel)
+        val centerTileX = lonToTileX(centerLon, effectiveZoomLevel)
+        val centerTileY = latToTileY(centerLat, effectiveZoomLevel)
 
         // Base tile size in pixels (256 standard Mercator tile size, scaled by userScale)
-        val tileSizePx = 256f * LocalDensity.current.density * userScale
+        val tileSizePx = 256f * userScale
+
+        // How many tiles cover the screen (plus a margin for panning), so
+        // the map fills the available space instead of a central 3x3 rect
+        // with container background around it. Capped so a very large
+        // screen does not fire hundreds of tile requests.
+        val tilesX = ((screenWidthPx / tileSizePx).toInt() + 2).coerceIn(3, 9)
+        val tilesY = ((screenHeightPx / tileSizePx).toInt() + 2).coerceIn(3, 11)
+        val halfTilesX = tilesX / 2
+        val halfTilesY = tilesY / 2
+
+        // Prefetch all 10 loop frames for the visible tile grid (3.3), so
+        // a scrub 0->9 is a cache hit instead of a per-frame network
+        // fetch. The current frame is enqueued first so the visible tiles
+        // are not queued behind the other nine frames. Runs on entry and
+        // when the layer, zoom, or centre changes — not on every frame
+        // advance, and not on pinch-zoom (the grid is captured when the
+        // effect last ran; a resize loads its new tiles on demand).
+        // Satellite is a single image, so it needs no prefetch. The grid
+        // is capped (tilesX <= 9, tilesY <= 11) and Coil bounds the
+        // network concurrency, so this is a bounded burst, not a flood.
+        // The prefetch and the AsyncImage loads share the same
+        // ImageLoader, the same URLs, and explicit cache policies, so a
+        // prefetched tile is a cache hit for the screen (no network
+        // fetch on the second pass).
+        val prefetchLoader = context.imageLoader
+        LaunchedEffect(selectedLayer, effectiveZoomLevel, centerLat, centerLon) {
+            if (selectedLayer == RadarLayer.Reflectivity || selectedLayer == RadarLayer.LocalSite) {
+                val frames = radarPrefetchUrls(centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY)
+                val current = frames.getOrElse(currentFrameIndex) { emptyList() }
+                val ordered = listOf(current) + frames.filterIndexed { index, _ -> index != currentFrameIndex }
+                for (frameUrls in ordered) {
+                    for (url in frameUrls) {
+                        prefetchLoader.enqueue(
+                            ImageRequest.Builder(context)
+                                .data(url)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .build()
+                        )
+                    }
+                }
+            }
+        }
 
         // Pixel center of the central tile
-        val centerWorldX = lonToWorldPixel(centerLon, zoomLevel) * userScale
-        val centerWorldY = latToWorldPixel(centerLat, zoomLevel) * userScale
+        val centerWorldX = lonToWorldPixel(centerLon, effectiveZoomLevel) * userScale
+        val centerWorldY = latToWorldPixel(centerLat, effectiveZoomLevel) * userScale
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                // Tiles are offset outside this Box when panning/zooming;
+                // without a clip they paint over the header above
+                // (audit fix E).
+                .clipToBounds()
                 .pointerInput(zoomLevel) {
                     detectTransformGestures { _, pan, zoom, _ ->
                         userScale = (userScale * zoom).coerceIn(0.75f, 2.0f)
@@ -165,27 +259,27 @@ fun RadarScreen(
                     }
                 }
         ) {
-            // Render a 3x3 grid of real map tiles centered on NKY
-            for (dx in -1..1) {
-                for (dy in -1..1) {
+            // Render the tiles that cover the screen, centered on the place.
+            for (dx in -halfTilesX..halfTilesX) {
+                for (dy in -halfTilesY..halfTilesY) {
                     val tileX = centerTileX + dx
                     val tileY = centerTileY + dy
 
                     // Calculate top-left position on screen for this tile
-                    val tileWorldLeft = (tileX * 256f * LocalDensity.current.density) * userScale
-                    val tileWorldTop = (tileY * 256f * LocalDensity.current.density) * userScale
+                    val tileWorldLeft = tileX * 256f * userScale
+                    val tileWorldTop = tileY * 256f * userScale
 
                     val screenX = (screenWidthPx / 2f) + (tileWorldLeft - centerWorldX) + panOffsetX
                     val screenY = (screenHeightPx / 2f) + (tileWorldTop - centerWorldY) + panOffsetY
 
-                    val basemapUrl = "https://a.basemaps.cartocdn.com/dark_all/$zoomLevel/$tileX/$tileY.png"
+                    val basemapUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/$effectiveZoomLevel/$tileY/$tileX"
                     val radarUrl = when (selectedLayer) {
-                        RadarLayer.Reflectivity, RadarLayer.KilnSite ->
-                            "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$iemLayerName/$zoomLevel/$tileX/$tileY.png"
+                        RadarLayer.Reflectivity, RadarLayer.LocalSite ->
+                            "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$iemLayerName/$effectiveZoomLevel/$tileX/$tileY.png"
                         RadarLayer.SatelliteVis ->
-                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/2026-11-06/GoogleMapsCompatible_Level8/$zoomLevel/$tileY/$tileX.png"
+                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/$gibsTime/GoogleMapsCompatible_Level7/$effectiveZoomLevel/$tileY/$tileX.png"
                         RadarLayer.SatelliteIr ->
-                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_Band13_Clean_Infrared/default/2026-11-06/GoogleMapsCompatible_Level8/$zoomLevel/$tileY/$tileX.png"
+                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_Band13_Clean_Infrared/default/$gibsTime/GoogleMapsCompatible_Level6/$effectiveZoomLevel/$tileY/$tileX.png"
                     }
 
                     Box(
@@ -193,13 +287,15 @@ fun RadarScreen(
                             .offset { IntOffset(screenX.roundToInt(), screenY.roundToInt()) }
                             .size(with(LocalDensity.current) { tileSizePx.toDp() })
                     ) {
-                        // 1. Live Dark Basemap Tile (Roads, Counties, Ohio River, Cities)
+                        // 1. Esri World Dark Gray Base (dark, keyless). CARTO dark_all now returns an
+                        // "API KEY REQUIRED" watermark tile, so it cannot be used.
                         AsyncImage(
                             model = ImageRequest.Builder(context)
                                 .data(basemapUrl)
                                 .crossfade(true)
                                 .build(),
                             contentDescription = "Map tile",
+                            placeholder = ColorPainter(RetroTokens.Panel),
                             contentScale = ContentScale.FillBounds,
                             modifier = Modifier.fillMaxSize()
                         )
@@ -216,44 +312,26 @@ fun RadarScreen(
                                 .fillMaxSize()
                                 .alpha(0.85f)
                         )
-                    }
-                }
-            }
 
-            // Real Geographic Landmarks overlay
-            landmarks.forEach { lm ->
-                val lmWorldX = lonToWorldPixel(lm.lon, zoomLevel) * userScale
-                val lmWorldY = latToWorldPixel(lm.lat, zoomLevel) * userScale
-                val lmScreenX = (screenWidthPx / 2f) + (lmWorldX - centerWorldX) + panOffsetX
-                val lmScreenY = (screenHeightPx / 2f) + (lmWorldY - centerWorldY) + panOffsetY
-
-                if (lmScreenX in -100f..(screenWidthPx + 100f) && lmScreenY in -100f..(screenHeightPx + 100f)) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .offset { IntOffset(lmScreenX.roundToInt() - 36, lmScreenY.roundToInt() - 16) }
-                            .width(72.dp)
-                    ) {
-                        Surface(
-                            color = if (lm.isRadarStation) Color(0xFFFF9100) else Color(0xFF1E88E5),
-                            shape = CircleShape,
-                            modifier = Modifier.size(if (lm.isRadarStation) 10.dp else 7.dp)
-                        ) {}
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = lm.name,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                            fontWeight = if (lm.isRadarStation) FontWeight.Bold else FontWeight.SemiBold,
-                            color = if (lm.isRadarStation) Color(0xFFFFB74D) else Color.White,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        // 3. Esri reference layer (city labels + boundaries,
+                        // keyless) on top, so the map names places instead
+                        // of showing bare terrain under the radar.
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/$effectiveZoomLevel/$tileY/$tileX")
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Place labels",
+                            contentScale = ContentScale.FillBounds,
+                            modifier = Modifier.fillMaxSize()
                         )
                     }
                 }
             }
 
             // Location Puck for the selected place
-            val userWorldX = lonToWorldPixel(centerLon, zoomLevel) * userScale
-            val userWorldY = latToWorldPixel(centerLat, zoomLevel) * userScale
+            val userWorldX = lonToWorldPixel(centerLon, effectiveZoomLevel) * userScale
+            val userWorldY = latToWorldPixel(centerLat, effectiveZoomLevel) * userScale
             val userScreenX = (screenWidthPx / 2f) + (userWorldX - centerWorldX) + panOffsetX
             val userScreenY = (screenHeightPx / 2f) + (userWorldY - centerWorldY) + panOffsetY
 
@@ -264,12 +342,12 @@ fun RadarScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Surface(
-                    color = Color(0xFF00E676).copy(alpha = 0.35f),
+                    color = AuraColors.Accent.copy(alpha = 0.35f),
                     shape = CircleShape,
                     modifier = Modifier.size(24.dp)
                 ) {}
                 Surface(
-                    color = Color(0xFF00E676),
+                    color = AuraColors.Accent,
                     shape = CircleShape,
                     modifier = Modifier.size(12.dp)
                 ) {}
@@ -281,7 +359,9 @@ fun RadarScreen(
             }
         }
 
-        // Top Toolbar: Station info, PiP, and status chip
+        // Top floating pill cluster: station pill + frame label pill, then
+        // the layer chooser as a pill segmented control. PiP lives on the
+        // transport pill at the bottom now.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -289,86 +369,99 @@ fun RadarScreen(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                GlassCard(shape = RoundedCornerShape(20.dp)) {
+                RetroPanel(
+                    shape = RetroShapes.medium,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Surface(
-                            color = Color(0xFF00E676),
+                            color = AuraColors.Accent,
                             shape = CircleShape,
                             modifier = Modifier.size(10.dp)
                         ) {}
                         Spacer(modifier = Modifier.width(8.dp))
+                        // The header names the layer and the area, not the
+                        // bare station code: 'Composite Radar' for the
+                        // composite, the place name for the local site
+                        // ('Covington Radar', not 'KILN Radar').
                         Text(
-                            text = "KILN Radar (Wilmington, OH)",
-                            style = MaterialTheme.typography.labelMedium,
+                            text = (when (selectedLayer) {
+                                RadarLayer.Reflectivity -> "Composite Radar"
+                                RadarLayer.LocalSite -> {
+                                    val area = state.place.name.ifBlank { null }
+                                        ?: state.radarStation
+                                    if (area != null) "$area Radar" else "NEXRAD Radar"
+                                }
+                                RadarLayer.SatelliteVis -> "Visible Satellite"
+                                RadarLayer.SatelliteIr -> "Infrared Satellite"
+                            }).uppercase(),
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = RetroTokens.Yellow,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
 
-                IconButton(
-                    onClick = onEnterPiP,
-                    modifier = Modifier
-                        .background(Color(0xFF131D2E).copy(alpha = 0.85f), CircleShape)
-                        .size(42.dp)
+                RetroPanel(
+                    shape = RetroShapes.medium,
+                    modifier = Modifier.height(48.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.PictureInPicture,
-                        contentDescription = "Picture in Picture",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.padding(horizontal = 14.dp)
+                    ) {
+                        Text(
+                            text = frameLabels.getOrElse(currentFrameIndex) { "LIVE NOW" }.uppercase(),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (currentFrameIndex == 9) {
+                                RetroTokens.Yellow
+                            } else {
+                                RetroTokens.TextPrimary
+                            },
+                            maxLines = 1
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Layer Chooser
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                RadarLayer.entries.forEach { layer ->
-                    val isSelected = layer == selectedLayer
-                    Surface(
-                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFF1E293B).copy(alpha = 0.85f),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { onSelectLayer(layer) }
-                    ) {
-                        Text(
-                            text = when (layer) {
-                                RadarLayer.Reflectivity -> "Composite"
-                                RadarLayer.KilnSite -> "KILN Site"
-                                RadarLayer.SatelliteVis -> "Sat Visible"
-                                RadarLayer.SatelliteIr -> "Sat IR"
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) Color(0xFF0D253F) else Color.White.copy(alpha = 0.8f),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
-                    }
-                }
-            }
+            // Layer chooser as a pill segmented control.
+            PillSegmentedControl(
+                options = listOf(
+                    "Composite",
+                    "${state.radarStation ?: "Local"} Site",
+                    "Sat Visible",
+                    "Sat IR"
+                ),
+                selectedIndex = selectedLayer.ordinal,
+                onSelect = { onSelectLayer(RadarLayer.entries[it]) },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
-        // Zoom +/- In-Map Controls
+        // Zoom +/- In-Map Controls (48dp solid navy buttons)
         Column(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .padding(end = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            IconButton(
+            GlassIconButton(
                 onClick = {
                     if (zoomLevel < 9) {
                         zoomLevel += 1
@@ -377,14 +470,16 @@ fun RadarScreen(
                         panOffsetY = 0f
                     }
                 },
-                modifier = Modifier
-                    .background(Color(0xFF1E293B).copy(alpha = 0.9f), CircleShape)
-                    .size(40.dp)
+                containerColor = RetroTokens.Panel,
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Zoom In", tint = Color.White)
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "Zoom In",
+                    tint = RetroTokens.TextPrimary
+                )
             }
 
-            IconButton(
+            GlassIconButton(
                 onClick = {
                     if (zoomLevel > 7) {
                         zoomLevel -= 1
@@ -393,95 +488,118 @@ fun RadarScreen(
                         panOffsetY = 0f
                     }
                 },
-                modifier = Modifier
-                    .background(Color(0xFF1E293B).copy(alpha = 0.9f), CircleShape)
-                    .size(40.dp)
+                containerColor = RetroTokens.Panel,
             ) {
-                Icon(Icons.Default.Remove, contentDescription = "Zoom Out", tint = Color.White)
+                Icon(
+                    Icons.Default.Remove,
+                    contentDescription = "Zoom Out",
+                    tint = RetroTokens.TextPrimary
+                )
             }
 
-            IconButton(
+            GlassIconButton(
                 onClick = {
                     panOffsetX = 0f
                     panOffsetY = 0f
                     userScale = 1f
                 },
-                modifier = Modifier
-                    .background(Color(0xFF1E293B).copy(alpha = 0.9f), CircleShape)
-                    .size(40.dp)
+                containerColor = RetroTokens.Panel,
             ) {
-                Icon(Icons.Default.MyLocation, contentDescription = "Recenter", tint = Color.White)
+                Icon(
+                    Icons.Default.MyLocation,
+                    contentDescription = "Recenter",
+                    tint = RetroTokens.TextPrimary
+                )
             }
         }
 
-        // Bottom Controls: Legend, Playback & Scrub Slider
+        // Bottom Controls: Legend, Playback & Scrub Slider. The bottom
+        // padding is the nav-bar clearance (bar height + margin + inset),
+        // not a fixed 16dp — with 16dp the transport pill sat behind the
+        // floating nav bar and was unusable. Radar layers only: satellite
+        // is a single image, so there is no dBZ legend and no loop to
+        // play (audit fix E).
+        if (!isSatellite) {
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 16.dp,
+                    bottom = AuraBars.contentBottomPadding(tickerVisible)
+                ),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             // Radar Legend Bar
-            GlassCard(shape = RoundedCornerShape(14.dp)) {
+            RetroPanel(shape = RetroShapes.medium) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "dBZ:",
+                        text = "DBZ:",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White.copy(alpha = 0.7f)
+                        color = RetroTokens.Yellow
                     )
-                    LegendColorPill("Light", Color(0xFF00E676))
-                    LegendColorPill("Moderate", Color(0xFFFFEA00))
-                    LegendColorPill("Heavy", Color(0xFFFF9100))
-                    LegendColorPill("Severe", Color(0xFFFF1744))
-                    LegendColorPill("Hail", Color(0xFFD500F9))
+                    for ((label, color) in AuraColors.RadarLegend) {
+                        LegendColorPill(label, color)
+                    }
                 }
             }
 
-            // Playback card with Frame timestamp & Scrubber
-            GlassCard(shape = RoundedCornerShape(20.dp)) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = onTogglePlay,
-                            modifier = Modifier
-                                .background(MaterialTheme.colorScheme.primary, CircleShape)
-                                .size(44.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (isPlaying) "Pause" else "Play",
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
+            // Clear-air speckle: the lightest echoes can be insects or
+            // ground clutter, not rain. The tiles are pre-rendered, so
+            // labelling (not filtering) is what the app can do.
+            Text(
+                text = "Lightest echoes can be clear-air returns, not rain.",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = RetroTokens.TextSecondary,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
 
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = frameLabels.getOrElse(currentFrameIndex) { "LIVE NOW" },
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = if (currentFrameIndex == 9) Color(0xFF00E676) else Color.White
-                            )
-                            Text(
-                                text = "NWS/IEM NEXRAD • Frame ${currentFrameIndex + 1} of 10",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White.copy(alpha = 0.6f)
-                            )
-                        }
+            // Classic transport pill: play/pause + frame scrubber inside
+            // the pill, PiP attached to its end. The frame label lives in
+            // the top pill now.
+            RetroPanel(
+                shape = RetroShapes.medium,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GlassIconButton(
+                        onClick = onTogglePlay,
+                        containerColor = RetroTokens.Yellow,
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = RetroTokens.Background
+                        )
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    // A 28dp thumb: the default thumb is a tiny dot that is
+                    // hard to grab precisely. The track keeps the default
+                    // 48dp touch height.
+                    // The loop's range, flanking the scrubber so it costs
+                    // no extra row: -45m (first frame) to Now (frame 9).
+                    Text(
+                        text = "-45M",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = RetroTokens.Yellow
+                    )
 
                     Slider(
                         value = currentFrameIndex.toFloat(),
@@ -489,30 +607,67 @@ fun RadarScreen(
                         valueRange = 0f..9f,
                         steps = 8,
                         colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.25f)
+                            thumbColor = RetroTokens.Yellow,
+                            activeTrackColor = RetroTokens.Yellow,
+                            inactiveTrackColor = RetroTokens.Border
                         ),
-                        modifier = Modifier.fillMaxWidth()
+                        thumb = { _ ->
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .background(
+                                        color = RetroTokens.Yellow,
+                                        shape = CircleShape
+                                    )
+                            )
+                        },
+                        modifier = Modifier.weight(1f)
                     )
+
+                    Text(
+                        text = "NOW",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = RetroTokens.Yellow
+                    )
+
+                    // Labelled 'PiP': the icon alone did not say what it
+                    // does. A small pill with the icon + text.
+                    Surface(
+                        color = RetroTokens.PanelLight,
+                        shape = RetroShapes.small,
+                        modifier = Modifier.clickable(
+                            onClick = onEnterPiP,
+                            role = Role.Button
+                        )
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PictureInPicture,
+                                contentDescription = "Picture in Picture",
+                                tint = RetroTokens.TextPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "PiP",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = RetroTokens.TextPrimary
+                            )
+                        }
+                    }
                 }
             }
+        }
         }
     }
 }
 
-// Spherical Mercator projection utilities
-private fun lonToTileX(lon: Double, zoom: Int): Int {
-    val x = ((lon + 180.0) / 360.0) * (1 shl zoom)
-    return x.toInt()
-}
-
-private fun latToTileY(lat: Double, zoom: Int): Int {
-    val latRad = Math.toRadians(lat.coerceIn(-85.0511, 85.0511))
-    val y = (1.0 - (ln(tan(latRad) + 1.0 / kotlin.math.cos(latRad)) / Math.PI)) / 2.0 * (1 shl zoom)
-    return y.toInt()
-}
-
+// Spherical Mercator projection utilities (tile coordinates now live in
+// the mapper, RadarTiles, where the prefetch tests cover them).
 private fun lonToWorldPixel(lon: Double, zoom: Int): Float {
     val density = 1f
     val fullSize = (256 * (1 shl zoom)).toFloat()
@@ -536,9 +691,9 @@ private fun LegendColorPill(label: String, color: Color) {
         ) {}
         Spacer(modifier = Modifier.width(4.dp))
         Text(
-            text = label,
+            text = label.uppercase(),
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-            color = Color.White.copy(alpha = 0.8f)
+            color = RetroTokens.TextPrimary
         )
     }
 }

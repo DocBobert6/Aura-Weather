@@ -1,0 +1,11 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Snow: cloud shifted up + three flakes (dots). White-filled so
+         Glance can tint it. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M8 8 A3.5 3.5 0 1 1 8 15 A3.5 3.5 0 1 1 8 8 Z M13.5 5 A4.5 4.5 0 1 1 13.5 14 A4.5 4.5 0 1 1 13.5 5 Z M17.5 9.5 A3 3 0 1 1 17.5 15.5 A3 3 0 1 1 17.5 9.5 Z M5 12 L19 12 L19 16.5 L5 16.5 Z M8 18.3 A1.2 1.2 0 1 1 8 20.7 A1.2 1.2 0 1 1 8 18.3 Z M12 18.3 A1.2 1.2 0 1 1 12 20.7 A1.2 1.2 0 1 1 12 18.3 Z M16 18.3 A1.2 1.2 0 1 1 16 20.7 A1.2 1.2 0 1 1 16 18.3 Z" />
+</vector>

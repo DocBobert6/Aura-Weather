@@ -1,0 +1,12 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Crescent moon: outer disc with an offset disc cut out (evenOdd).
+         White-filled so Glance can tint it. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M13 5 A7 7 0 1 1 13 19 A7 7 0 1 1 13 5 Z M16.5 3.5 A6 6 0 1 1 16.5 15.5 A6 6 0 1 1 16.5 3.5 Z" />
+</vector>

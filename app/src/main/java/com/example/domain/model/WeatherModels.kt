@@ -2,6 +2,7 @@ package com.example.domain.model
 
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 
 data class GeoPoint(val lat: Double, val lon: Double)
 
@@ -9,9 +10,28 @@ data class Place(
     val id: String,
     val name: String,
     val point: GeoPoint,
-    val stateCode: String = "KY",
-    val zoneId: String = "America/New_York",
+    val stateCode: String = "",
+    // Resolved per place (NWS /points timeZone, else Open-Meteo UTC offset).
+    // The device zone is only a transient starting point, never a place default.
+    val zoneId: String = ZoneId.systemDefault().id,
     val isPreset: Boolean = false
+)
+
+/**
+ * One plotted point on the Home regional map (R5): the current place
+ * (isCentre) or one neighbour ~80 km away. tempC is null only for the
+ * centre when the loaded state has no temperature; neighbours with no
+ * temperature are omitted by the repository, never plotted with an
+ * invented value. label is a real city name (NWS relativeLocation) or a
+ * compass label ("NE") — never an invented city name.
+ */
+data class RegionalPoint(
+    val point: GeoPoint,
+    val label: String,
+    val tempC: Double?,
+    val condition: WeatherCondition,
+    val isDaytime: Boolean = true,
+    val isCentre: Boolean = false
 )
 
 enum class WeatherCondition(val displayName: String) {
@@ -46,7 +66,8 @@ data class CurrentConditions(
     val windGustMs: Double?,
     val windDirDeg: Double?,
     val pressurePa: Double?,
-    val visibilityM: Double?
+    val visibilityM: Double?,
+    val cloudCoverPct: Double? = null
 )
 
 data class HourlyPoint(
@@ -55,7 +76,10 @@ data class HourlyPoint(
     val popPct: Int?,
     val precipMm: Double?,
     val condition: WeatherCondition,
-    val windMs: Double?
+    val windMs: Double?,
+    // Day/night for this exact hour (from NWS isDaytime, or solar position).
+    // Never assume daytime: a 2 AM entry must render a night icon.
+    val isDaytime: Boolean = true
 )
 
 data class DailyPoint(
@@ -88,6 +112,10 @@ data class WeatherAlert(
     val instruction: String?,
     val effective: Instant,
     val expires: Instant,
+    // When the event itself ends (NWS "ends"); null when the feed omits it.
+    // The pill shows this, not "expires" (when the alert product expires).
+    val ends: Instant?,
+    val senderName: String?,
     val areaDesc: String
 )
 
@@ -137,7 +165,9 @@ data class LunarTimes(
     val phaseAgeDays: Double,
     val nextNewMoonDays: Int,
     val nextFullMoonDays: Int,
-    val isWaxing: Boolean
+    val isWaxing: Boolean,
+    val moonrise: Instant? = null,
+    val moonset: Instant? = null
 )
 
 data class FullWeatherState(
@@ -148,10 +178,16 @@ data class FullWeatherState(
     val minutely60m: List<MinutePrecip>,
     val minuteSummary: String,
     val activeAlerts: List<WeatherAlert>,
-    val airQuality: AirQuality,
+    // Null when the air-quality provider returned nothing: the UI shows
+    // "unavailable", never an invented AQI.
+    val airQuality: AirQuality?,
     val pollen: PollenData,
     val solar: SolarTimes,
     val lunar: LunarTimes,
+    // Per-place data resolved from NWS /points for this place (null outside
+    // NWS coverage or when /points failed). Never a hardcoded station/zone.
+    val radarStation: String? = null,
+    val forecastZone: String? = null,
     val isStale: Boolean = false,
     val fetchedAt: Instant = Instant.now(),
     val errorMessage: String? = null

@@ -15,8 +15,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExpandLess
@@ -31,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,7 +45,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.domain.model.AlertSeverity
 import com.example.domain.model.WeatherAlert
-import com.example.ui.designsystem.GlassCard
+import com.example.ui.designsystem.AuraBars
+import com.example.ui.designsystem.AuraColors
+import com.example.ui.designsystem.AuraShapes
+import com.example.ui.designsystem.RetroPanel
+import com.example.ui.designsystem.RetroShapes
+import com.example.ui.designsystem.RetroTokens
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -53,8 +60,21 @@ import java.util.Locale
 fun AlertsScreen(
     alerts: List<WeatherAlert>,
     onViewOnRadar: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    fetchedAt: Instant? = null,
+    isStale: Boolean = false,
+    placeName: String? = null,
+    zoneId: ZoneId = ZoneId.systemDefault(),
+    tickerVisible: Boolean = false,
+    // 3.1 notification deep link: the notified alert starts expanded and
+    // the list scrolls to it. Null on a normal visit (first card opens).
+    highlightAlertId: String? = null
 ) {
+    // Cached alerts show their age: a stale alert list is not live data.
+    val cacheAgeText = if (isStale && fetchedAt != null) {
+        val mins = (Instant.now().epochSecond - fetchedAt.epochSecond) / 60
+        if (mins < 60) "Cached • ${mins}m ago" else "Cached • ${mins / 60}h ago"
+    } else null
     val sortedAlerts = remember(alerts) {
         alerts.sortedBy { alert ->
             when (alert.severity) {
@@ -67,11 +87,25 @@ fun AlertsScreen(
         }
     }
 
+    val listState = rememberLazyListState()
+    LaunchedEffect(highlightAlertId, sortedAlerts) {
+        val index = sortedAlerts.indexOfFirst { it.id == highlightAlertId }
+        if (index >= 0) listState.scrollToItem(index)
+    }
+
     LazyColumn(
+        state = listState,
         modifier = modifier
             .fillMaxSize()
             .testTag("alerts_screen"),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 16.dp,
+            // Room for the floating phone bar, so the last row never
+            // hides under it.
+            bottom = AuraBars.contentBottomPadding(tickerVisible)
+        ),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
@@ -85,19 +119,26 @@ fun AlertsScreen(
                         text = "WEATHER ALERTS",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = RetroTokens.Yellow
                     )
                     Text(
-                        text = "NWS Wilmington (ILN) & Local Warnings",
+                        text = ("National Weather Service alerts" + (placeName?.let { " for $it" } ?: "")).uppercase(),
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.65f)
+                        color = RetroTokens.TextSecondary
                     )
+                    if (cacheAgeText != null) {
+                        Text(
+                            text = cacheAgeText.uppercase(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = AuraColors.Warning
+                        )
+                    }
                 }
 
                 if (sortedAlerts.isNotEmpty()) {
                     Surface(
-                        color = Color(0xFFD32F2F),
-                        shape = RoundedCornerShape(12.dp)
+                        color = AuraColors.severityColor(AlertSeverity.Extreme),
+                        shape = AuraShapes.pill
                     ) {
                         Text(
                             text = "${sortedAlerts.size} ACTIVE",
@@ -116,10 +157,12 @@ fun AlertsScreen(
                 EmptyAlertsCard()
             }
         } else {
-            items(sortedAlerts, key = { it.id }) { alert ->
+            itemsIndexed(sortedAlerts, key = { _, alert -> alert.id }) { index, alert ->
                 AlertExpandableCard(
                     alert = alert,
-                    onViewOnRadar = onViewOnRadar
+                    onViewOnRadar = onViewOnRadar,
+                    zoneId = zoneId,
+                    initiallyExpanded = index == 0 || alert.id == highlightAlertId
                 )
             }
         }
@@ -128,7 +171,8 @@ fun AlertsScreen(
 
 @Composable
 private fun EmptyAlertsCard() {
-    GlassCard(
+    RetroPanel(
+        shape = RetroShapes.medium,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 24.dp)
@@ -142,25 +186,25 @@ private fun EmptyAlertsCard() {
             Icon(
                 imageVector = Icons.Default.CheckCircle,
                 contentDescription = "No alerts",
-                tint = Color(0xFF00E676),
+                tint = RetroTokens.Yellow,
                 modifier = Modifier.size(56.dp)
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "All Clear in the Region",
+                text = "ALL CLEAR IN THE REGION",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = RetroTokens.Yellow
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "No active watches, warnings, or advisories currently issued for Northern Kentucky and Greater Cincinnati by the National Weather Service.",
+                text = "No active watches, warnings, or advisories currently issued for this place by the National Weather Service.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.75f),
+                color = RetroTokens.TextSecondary,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
@@ -170,23 +214,22 @@ private fun EmptyAlertsCard() {
 @Composable
 private fun AlertExpandableCard(
     alert: WeatherAlert,
-    onViewOnRadar: () -> Unit
+    onViewOnRadar: () -> Unit,
+    zoneId: ZoneId = ZoneId.systemDefault(),
+    initiallyExpanded: Boolean = false
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    // The first card (the most severe — the list is sorted) starts open so
+    // the area and instructions are visible without a tap.
+    var expanded by remember { mutableStateOf(initiallyExpanded) }
 
-    val (badgeBg, badgeText) = when (alert.severity) {
-        AlertSeverity.Extreme -> Color(0xFFD32F2F) to "EXTREME"
-        AlertSeverity.Severe -> Color(0xFFF57C00) to "SEVERE"
-        AlertSeverity.Moderate -> Color(0xFFFFA000) to "MODERATE"
-        AlertSeverity.Minor -> Color(0xFF388E3C) to "ADVISORY"
-        AlertSeverity.Unknown -> Color(0xFF5C6BC0) to "STATEMENT"
+    val (badgeBg, badgeText) = AuraColors.severityStyle(alert.severity)
+
+    val timeFormatter = remember(zoneId) {
+        DateTimeFormatter.ofPattern("EEE, MMM d, h:mm a", Locale.US).withZone(zoneId)
     }
 
-    val timeFormatter = remember {
-        DateTimeFormatter.ofPattern("EEE, MMM d, h:mm a", Locale.US).withZone(ZoneId.of("America/New_York"))
-    }
-
-    GlassCard(
+    RetroPanel(
+        shape = RetroShapes.medium,
         modifier = Modifier
             .fillMaxWidth()
             .clickable { expanded = !expanded }
@@ -199,10 +242,10 @@ private fun AlertExpandableCard(
             ) {
                 Surface(
                     color = badgeBg,
-                    shape = RoundedCornerShape(8.dp)
+                    shape = AuraShapes.pill
                 ) {
                     Text(
-                        text = "$badgeText • ${alert.urgency.uppercase(Locale.US)}",
+                        text = badgeText,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
@@ -213,7 +256,7 @@ private fun AlertExpandableCard(
                 Icon(
                     imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                     contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = Color.White.copy(alpha = 0.7f)
+                    tint = RetroTokens.TextSecondary
                 )
             }
 
@@ -223,30 +266,49 @@ private fun AlertExpandableCard(
                 text = alert.event,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = RetroTokens.TextPrimary
             )
 
             Spacer(modifier = Modifier.height(4.dp))
 
+            // Our own summary in a consistent time format ("9:42 AM"), not
+            // the raw NWS headline ("9:42AM EST"). The headline is the
+            // office's wording; the facts are the same.
             Text(
-                text = alert.headline,
+                text = buildString {
+                    append("Issued ${timeFormatter.format(alert.effective)}")
+                    append(" - Ends ${timeFormatter.format(alert.ends ?: alert.expires)}")
+                    alert.senderName?.let { append(" - $it") }
+                },
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.85f)
+                color = RetroTokens.TextSecondary
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Text(
-                text = "Expires: ${timeFormatter.format(alert.expires)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFFFFB74D),
-                fontWeight = FontWeight.SemiBold
-            )
+            // Ends pill: a solid severity-colour block with white text,
+            // matching the badge above.
+            Surface(
+                color = AuraColors.severityColor(alert.severity),
+                shape = AuraShapes.pill
+            ) {
+                Text(
+                    text = run {
+                        val end = alert.ends ?: alert.expires
+                        val minutes = java.time.Duration.between(Instant.now(), end).toMinutes()
+                        if (minutes in 0..120) "ENDS IN $minutes\u00A0MIN" else "ENDS ${timeFormatter.format(end).uppercase()}"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
 
             AnimatedVisibility(visible = expanded) {
                 Column(modifier = Modifier.padding(top = 14.dp)) {
                     Surface(
-                        color = Color.White.copy(alpha = 0.1f),
+                        color = RetroTokens.Border,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(1.dp)
@@ -254,31 +316,33 @@ private fun AlertExpandableCard(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Text(
-                        text = "AFFECTED AREAS",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White.copy(alpha = 0.6f)
-                    )
-                    Text(
-                        text = alert.areaDesc,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
+                    if (alert.areaDesc.isNotBlank()) {
+                        Text(
+                            text = "AFFECTED AREAS",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = RetroTokens.TextSecondary
+                        )
+                        Text(
+                            text = alert.areaDesc,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RetroTokens.TextPrimary,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
 
                     Text(
                         text = "DETAILS",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White.copy(alpha = 0.6f)
+                        color = RetroTokens.TextSecondary
                     )
                     Text(
                         text = alert.description,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.85f),
+                        color = RetroTokens.TextPrimary,
                         modifier = Modifier.padding(top = 2.dp)
                     )
 
@@ -288,12 +352,12 @@ private fun AlertExpandableCard(
                             text = "SAFETY INSTRUCTIONS",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF00E676)
+                            color = RetroTokens.Yellow
                         )
                         Text(
                             text = alert.instruction,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White,
+                            color = RetroTokens.TextPrimary,
                             modifier = Modifier.padding(top = 2.dp)
                         )
                     }
@@ -303,10 +367,10 @@ private fun AlertExpandableCard(
                     Button(
                         onClick = onViewOnRadar,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
+                            containerColor = RetroTokens.Yellow,
+                            contentColor = RetroTokens.Background
                         ),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RetroShapes.medium,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(
@@ -315,7 +379,7 @@ private fun AlertExpandableCard(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "View Radar & Warning Area")
+                        Text(text = "VIEW RADAR & WARNING AREA")
                     }
                 }
             }

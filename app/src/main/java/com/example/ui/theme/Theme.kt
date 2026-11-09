@@ -1,39 +1,51 @@
 package com.example.ui.theme
 
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
-import com.example.domain.model.WeatherCondition
-import com.example.ui.designsystem.WeatherPalettes
+import com.example.ui.designsystem.RetroShapes
+import com.example.ui.designsystem.RetroTokens
 
+/**
+ * The app theme (R1 of the retro reskin). ONE fixed retro navy colour
+ * scheme — no dark/light branch, no palette branch, no dynamic-colour /
+ * Material You code, no Expressive code. The app is always navy. All
+ * colours come from [RetroTokens]; there are no hardcoded colours here.
+ */
 @Composable
 fun AuraWeatherTheme(
-    paletteMode: String = "auto",
-    condition: WeatherCondition = WeatherCondition.ClearDay,
-    isDaytime: Boolean = true,
-    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val context = LocalContext.current
-
-    val colorScheme = when {
-        paletteMode == "monet" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        paletteMode == "auto" -> {
-            WeatherPalettes.getSchemeForCondition(condition, isDaytime)
-        }
-        else -> {
-            WeatherPalettes.DefaultDarkScheme
-        }
-    }
+    val colorScheme = darkColorScheme(
+        primary = RetroTokens.Yellow,
+        onPrimary = RetroTokens.Background,
+        primaryContainer = RetroTokens.PanelLight,
+        onPrimaryContainer = RetroTokens.Yellow,
+        secondary = RetroTokens.HeaderOrange,
+        onSecondary = RetroTokens.TextPrimary,
+        secondaryContainer = RetroTokens.PanelLight,
+        onSecondaryContainer = RetroTokens.TextPrimary,
+        tertiary = RetroTokens.HeaderRed,
+        onTertiary = RetroTokens.TextPrimary,
+        background = RetroTokens.Background,
+        onBackground = RetroTokens.TextPrimary,
+        surface = RetroTokens.Panel,
+        onSurface = RetroTokens.TextPrimary,
+        surfaceVariant = RetroTokens.PanelLight,
+        onSurfaceVariant = RetroTokens.TextSecondary,
+        surfaceContainer = RetroTokens.Panel,
+        surfaceContainerHigh = RetroTokens.PanelLight,
+        outline = RetroTokens.Border,
+        outlineVariant = RetroTokens.Border,
+        error = RetroTokens.HeaderRed,
+        onError = RetroTokens.TextPrimary,
+        errorContainer = RetroTokens.HeaderRed,
+        onErrorContainer = RetroTokens.TextPrimary
+    )
 
     MaterialTheme(
         colorScheme = colorScheme,
+        shapes = RetroShapes.materialShapes(),
         typography = Typography,
         content = content
     )

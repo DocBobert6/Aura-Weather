@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
@@ -43,33 +42,41 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.model.AirQuality
 import com.example.domain.model.PollenData
-import com.example.ui.designsystem.GlassCard
+import com.example.ui.designsystem.AuraBars
+import com.example.ui.designsystem.AuraColors
+import com.example.ui.designsystem.AuraShapes
+import com.example.ui.designsystem.RetroPanel
+import com.example.ui.designsystem.RetroShapes
+import com.example.ui.designsystem.RetroTokens
+import kotlin.math.roundToInt
 
 @Composable
 fun AirPollenScreen(
     airQuality: AirQuality?,
     pollen: PollenData?,
     onNavigateToSettings: () -> Unit,
+    tickerVisible: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val aqi = airQuality?.aqi ?: 28
-    val category = airQuality?.category ?: "Good"
-    val guidance = airQuality?.healthGuidance ?: "Air quality is satisfactory."
+    // No AQI from the provider means "unavailable" — never a made-up 28/Good.
+    val aqi = airQuality?.aqi
+    val category = airQuality?.category ?: "Unavailable"
+    val guidance = airQuality?.healthGuidance ?: "Air quality data is unavailable."
 
-    val aqiColor = when {
-        aqi <= 50 -> Color(0xFF00E676)
-        aqi <= 100 -> Color(0xFFFFEB3B)
-        aqi <= 150 -> Color(0xFFFF9800)
-        aqi <= 200 -> Color(0xFFF44336)
-        aqi <= 300 -> Color(0xFF9C27B0)
-        else -> Color(0xFF795548)
-    }
+    val aqiColor = AuraColors.aqiColor(aqi)
 
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .testTag("air_pollen_screen"),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 16.dp,
+            // Room for the floating phone bar, so the last row never
+            // hides under it.
+            bottom = AuraBars.contentBottomPadding(tickerVisible)
+        ),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
@@ -78,23 +85,23 @@ fun AirPollenScreen(
                     text = "AIR QUALITY & POLLEN",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = RetroTokens.Yellow
                 )
                 Text(
-                    text = "EPA Standard Measurements & Regional Sensor Feed",
+                    text = "OPEN-METEO AIR QUALITY",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.65f)
+                    color = RetroTokens.TextSecondary
                 )
             }
         }
 
         // AQI Dial Card
         item {
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(24.dp),
+                        .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Box(
@@ -106,19 +113,39 @@ fun AirPollenScreen(
                             val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
                             val topLeft = Offset(strokeWidth / 2, strokeWidth / 2)
 
-                            // Background arc (240 degrees)
-                            drawArc(
-                                color = Color.White.copy(alpha = 0.12f),
-                                startAngle = 150f,
-                                sweepAngle = 240f,
-                                useCenter = false,
-                                topLeft = topLeft,
-                                size = arcSize,
-                                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                            // Background arc, segmented by the 6 AQI bands
+                            // (0..500, so Hazardous is on the gauge — the old
+                            // code normalised the foreground to 300 and cut
+                            // it off). Each band is its scale colour at low
+                            // alpha, so the track reads as the bands. The
+                            // colours come from AuraColors.aqiColor (one
+                            // representative value per band), never hardcoded.
+                            val bandBounds = listOf(50, 100, 150, 200, 300, 500)
+                            val bandColors = listOf(
+                                AuraColors.aqiColor(25), AuraColors.aqiColor(75),
+                                AuraColors.aqiColor(125), AuraColors.aqiColor(175),
+                                AuraColors.aqiColor(250), AuraColors.aqiColor(400)
                             )
+                            var bandStart = 0
+                            bandBounds.forEachIndexed { i, bound ->
+                                val startAngle = 150f + (bandStart / 500f) * 240f
+                                val sweep = ((bound - bandStart) / 500f) * 240f
+                                drawArc(
+                                    color = bandColors[i].copy(alpha = 0.30f),
+                                    startAngle = startAngle,
+                                    sweepAngle = sweep,
+                                    useCenter = false,
+                                    topLeft = topLeft,
+                                    size = arcSize,
+                                    style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
+                                )
+                                bandStart = bound
+                            }
 
-                            // Foreground AQI progress arc (normalized 0..300)
-                            val sweep = ((aqi.coerceIn(0, 300) / 300f) * 240f).coerceAtLeast(6f)
+                            // Foreground AQI progress arc (normalised 0..500,
+                            // the same scale as the bands). With no AQI, the
+                            // arc stays at the background.
+                            val sweep = if (aqi != null) ((aqi.coerceIn(0, 500) / 500f) * 240f).coerceAtLeast(6f) else 0f
                             drawArc(
                                 color = aqiColor,
                                 startAngle = 150f,
@@ -132,15 +159,15 @@ fun AirPollenScreen(
 
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = "$aqi",
+                                text = aqi?.toString() ?: "--",
                                 style = MaterialTheme.typography.displayMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = RetroTokens.Yellow
                             )
                             Text(
                                 text = "US AQI",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color.White.copy(alpha = 0.65f)
+                                color = RetroTokens.TextSecondary
                             )
                         }
                     }
@@ -148,24 +175,24 @@ fun AirPollenScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Surface(
-                        color = aqiColor.copy(alpha = 0.2f),
-                        shape = RoundedCornerShape(12.dp)
+                        color = aqiColor,
+                        shape = AuraShapes.pill
                     ) {
                         Text(
                             text = category.uppercase(),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = aqiColor,
+                            color = Color.White,
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
                         text = guidance,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.85f),
+                        color = RetroTokens.TextPrimary,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
 
@@ -174,7 +201,7 @@ fun AirPollenScreen(
                     Text(
                         text = "Source: ${airQuality?.source ?: "Open-Meteo Air Quality"}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.5f)
+                        color = RetroTokens.TextSecondary
                     )
                 }
             }
@@ -186,7 +213,7 @@ fun AirPollenScreen(
                 text = "POLLUTANT CONCENTRATION",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White.copy(alpha = 0.7f)
+                color = RetroTokens.Yellow
             )
         }
 
@@ -198,24 +225,24 @@ fun AirPollenScreen(
                 PollutantCard(
                     title = "PM2.5",
                     label = "Fine Dust",
-                    value = "${airQuality?.pm25 ?: 6.2} µg/m³",
-                    status = if ((airQuality?.pm25 ?: 6.2) < 12.0) "Good" else "Moderate",
+                    value = airQuality?.pm25?.let { "$it µg/m³" } ?: "--",
+                    status = airQuality?.pm25?.let { if (it < 12.0) "Good" else "Moderate" } ?: "--",
                     modifier = Modifier.weight(1f)
                 )
 
                 PollutantCard(
                     title = "PM10",
                     label = "Coarse Particles",
-                    value = "${airQuality?.pm10 ?: 12.0} µg/m³",
-                    status = if ((airQuality?.pm10 ?: 12.0) < 54.0) "Good" else "Moderate",
+                    value = airQuality?.pm10?.let { "$it µg/m³" } ?: "--",
+                    status = airQuality?.pm10?.let { if (it < 54.0) "Good" else "Moderate" } ?: "--",
                     modifier = Modifier.weight(1f)
                 )
 
                 PollutantCard(
-                    title = "Ozone",
+                    title = "OZONE",
                     label = "O₃ Level",
-                    value = "${airQuality?.ozonePpb ?: 32.0} ppb",
-                    status = if ((airQuality?.ozonePpb ?: 32.0) < 54.0) "Good" else "Moderate",
+                    value = airQuality?.ozonePpb?.let { "${it.roundToInt()} ppb" } ?: "--",
+                    status = airQuality?.ozonePpb?.let { if (it < 54.0) "Good" else "Moderate" } ?: "--",
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -225,15 +252,15 @@ fun AirPollenScreen(
         item {
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "ALLERGEN & POLLEN OUTLOOK",
+                text = "POLLEN",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White.copy(alpha = 0.7f)
+                color = RetroTokens.Yellow
             )
         }
 
         item {
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -262,8 +289,8 @@ fun AirPollenScreen(
                     if (pollen?.hasKey != true) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Surface(
-                            color = Color(0xFF1E293B),
-                            shape = RoundedCornerShape(14.dp),
+                            color = RetroTokens.PanelLight,
+                            shape = AuraShapes.medium,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(14.dp)) {
@@ -271,33 +298,33 @@ fun AirPollenScreen(
                                     Icon(
                                         imageVector = Icons.Default.Key,
                                         contentDescription = "Key required",
-                                        tint = MaterialTheme.colorScheme.primary,
+                                        tint = RetroTokens.Yellow,
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "Live Pollen Telemetry",
+                                        text = "POLLEN COUNTS",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.White
+                                        color = RetroTokens.TextPrimary
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "To enable live Tree, Grass, and Weed pollen counts, add a free Tomorrow.io API key in Settings. No fake values are displayed.",
+                                    text = "No pollen data yet - the pollen feed isn't connected. A Tomorrow.io key in Settings doesn't turn it on in this version.",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.75f)
+                                    color = RetroTokens.TextSecondary
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Button(
                                     onClick = onNavigateToSettings,
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                                        contentColor = MaterialTheme.colorScheme.primary
+                                        containerColor = RetroTokens.Yellow,
+                                        contentColor = RetroTokens.Background
                                     ),
-                                    shape = RoundedCornerShape(8.dp)
+                                    shape = RetroShapes.small
                                 ) {
-                                    Text(text = "Configure in Settings", style = MaterialTheme.typography.labelSmall)
+                                    Text(text = "CONFIGURE IN SETTINGS", style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
@@ -316,35 +343,35 @@ private fun PollutantCard(
     status: String,
     modifier: Modifier = Modifier
 ) {
-    GlassCard(modifier = modifier) {
+    RetroPanel(shape = RetroShapes.medium, modifier = modifier) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = RetroTokens.TextPrimary
             )
             Text(
-                text = label,
+                text = label.uppercase(),
                 style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.6f)
+                color = RetroTokens.TextSecondary
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White
+                color = RetroTokens.Yellow
             )
             Spacer(modifier = Modifier.height(4.dp))
             Surface(
-                color = Color(0xFF00E676).copy(alpha = 0.2f),
-                shape = RoundedCornerShape(6.dp)
+                color = RetroTokens.PanelLight,
+                shape = AuraShapes.pill
             ) {
                 Text(
-                    text = status,
+                    text = status.uppercase(),
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    color = Color(0xFF00E676),
+                    color = RetroTokens.TextPrimary,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
@@ -363,21 +390,21 @@ private fun PollenGauge(
         Icon(
             imageVector = icon,
             contentDescription = title,
-            tint = if (hasKey) Color(0xFF81C784) else Color.White.copy(alpha = 0.4f),
+            tint = if (hasKey) AuraColors.PollenActive else RetroTokens.TextSecondary,
             modifier = Modifier.size(32.dp)
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = title,
+            text = title.uppercase(),
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
-            color = Color.White
+            color = RetroTokens.TextPrimary
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = if (hasKey && level != null) "$level / 5" else "--",
             style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.6f)
+            color = RetroTokens.TextSecondary
         )
     }
 }

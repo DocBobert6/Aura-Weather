@@ -16,22 +16,21 @@ class SettingsManager(private val context: Context) {
 
     companion object {
         val KEY_USE_METRIC = booleanPreferencesKey("use_metric_units")
-        val KEY_PALETTE_MODE = stringPreferencesKey("palette_mode") // "auto", "expressive", "monet"
         val KEY_SELECTED_PLACE_ID = stringPreferencesKey("selected_place_id")
         val KEY_TOMORROW_API_KEY = stringPreferencesKey("tomorrow_api_key")
         val KEY_AIRNOW_API_KEY = stringPreferencesKey("airnow_api_key")
+        val KEY_MUSIC_ENABLED = booleanPreferencesKey("music_enabled")
+        val KEY_ALERTS_ENABLED = booleanPreferencesKey("alerts_enabled")
     }
 
     val useMetricFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[KEY_USE_METRIC] ?: false
     }
 
-    val paletteModeFlow: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[KEY_PALETTE_MODE] ?: "auto"
-    }
-
+    // No default place: empty until the user selects one. (Selection lives
+    // in Room; this flow is currently unused.)
     val selectedPlaceIdFlow: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[KEY_SELECTED_PLACE_ID] ?: "florence_ky"
+        preferences[KEY_SELECTED_PLACE_ID] ?: ""
     }
 
     val tomorrowApiKeyFlow: Flow<String> = context.dataStore.data.map { preferences ->
@@ -42,15 +41,21 @@ class SettingsManager(private val context: Context) {
         preferences[KEY_AIRNOW_API_KEY] ?: ""
     }
 
+    // Background music (Home toggle): off by default, remembered across launches.
+    val musicEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_MUSIC_ENABLED] ?: false
+    }
+
+    // 3.1 alert notifications: off by default — the user opts in via the
+    // Settings toggle, which is also the moment the notification
+    // permission is requested (never on first launch).
+    val alertsEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_ALERTS_ENABLED] ?: false
+    }
+
     suspend fun setUseMetric(useMetric: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[KEY_USE_METRIC] = useMetric
-        }
-    }
-
-    suspend fun setPaletteMode(mode: String) {
-        context.dataStore.edit { preferences ->
-            preferences[KEY_PALETTE_MODE] = mode
         }
     }
 
@@ -69,6 +74,18 @@ class SettingsManager(private val context: Context) {
     suspend fun setAirNowApiKey(key: String) {
         context.dataStore.edit { preferences ->
             preferences[KEY_AIRNOW_API_KEY] = key
+        }
+    }
+
+    suspend fun setMusicEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_MUSIC_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setAlertsEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_ALERTS_ENABLED] = enabled
         }
     }
 }

@@ -20,7 +20,40 @@ data class NwsPointsProperties(
     @Json(name = "forecast") val forecast: String?,
     @Json(name = "forecastHourly") val forecastHourly: String?,
     @Json(name = "forecastZone") val forecastZone: String?,
-    @Json(name = "radarStation") val radarStation: String?
+    @Json(name = "radarStation") val radarStation: String?,
+    // IANA timezone for the point, e.g. "America/Denver". This is how a
+    // place's zone is resolved — never a hardcoded default.
+    @Json(name = "timeZone") val timeZone: String?,
+    // Nearest named place, e.g. city "Covington", state "KY". Used to label
+    // the Current Location place with its real name.
+    @Json(name = "relativeLocation") val relativeLocation: NwsRelativeLocation?
+)
+
+@JsonClass(generateAdapter = true)
+data class NwsRelativeLocation(
+    @Json(name = "properties") val properties: NwsRelativeLocationProperties?
+)
+
+@JsonClass(generateAdapter = true)
+data class NwsRelativeLocationProperties(
+    @Json(name = "city") val city: String?,
+    @Json(name = "state") val state: String?
+)
+
+@JsonClass(generateAdapter = true)
+data class NwsStationsResponse(
+    @Json(name = "features") val features: List<NwsStationFeature>?
+)
+
+@JsonClass(generateAdapter = true)
+data class NwsStationFeature(
+    @Json(name = "properties") val properties: NwsStationProperties?
+)
+
+@JsonClass(generateAdapter = true)
+data class NwsStationProperties(
+    @Json(name = "stationIdentifier") val stationIdentifier: String?,
+    @Json(name = "name") val name: String?
 )
 
 @JsonClass(generateAdapter = true)
@@ -99,7 +132,9 @@ data class NwsAlertProperties(
     @Json(name = "urgency") val urgency: String?,
     @Json(name = "certainty") val certainty: String?,
     @Json(name = "effective") val effective: String?,
-    @Json(name = "expires") val expires: String?
+    @Json(name = "expires") val expires: String?,
+    @Json(name = "ends") val ends: String?,
+    @Json(name = "senderName") val senderName: String?
 )
 
 interface NwsApi {
@@ -108,6 +143,12 @@ interface NwsApi {
         @Path("latitude") lat: Double,
         @Path("longitude") lon: Double
     ): NwsPointsResponse
+
+    @GET("points/{latitude},{longitude}/stations")
+    suspend fun getStations(
+        @Path("latitude") lat: Double,
+        @Path("longitude") lon: Double
+    ): NwsStationsResponse
 
     @GET("stations/{stationId}/observations/latest")
     suspend fun getLatestObservation(

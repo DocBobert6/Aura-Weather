@@ -27,7 +27,7 @@ object SolarCalculator {
     fun calculate(
         point: GeoPoint,
         instant: Instant = Instant.now(),
-        zoneId: ZoneId = ZoneId.of("America/New_York")
+        zoneId: ZoneId = ZoneId.systemDefault()
     ): SolarTimes {
         val zonedDateTime = instant.atZone(zoneId)
         val date = zonedDateTime.toLocalDate()

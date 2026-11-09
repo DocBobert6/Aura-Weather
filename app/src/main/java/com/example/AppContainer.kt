@@ -1,6 +1,7 @@
 package com.example
 
 import android.content.Context
+import com.example.core.HttpClients
 import com.example.core.ProviderEndpoints
 import com.example.data.api.NwsApi
 import com.example.data.api.OpenMeteoAirQualityApi
@@ -11,32 +12,22 @@ import com.example.data.settings.SettingsManager
 import com.google.android.gms.location.LocationServices
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
-import okhttp3.Interceptor
 import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
-import java.util.concurrent.TimeUnit
 
 class AppContainer(private val context: Context) {
 
-    private val nwsInterceptor = Interceptor { chain ->
-        val request = chain.request().newBuilder()
-            .header("User-Agent", ProviderEndpoints.NWS_USER_AGENT)
-            .header("Accept", ProviderEndpoints.NWS_ACCEPT_HEADER)
-            .build()
-        chain.proceed(request)
+    // 3.4: two clients. NWS carries the NWS headers (User-Agent with the
+    // repo URL + geo+json Accept); Open-Meteo gets a plain client with no
+    // NWS headers. The shared client that leaked NWS headers to
+    // Open-Meteo is gone.
+    private val nwsOkHttpClient: OkHttpClient by lazy {
+        HttpClients.nwsClient()
     }
 
-    private val okHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .addInterceptor(nwsInterceptor)
-            .addInterceptor(HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BASIC
-            })
-            .build()
+    private val plainOkHttpClient: OkHttpClient by lazy {
+        HttpClients.plainClient()
     }
 
     private val moshi: Moshi by lazy {
@@ -48,7 +39,7 @@ class AppContainer(private val context: Context) {
     private val nwsRetrofit: Retrofit by lazy {
         Retrofit.Builder()
             .baseUrl(ProviderEndpoints.NWS_BASE_URL)
-            .client(okHttpClient)
+            .client(nwsOkHttpClient)
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
     }
@@ -56,7 +47,7 @@ class AppContainer(private val context: Context) {
     private val openMeteoRetrofit: Retrofit by lazy {
         Retrofit.Builder()
             .baseUrl(ProviderEndpoints.OPEN_METEO_BASE_URL)
-            .client(okHttpClient)
+            .client(plainOkHttpClient)
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
     }
@@ -64,7 +55,7 @@ class AppContainer(private val context: Context) {
     private val openMeteoAqRetrofit: Retrofit by lazy {
         Retrofit.Builder()
             .baseUrl(ProviderEndpoints.OPEN_METEO_AQ_BASE_URL)
-            .client(okHttpClient)
+            .client(plainOkHttpClient)
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
     }
@@ -85,6 +76,10 @@ class AppContainer(private val context: Context) {
         WeatherDatabase.getInstance(context)
     }
 
+    val seenAlertDao by lazy {
+        database.seenAlertDao()
+    }
+
     val settingsManager: SettingsManager by lazy {
         SettingsManager(context)
     }
@@ -95,8 +90,7 @@ class AppContainer(private val context: Context) {
             openMeteoWeatherApi = openMeteoWeatherApi,
             openMeteoAirQualityApi = openMeteoAirQualityApi,
             weatherCacheDao = database.weatherCacheDao(),
-            savedPlaceDao = database.savedPlaceDao(),
-            settingsManager = settingsManager
+            savedPlaceDao = database.savedPlaceDao()
         )
     }
 
