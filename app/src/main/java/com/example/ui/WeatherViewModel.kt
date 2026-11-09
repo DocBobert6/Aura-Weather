@@ -14,7 +14,6 @@ import com.example.domain.model.RegionalPoint
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -77,8 +76,6 @@ class WeatherViewModel(
     private val _isRadarPlaying = MutableStateFlow(true)
     val isRadarPlaying = _isRadarPlaying.asStateFlow()
 
-    private var radarLoopJob: Job? = null
-
     /**
      * Regional map points (R5): the centre place first, then its
      * neighbours. Empty while the neighbour fetch is pending, and empty
@@ -102,7 +99,6 @@ class WeatherViewModel(
             }
             syncAlertWork()
         }
-        startRadarLoop()
         startRegionalLoad()
     }
 
@@ -235,25 +231,12 @@ class WeatherViewModel(
         _currentRadarFrameIndex.value = index.coerceIn(0, 9)
     }
 
+    // 3.3: this only flips the play state. The loop itself lives in
+    // RadarScreen (a LaunchedEffect keyed on isPlaying), so no radar job
+    // runs when the screen was never visited. The ViewModel keeps only
+    // the frame index + play state.
     fun toggleRadarPlay() {
-        val next = !_isRadarPlaying.value
-        _isRadarPlaying.value = next
-        if (next) {
-            startRadarLoop()
-        } else {
-            radarLoopJob?.cancel()
-        }
-    }
-
-    private fun startRadarLoop() {
-        radarLoopJob?.cancel()
-        radarLoopJob = viewModelScope.launch {
-            while (_isRadarPlaying.value) {
-                delay(750)
-                val nextIndex = (_currentRadarFrameIndex.value + 1) % 10
-                _currentRadarFrameIndex.value = nextIndex
-            }
-        }
+        _isRadarPlaying.value = !_isRadarPlaying.value
     }
 
     fun useCurrentLocation(onSuccess: (String) -> Unit = {}, onError: (String) -> Unit = {}) {

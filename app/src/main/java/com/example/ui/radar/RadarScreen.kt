@@ -41,6 +41,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -60,8 +62,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.imageLoader
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.data.mapper.gibsTimestamp
+import com.example.data.mapper.iemLayerNameFor
+import com.example.data.mapper.latToTileY
+import com.example.data.mapper.lonToTileX
+import com.example.data.mapper.radarPrefetchUrls
 import com.example.domain.model.FullWeatherState
 import com.example.ui.RadarLayer
 import com.example.ui.designsystem.AuraBars
@@ -75,20 +82,7 @@ import java.time.Instant
 import kotlin.math.ln
 import kotlin.math.roundToInt
 import kotlin.math.tan
-
-// IEM NEXRAD composite layer name for frame 0..9 (0 = 45m ago, 9 = LIVE).
-private fun iemLayerNameFor(frameIndex: Int): String = when (frameIndex) {
-    9 -> "nexrad-n0q-900913"
-    8 -> "nexrad-n0q-900913-m05m"
-    7 -> "nexrad-n0q-900913-m10m"
-    6 -> "nexrad-n0q-900913-m15m"
-    5 -> "nexrad-n0q-900913-m20m"
-    4 -> "nexrad-n0q-900913-m25m"
-    3 -> "nexrad-n0q-900913-m30m"
-    2 -> "nexrad-n0q-900913-m35m"
-    1 -> "nexrad-n0q-900913-m40m"
-    else -> "nexrad-n0q-900913-m45m"
-}
+import kotlinx.coroutines.delay
 
 // The scrubber's custom thumb is an experimental Material3 API.
 @OptIn(ExperimentalMaterial3Api::class)
@@ -158,6 +152,23 @@ fun RadarScreen(
     // (audit fix E).
     val isSatellite = selectedLayer == RadarLayer.SatelliteVis || selectedLayer == RadarLayer.SatelliteIr
 
+    // The radar loop lives here now (3.3), not in the ViewModel: it runs
+    // only while this screen is composed and playing, and only for radar
+    // layers. Leaving the screen cancels the effect, so no radar job runs
+    // when the screen was never visited. The ViewModel keeps only the
+    // frame index + play state. rememberUpdatedState keeps the frame
+    // index fresh inside the loop without restarting the effect on every
+    // frame advance (which would reset the 750ms delay each time).
+    val latestFrameIndex by rememberUpdatedState(currentFrameIndex)
+    val latestOnScrubFrame by rememberUpdatedState(onScrubFrame)
+    LaunchedEffect(isPlaying, isSatellite) {
+        if (!isPlaying || isSatellite) return@LaunchedEffect
+        while (true) {
+            delay(750)
+            latestOnScrubFrame((latestFrameIndex + 1) % 10)
+        }
+    }
+
     // Centre on the selected place. The location puck below marks it; there
     // are no hardcoded landmarks — the radar station's coordinates are not
     // part of the /points response, so it is named in the toolbar, not drawn.
@@ -169,28 +180,6 @@ fun RadarScreen(
     // latest 10-minute GOES scan, refreshed when the layer changes
     // (audit fix E). Never a hardcoded date.
     val gibsTime = remember(selectedLayer) { gibsTimestamp(Instant.now()) }
-
-    // Prefetch the current and next loop frames' radar tiles so a frame
-    // switch is atomic. Without this, the 9 tiles reload independently on
-    // each 750ms frame advance and the screen briefly shows a mix of two
-    // frames — the doubled/shifted map in the 2026-11-08 video. Satellite
-    // layers are a single image, so they need no prefetch.
-    val imageLoader = context.imageLoader
-    LaunchedEffect(currentFrameIndex, selectedLayer, effectiveZoomLevel) {
-        if (selectedLayer == RadarLayer.Reflectivity || selectedLayer == RadarLayer.LocalSite) {
-            for (frameIndex in listOf(currentFrameIndex, (currentFrameIndex + 1) % 10)) {
-                val layerName = iemLayerNameFor(frameIndex)
-                for (dx in -2..2) {
-                    for (dy in -2..2) {
-                        val tileX = lonToTileX(centerLon, effectiveZoomLevel) + dx
-                        val tileY = latToTileY(centerLat, effectiveZoomLevel) + dy
-                        val url = "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$layerName/$effectiveZoomLevel/$tileX/$tileY.png"
-                        imageLoader.enqueue(ImageRequest.Builder(context).data(url).build())
-                    }
-                }
-            }
-        }
-    }
 
     BoxWithConstraints(
         modifier = modifier
@@ -216,6 +205,40 @@ fun RadarScreen(
         val tilesY = ((screenHeightPx / tileSizePx).toInt() + 2).coerceIn(3, 11)
         val halfTilesX = tilesX / 2
         val halfTilesY = tilesY / 2
+
+        // Prefetch all 10 loop frames for the visible tile grid (3.3), so
+        // a scrub 0->9 is a cache hit instead of a per-frame network
+        // fetch. The current frame is enqueued first so the visible tiles
+        // are not queued behind the other nine frames. Runs on entry and
+        // when the layer, zoom, or centre changes — not on every frame
+        // advance, and not on pinch-zoom (the grid is captured when the
+        // effect last ran; a resize loads its new tiles on demand).
+        // Satellite is a single image, so it needs no prefetch. The grid
+        // is capped (tilesX <= 9, tilesY <= 11) and Coil bounds the
+        // network concurrency, so this is a bounded burst, not a flood.
+        // The prefetch and the AsyncImage loads share the same
+        // ImageLoader, the same URLs, and explicit cache policies, so a
+        // prefetched tile is a cache hit for the screen (no network
+        // fetch on the second pass).
+        val prefetchLoader = context.imageLoader
+        LaunchedEffect(selectedLayer, effectiveZoomLevel, centerLat, centerLon) {
+            if (selectedLayer == RadarLayer.Reflectivity || selectedLayer == RadarLayer.LocalSite) {
+                val frames = radarPrefetchUrls(centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY)
+                val current = frames.getOrElse(currentFrameIndex) { emptyList() }
+                val ordered = listOf(current) + frames.filterIndexed { index, _ -> index != currentFrameIndex }
+                for (frameUrls in ordered) {
+                    for (url in frameUrls) {
+                        prefetchLoader.enqueue(
+                            ImageRequest.Builder(context)
+                                .data(url)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .build()
+                        )
+                    }
+                }
+            }
+        }
 
         // Pixel center of the central tile
         val centerWorldX = lonToWorldPixel(centerLon, effectiveZoomLevel) * userScale
@@ -272,6 +295,7 @@ fun RadarScreen(
                                 .crossfade(true)
                                 .build(),
                             contentDescription = "Map tile",
+                            placeholder = ColorPainter(RetroTokens.Panel),
                             contentScale = ContentScale.FillBounds,
                             modifier = Modifier.fillMaxSize()
                         )
@@ -642,18 +666,8 @@ fun RadarScreen(
     }
 }
 
-// Spherical Mercator projection utilities
-private fun lonToTileX(lon: Double, zoom: Int): Int {
-    val x = ((lon + 180.0) / 360.0) * (1 shl zoom)
-    return x.toInt()
-}
-
-private fun latToTileY(lat: Double, zoom: Int): Int {
-    val latRad = Math.toRadians(lat.coerceIn(-85.0511, 85.0511))
-    val y = (1.0 - (ln(tan(latRad) + 1.0 / kotlin.math.cos(latRad)) / Math.PI)) / 2.0 * (1 shl zoom)
-    return y.toInt()
-}
-
+// Spherical Mercator projection utilities (tile coordinates now live in
+// the mapper, RadarTiles, where the prefetch tests cover them).
 private fun lonToWorldPixel(lon: Double, zoom: Int): Float {
     val density = 1f
     val fullSize = (256 * (1 shl zoom)).toFloat()
