@@ -186,7 +186,9 @@ fun WeatherNavDisplay(
                             onNavigate = { currentDestination = it },
                             onEnterPiP = onEnterPiP,
                             tickerVisible = tickerVisible,
-                            regionalPoints = regionalPoints
+                            regionalPoints = regionalPoints,
+                            musicEnabled = musicEnabled,
+                            onToggleMusic = onToggleMusic
                         )
                     }
 
@@ -221,7 +223,9 @@ fun WeatherNavDisplay(
                     onNavigate = { currentDestination = it },
                     onEnterPiP = onEnterPiP,
                     tickerVisible = tickerVisible,
-                    regionalPoints = regionalPoints
+                    regionalPoints = regionalPoints,
+                    musicEnabled = musicEnabled,
+                    onToggleMusic = onToggleMusic
                 )
             }
 
@@ -545,7 +549,9 @@ private fun ScreenContent(
     onNavigate: (ScreenDestination) -> Unit,
     onEnterPiP: () -> Unit,
     tickerVisible: Boolean,
-    regionalPoints: List<RegionalPoint> = emptyList()
+    regionalPoints: List<RegionalPoint> = emptyList(),
+    musicEnabled: Boolean = false,
+    onToggleMusic: () -> Unit = {}
 ) {
     when (destination) {
         ScreenDestination.Home -> HomeScreen(
