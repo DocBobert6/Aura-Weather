@@ -2,5 +2,5 @@
   "name": "Aura Weather",
   "description": "Weather forecasting for any place, with NWS observations, radar, minute-cast, air quality, and solar dynamics.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }
