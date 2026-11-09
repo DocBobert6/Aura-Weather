@@ -47,7 +47,8 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       // Signed only when the app's own keystore exists (local release
       // builds). CI has no keystore, so its release APK is unsigned.
