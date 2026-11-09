@@ -7,7 +7,7 @@ package com.example.core
 object ProviderEndpoints {
     // National Weather Service (US Government, Keyless)
     const val NWS_BASE_URL = "https://api.weather.gov/"
-    const val NWS_USER_AGENT = "AuraWeather/1.0 (contact@auraweather.local)"
+    const val NWS_USER_AGENT = "AuraWeather/1.0 (https://github.com/DocBobert6/Aura-Weather)"
     const val NWS_ACCEPT_HEADER = "application/geo+json"
 
     // Open-Meteo Weather & Air Quality (Free, Keyless, CC BY 4.0)
