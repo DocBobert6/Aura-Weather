@@ -1,6 +1,7 @@
 package com.example
 
 import com.example.core.UnitFormatter
+import com.example.data.mapper.AirNowReading
 import com.example.data.mapper.WeatherMappers
 import com.example.data.mapper.destinationPoint
 import com.example.data.mapper.distanceMeters
@@ -150,6 +151,58 @@ class AuraWeatherUnitTest {
         assertEquals(40, sparseAqi?.aqi)
         assertNull(sparseAqi?.pm25)
         assertNull(sparseAqi?.dominant)
+    }
+
+    @Test
+    fun testMapAirNowAqi_worstPollutantWinsAndConcentrationsKept() {
+        // Open-Meteo says AQI 35 (Good) with real concentrations.
+        val openMeteo = WeatherMappers.mapAqi(35, 8.0, 15.0, 30.0)
+        // AirNow: PM2.5 AQI 42, O3 AQI 68 (worst), PM10 AQI 30.
+        val result = WeatherMappers.mapAirNowAqi(
+            readings = listOf(
+                AirNowReading("PM2.5", 42),
+                AirNowReading("O3", 68),
+                AirNowReading("PM10", 30)
+            ),
+            openMeteoAqi = openMeteo
+        )
+        assertEquals(68, result?.aqi)
+        assertEquals("Moderate", result?.category)
+        assertEquals("Ozone (O₃)", result?.dominant)
+        assertEquals("AirNow", result?.source)
+        // Concentrations stay Open-Meteo's (AirNow reports AQI only).
+        assertEquals(8.0, result?.pm25 ?: 0.0, 0.001)
+        assertEquals(15.0, result?.pm10 ?: 0.0, 0.001)
+        assertEquals(15.28, result?.ozonePpb ?: 0.0, 0.01)
+    }
+
+    @Test
+    fun testMapAirNowAqi_emptyFallsBackToOpenMeteo() {
+        val openMeteo = WeatherMappers.mapAqi(35, 8.0, 15.0, 30.0)
+        // Empty list (outside US coverage, or no station nearby).
+        assertEquals(openMeteo, WeatherMappers.mapAirNowAqi(emptyList(), openMeteo))
+        // Rows with no AQI at all are ignored the same way.
+        assertEquals(
+            openMeteo,
+            WeatherMappers.mapAirNowAqi(listOf(AirNowReading("PM2.5", null)), openMeteo)
+        )
+    }
+
+    @Test
+    fun testMapAirNowAqi_airNowOnlyWhenOpenMeteoHasNone() {
+        // No Open-Meteo AQI, but AirNow has one: headline from AirNow,
+        // concentrations null (nothing else to take them from).
+        val result = WeatherMappers.mapAirNowAqi(
+            readings = listOf(AirNowReading("PM2.5", 120)),
+            openMeteoAqi = null
+        )
+        assertEquals(120, result?.aqi)
+        assertEquals("Unhealthy for Sensitive Groups", result?.category)
+        assertEquals("PM2.5", result?.dominant)
+        assertEquals("AirNow", result?.source)
+        assertNull(result?.pm25)
+        // Neither source has an AQI: null, never invented.
+        assertNull(WeatherMappers.mapAirNowAqi(emptyList(), null))
     }
 
     @Test

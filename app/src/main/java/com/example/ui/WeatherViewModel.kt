@@ -59,6 +59,9 @@ class WeatherViewModel(
     val tomorrowApiKey: StateFlow<String> = settingsManager.tomorrowApiKeyFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
+    val airNowApiKey: StateFlow<String> = settingsManager.airNowApiKeyFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
     /** Background music toggle (Home screen): off by default. */
     val musicEnabled: StateFlow<Boolean> = settingsManager.musicEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -178,6 +181,13 @@ class WeatherViewModel(
     fun setTomorrowApiKey(key: String) {
         viewModelScope.launch {
             settingsManager.setTomorrowApiKey(key.trim())
+            refresh()
+        }
+    }
+
+    fun setAirNowApiKey(key: String) {
+        viewModelScope.launch {
+            settingsManager.setAirNowApiKey(key.trim())
             refresh()
         }
     }

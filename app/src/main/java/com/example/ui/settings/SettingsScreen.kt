@@ -69,10 +69,12 @@ import com.example.ui.designsystem.RetroTokens
 fun SettingsScreen(
     useMetric: Boolean,
     tomorrowApiKey: String,
+    airNowApiKey: String,
     savedPlaces: List<Place>,
     selectedPlaceId: String?,
     onSetUseMetric: (Boolean) -> Unit,
     onSaveTomorrowApiKey: (String) -> Unit,
+    onSaveAirNowApiKey: (String) -> Unit,
     onSelectPlace: (String) -> Unit,
     onAddPlace: (String, String, Double, Double) -> Unit,
     tickerVisible: Boolean = false,
@@ -454,6 +456,134 @@ fun SettingsScreen(
             }
         }
 
+        // AirNow API Key & Live AQI
+        item {
+            var inputKey by remember(airNowApiKey) { mutableStateOf(airNowApiKey) }
+            var isKeyVisible by remember { mutableStateOf(false) }
+            var isSavedMessageVisible by remember { mutableStateOf(false) }
+
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Key,
+                                contentDescription = "AirNow Key",
+                                tint = AuraColors.Warning,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "AIRNOW API KEY",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = RetroTokens.TextPrimary
+                            )
+                        }
+
+                        if (airNowApiKey.isNotBlank()) {
+                            Surface(
+                                color = RetroTokens.Yellow,
+                                shape = AuraShapes.pill
+                            ) {
+                                Text(
+                                    text = "KEY ACTIVE",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    fontWeight = FontWeight.Bold,
+                                    color = RetroTokens.Background,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "An AirNow key turns on live AQI from the nearest EPA monitoring station. The headline AQI, its category, and the dominant pollutant come from AirNow; the pollutant concentrations (PM2.5, PM10, ozone) still come from Open-Meteo, which reports AQI only as a model estimate. Without a key, the AQI comes from Open-Meteo. AirNow covers the US only.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = RetroTokens.TextSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    OutlinedTextField(
+                        value = inputKey,
+                        onValueChange = {
+                            inputKey = it
+                            isSavedMessageVisible = false
+                        },
+                        label = { Text("AirNow API Key") },
+                        placeholder = { Text("Paste your API key here...") },
+                        singleLine = true,
+                        visualTransformation = if (isKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { isKeyVisible = !isKeyVisible }) {
+                                Icon(
+                                    imageVector = if (isKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = if (isKeyVisible) "Hide key" else "Show key",
+                                    tint = RetroTokens.TextSecondary
+                                )
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = RetroTokens.TextPrimary,
+                            unfocusedTextColor = RetroTokens.TextPrimary,
+                            focusedBorderColor = RetroTokens.Yellow,
+                            unfocusedBorderColor = RetroTokens.Border
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (inputKey.isNotBlank()) {
+                            TextButton(
+                                onClick = {
+                                    inputKey = ""
+                                    onSaveAirNowApiKey("")
+                                }
+                            ) {
+                                Text("Clear", color = RetroTokens.HeaderRed)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+
+                        Button(
+                            onClick = {
+                                onSaveAirNowApiKey(inputKey)
+                                isSavedMessageVisible = true
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = RetroTokens.Yellow,
+                                contentColor = RetroTokens.Background
+                            ),
+                            shape = RetroShapes.medium
+                        ) {
+                            Text(if (isSavedMessageVisible) "SAVED!" else "SAVE KEY")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "Need a key? Free API keys are available at airnowapi.org",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        color = RetroTokens.TextSecondary
+                    )
+                }
+            }
+        }
+
         // Data Sources & Attributions
         item {
             RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
@@ -478,6 +608,7 @@ fun SettingsScreen(
 
                     AttributionRow("Weather & Alerts", "National Weather Service (NOAA / api.weather.gov)")
                     AttributionRow("Minute-Cast & AQI", "Open-Meteo.com (CC BY 4.0)")
+                    AttributionRow("Live AQI (with key)", "AirNow (US EPA)")
                     AttributionRow("Radar Reflectivity", "Iowa Environmental Mesonet (IEM) / NEXRAD")
                     AttributionRow("Radar Basemap", "Esri World Dark Gray Base")
                     AttributionRow("Satellite Imagery", "NASA GIBS (EOSDIS) GOES-East ABI")

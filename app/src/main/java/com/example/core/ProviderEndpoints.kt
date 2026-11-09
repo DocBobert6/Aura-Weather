@@ -14,6 +14,10 @@ object ProviderEndpoints {
     const val OPEN_METEO_BASE_URL = "https://api.open-meteo.com/"
     const val OPEN_METEO_AQ_BASE_URL = "https://air-quality-api.open-meteo.com/"
 
+    // AirNow (US EPA, free API key): current AQI observations by lat/lon.
+    // AQI + category only, no concentrations.
+    const val AIRNOW_BASE_URL = "https://www.airnowapi.org/"
+
     // Iowa Environmental Mesonet (IEM) NEXRAD Radar Tiles (Keyless)
     const val IEM_TILE_BASE = "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/"
     const val IEM_COMPOSITE_LAYER = "nexrad-n0q-900913"

@@ -119,6 +119,14 @@ fun stableAlertId(event: String?, areaDesc: String?, effective: Instant): String
     return "alert_$hex"
 }
 
+/** One AirNow current-observation row, stripped to what the AQI mapping
+ * needs (pollutant + AQI). The Retrofit model (AirNowObservation,
+ * Moshi-annotated) lives in data.api and cannot be compiled into the
+ * pure tests (no Moshi jar on that classpath), so the repository
+ * converts to this plain type first. Keeping the mapping pure and
+ * Moshi-free is what lets the unit tests cover it. */
+data class AirNowReading(val parameterName: String?, val aqi: Int?)
+
 object WeatherMappers {
 
     fun mapWmoCodeToCondition(code: Int?, isDaytime: Boolean = true): WeatherCondition {
@@ -276,16 +284,21 @@ object WeatherMappers {
      * Returns null when the provider returned no AQI at all. A missing AQI is
      * "unavailable", not a made-up 28 with made-up PM2.5/PM10/ozone defaults.
      */
+    /** EPA AQI bands (category + health guidance). Shared by the
+     * Open-Meteo and AirNow paths so the two never disagree about what
+     * an AQI number means. */
+    fun aqiCategoryAndGuidance(aqi: Int): Pair<String, String> = when {
+        aqi <= 50 -> "Good" to "Air quality is satisfactory and poses little or no health risk."
+        aqi <= 100 -> "Moderate" to "Air quality is acceptable. Unusually sensitive individuals should limit prolonged outdoor exertion."
+        aqi <= 150 -> "Unhealthy for Sensitive Groups" to "Active children, older adults, and individuals with respiratory issues should reduce outdoor exertion."
+        aqi <= 200 -> "Unhealthy" to "Everyone may begin to experience health effects. Limit prolonged outdoor exertion."
+        aqi <= 300 -> "Very Unhealthy" to "Health alert: The risk of health effects is increased for everyone. Avoid strenuous outdoor activities."
+        else -> "Hazardous" to "Emergency warning: Entire population is likely to be affected. Remain indoors."
+    }
+
     fun mapAqi(usAqi: Int?, pm25: Double?, pm10: Double?, ozone: Double?): AirQuality? {
         val aqi = usAqi ?: return null
-        val (category, guidance) = when {
-            aqi <= 50 -> "Good" to "Air quality is satisfactory and poses little or no health risk."
-            aqi <= 100 -> "Moderate" to "Air quality is acceptable. Unusually sensitive individuals should limit prolonged outdoor exertion."
-            aqi <= 150 -> "Unhealthy for Sensitive Groups" to "Active children, older adults, and individuals with respiratory issues should reduce outdoor exertion."
-            aqi <= 200 -> "Unhealthy" to "Everyone may begin to experience health effects. Limit prolonged outdoor exertion."
-            aqi <= 300 -> "Very Unhealthy" to "Health alert: The risk of health effects is increased for everyone. Avoid strenuous outdoor activities."
-            else -> "Hazardous" to "Emergency warning: Entire population is likely to be affected. Remain indoors."
-        }
+        val (category, guidance) = aqiCategoryAndGuidance(aqi)
 
         // Open-Meteo reports ozone in µg/m³; the UI labels it ppb, so convert
         // (µg/m³ × 24.45 / 48.00 ≈ ×0.509). The 54 ppb cutoff is the EPA
@@ -311,6 +324,41 @@ object WeatherMappers {
             ozonePpb = ozonePpb,
             dominant = dominant,
             source = "Open-Meteo Air Quality",
+            healthGuidance = guidance
+        )
+    }
+
+    /**
+     * AirNow AQI (post-Phase-3 batch, item 2): when an AirNow key is set,
+     * the headline AQI comes from the nearest EPA monitoring station
+     * instead of the Open-Meteo model. AirNow reports AQI + category per
+     * pollutant but no concentrations, so the pollutant concentrations
+     * (PM2.5 / PM10 / ozone) stay Open-Meteo's — only the headline AQI,
+     * its category, and the dominant pollutant are replaced, and the
+     * source becomes "AirNow". Returns the Open-Meteo value unchanged
+     * when AirNow returned no usable observation (empty list, or outside
+     * US coverage), and null only when neither source has an AQI.
+     */
+    fun mapAirNowAqi(readings: List<AirNowReading>, openMeteoAqi: AirQuality?): AirQuality? {
+        val withAqi = readings.filter { it.aqi != null }
+        if (withAqi.isEmpty()) return openMeteoAqi
+        val worst = withAqi.maxByOrNull { it.aqi!! }!!
+        val aqi = worst.aqi!!
+        val (category, guidance) = aqiCategoryAndGuidance(aqi)
+        val dominant = when (worst.parameterName) {
+            "PM2.5" -> "PM2.5"
+            "PM10" -> "PM10"
+            "O3" -> "Ozone (O₃)"
+            else -> openMeteoAqi?.dominant
+        }
+        return AirQuality(
+            aqi = aqi,
+            category = category,
+            pm25 = openMeteoAqi?.pm25,
+            pm10 = openMeteoAqi?.pm10,
+            ozonePpb = openMeteoAqi?.ozonePpb,
+            dominant = dominant,
+            source = "AirNow",
             healthGuidance = guidance
         )
     }

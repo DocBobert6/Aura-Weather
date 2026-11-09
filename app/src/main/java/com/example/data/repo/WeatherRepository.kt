@@ -1,5 +1,6 @@
 package com.example.data.repo
 
+import com.example.data.api.AirNowApi
 import com.example.data.api.NwsAlertFeature
 import com.example.data.api.NwsApi
 import com.example.data.api.NwsForecastPeriod
@@ -9,7 +10,9 @@ import com.example.data.api.OpenMeteoWeatherResponse
 import com.example.data.db.SavedPlaceDao
 import com.example.data.db.SavedPlaceEntity
 import com.example.data.db.WeatherCacheDao
+import com.example.data.settings.SettingsManager
 import com.example.data.db.WeatherCacheEntity
+import com.example.data.mapper.AirNowReading
 import com.example.data.mapper.InstantJsonAdapter
 import com.example.data.mapper.LocalDateJsonAdapter
 import com.example.data.mapper.WeatherMappers
@@ -43,6 +46,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -69,6 +73,8 @@ class WeatherRepository(
     private val nwsApi: NwsApi,
     private val openMeteoWeatherApi: OpenMeteoWeatherApi,
     private val openMeteoAirQualityApi: OpenMeteoAirQualityApi,
+    private val airNowApi: AirNowApi,
+    private val settingsManager: SettingsManager,
     private val weatherCacheDao: WeatherCacheDao,
     private val savedPlaceDao: SavedPlaceDao
 ) {
@@ -498,13 +504,31 @@ class WeatherRepository(
         val alerts = parseNwsAlerts(alertsResult?.features, now)
 
         // --- Air quality. Null when the provider returned no AQI.
+        // Open-Meteo first (concentrations + fallback AQI); then, when an
+        // AirNow key is set, the headline AQI comes from the nearest EPA
+        // monitoring station instead (AirNow reports AQI only, no
+        // concentrations, so the pollutant values stay Open-Meteo's).
+        // Any AirNow failure (bad key, outside US coverage, network)
+        // falls back to the Open-Meteo AQI — never a blank screen.
         val aqCurrent = aqResult?.current
-        val airQuality = WeatherMappers.mapAqi(
+        val openMeteoAqi = WeatherMappers.mapAqi(
             usAqi = aqCurrent?.usAqi,
             pm25 = aqCurrent?.pm25,
             pm10 = aqCurrent?.pm10,
             ozone = aqCurrent?.ozone
         )
+        val airQuality = runCatching {
+            val airNowKey = settingsManager.airNowApiKeyFlow.first()
+            if (airNowKey.isBlank()) {
+                openMeteoAqi
+            } else {
+                val observations = airNowApi.getCurrentObservations(lat, lon, apiKey = airNowKey)
+                WeatherMappers.mapAirNowAqi(
+                    readings = observations.map { AirNowReading(it.parameterName, it.aqi) },
+                    openMeteoAqi = openMeteoAqi
+                )
+            }
+        }.getOrNull() ?: openMeteoAqi
 
         // --- Pollen. There is no live pollen provider wired up (the
         // Tomorrow.io key is stored but no API is ever called), so the

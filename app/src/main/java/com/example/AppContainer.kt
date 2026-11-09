@@ -3,6 +3,7 @@ package com.example
 import android.content.Context
 import com.example.core.HttpClients
 import com.example.core.ProviderEndpoints
+import com.example.data.api.AirNowApi
 import com.example.data.api.NwsApi
 import com.example.data.api.OpenMeteoAirQualityApi
 import com.example.data.api.OpenMeteoWeatherApi
@@ -60,6 +61,16 @@ class AppContainer(private val context: Context) {
             .build()
     }
 
+    // AirNow gets the plain client (no NWS headers — it is not an NWS
+    // endpoint, and its key travels as a query parameter, not a header).
+    private val airNowRetrofit: Retrofit by lazy {
+        Retrofit.Builder()
+            .baseUrl(ProviderEndpoints.AIRNOW_BASE_URL)
+            .client(plainOkHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+    }
+
     val nwsApi: NwsApi by lazy {
         nwsRetrofit.create(NwsApi::class.java)
     }
@@ -70,6 +81,10 @@ class AppContainer(private val context: Context) {
 
     val openMeteoAirQualityApi: OpenMeteoAirQualityApi by lazy {
         openMeteoAqRetrofit.create(OpenMeteoAirQualityApi::class.java)
+    }
+
+    val airNowApi: AirNowApi by lazy {
+        airNowRetrofit.create(AirNowApi::class.java)
     }
 
     val database: WeatherDatabase by lazy {
@@ -89,6 +104,8 @@ class AppContainer(private val context: Context) {
             nwsApi = nwsApi,
             openMeteoWeatherApi = openMeteoWeatherApi,
             openMeteoAirQualityApi = openMeteoAirQualityApi,
+            airNowApi = airNowApi,
+            settingsManager = settingsManager,
             weatherCacheDao = database.weatherCacheDao(),
             savedPlaceDao = database.savedPlaceDao()
         )
