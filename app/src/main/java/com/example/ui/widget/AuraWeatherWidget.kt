@@ -35,6 +35,7 @@ import androidx.glance.color.ColorProvider
 import com.example.AuraWeatherApp
 import com.example.MainActivity
 import com.example.R
+import com.example.ui.designsystem.RetroTokens
 import java.util.Locale
 import kotlinx.coroutines.flow.first
 
@@ -87,28 +88,26 @@ class AuraWeatherWidget : GlanceAppWidget() {
     }
 }
 
-/** Retro palette as day/night providers (Glance cannot read RetroTokens). */
+/** Retro palette as day/night providers, from RetroTokens (the §2.8
+ * gate: no hardcoded Color(0xFF...) outside the token files). Night is
+ * the app's own navy/yellow; day is the light variant (white background,
+ * navy text, orange temp — yellow is unreadable on white). */
 private object WidgetColors {
-    // Background 0xFF0A1E5C (navy) at night, white by day.
     val background = ColorProvider(
-        day = Color(0xFFFFFFFF),
-        night = Color(0xFF0A1E5C)
+        day = RetroTokens.TextPrimary,
+        night = RetroTokens.Background
     )
-    // Primary text: white at night, navy by day.
     val primary = ColorProvider(
-        day = Color(0xFF0A1E5C),
-        night = Color(0xFFFFFFFF)
+        day = RetroTokens.Background,
+        night = RetroTokens.TextPrimary
     )
-    // Temperature: yellow 0xFFFFD600 at night, orange 0xFFF26522 by day
-    // (yellow is unreadable on white).
     val temp = ColorProvider(
-        day = Color(0xFFF26522),
-        night = Color(0xFFFFD600)
+        day = RetroTokens.HeaderOrange,
+        night = RetroTokens.Yellow
     )
-    // Condition icon: white at night, navy by day (the sun uses temp).
     val icon = ColorProvider(
-        day = Color(0xFF0A1E5C),
-        night = Color(0xFFFFFFFF)
+        day = RetroTokens.Background,
+        night = RetroTokens.TextPrimary
     )
 }
 
