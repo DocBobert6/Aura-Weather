@@ -5,56 +5,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import com.example.domain.model.AlertSeverity
-import com.example.domain.model.WeatherCondition
 import com.example.ui.designsystem.AuraColors
-import com.example.ui.designsystem.AuraGlass
 import com.example.ui.designsystem.AuraShapes
-import com.example.ui.designsystem.AuraSky
-import com.example.ui.designsystem.GlassLevel
-import com.example.ui.designsystem.WeatherPalettes
+import com.example.ui.designsystem.RetroShapes
+import com.example.ui.designsystem.RetroTokens
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Phase 2.2 token tests (run in CI; not part of the kotlinc pure-test
- * script, which has no Compose on its classpath).
+ * Token tests (run in CI; not part of the kotlinc pure-test script, which
+ * has no Compose on its classpath). R1: the condition palettes, the glass
+ * levels, and the sky gradients are gone with the palette/glass/sky
+ * removal — the tests below cover what remains: the data colour scales,
+ * the legacy shapes, and the retro tokens.
  */
 class AuraTokensTest {
-
-    @Test
-    fun schemes_resolveForEveryConditionDayNightAndMode() {
-        for (condition in WeatherCondition.entries) {
-            for (isDaytime in listOf(true, false)) {
-                val dark = WeatherPalettes.getSchemeForCondition(condition, isDaytime, true)
-                val light = WeatherPalettes.getSchemeForCondition(condition, isDaytime, false)
-                // A scheme is never empty, and light really is lighter.
-                assertNotEquals(Color.Unspecified, dark.primary)
-                assertNotEquals(Color.Unspecified, light.primary)
-                assertTrue(
-                    "$condition day=$isDaytime: light background must be lighter than dark",
-                    light.background.luminance() > dark.background.luminance()
-                )
-                assertTrue(
-                    "$condition day=$isDaytime: light surface must be lighter than dark",
-                    light.surface.luminance() > dark.surface.luminance()
-                )
-            }
-        }
-    }
-
-    @Test
-    fun schemes_differByConditionAndDayNight() {
-        val clearDay = WeatherPalettes.getSchemeForCondition(WeatherCondition.ClearDay, true, true)
-        val stormNight =
-            WeatherPalettes.getSchemeForCondition(WeatherCondition.Thunderstorm, false, true)
-        assertNotEquals(clearDay.primary, stormNight.primary)
-        assertNotEquals(clearDay.background, stormNight.background)
-        val clearNight =
-            WeatherPalettes.getSchemeForCondition(WeatherCondition.ClearDay, false, true)
-        assertNotEquals(clearDay.background, clearNight.background)
-    }
 
     @Test
     fun severityScale_oneColourAndLabelPerLevel() {
@@ -94,23 +60,26 @@ class AuraTokensTest {
     }
 
     @Test
-    fun glass_barIsStrongerThanCard() {
-        assertTrue(AuraGlass.blurRadius(GlassLevel.Bar) > AuraGlass.blurRadius(GlassLevel.Card))
-        assertTrue(AuraGlass.scrimAlpha(GlassLevel.Bar) > AuraGlass.scrimAlpha(GlassLevel.Card))
+    fun retroTokens_navyScaleAndAccents() {
+        assertEquals(Color(0xFF0A1E5C), RetroTokens.Background)
+        assertEquals(Color(0xFF14307E), RetroTokens.Panel)
+        assertEquals(Color(0xFF1E3F9E), RetroTokens.PanelLight)
+        assertEquals(Color(0xFF4A6AC9), RetroTokens.Border)
+        assertEquals(Color(0xFFD93A2B), RetroTokens.HeaderRed)
+        assertEquals(Color(0xFFF26522), RetroTokens.HeaderOrange)
+        assertEquals(Color(0xFFFFD600), RetroTokens.Yellow)
+        assertEquals(Color(0xFFFFFFFF), RetroTokens.TextPrimary)
+        assertEquals(Color(0xFF0D2B7A), RetroTokens.TickerBlue)
+        // The panel is a lighter navy than the background; the yellow is
+        // bright enough to read as a heading colour on navy.
+        assertTrue(RetroTokens.Panel.luminance() > RetroTokens.Background.luminance())
+        assertTrue(RetroTokens.Yellow.luminance() > 0.5f)
     }
 
     @Test
-    fun sky_gradientsCoverEveryCondition() {
-        for (condition in WeatherCondition.entries) {
-            for (isDaytime in listOf(true, false)) {
-                val gradient = AuraSky.gradientColors(condition, isDaytime)
-                assertEquals(3, gradient.size)
-                assertTrue(gradient.none { it == Color.Unspecified })
-            }
-        }
-        assertNotEquals(
-            AuraSky.celestialColor(true),
-            AuraSky.celestialColor(false)
-        )
+    fun retroShapes_classicRadii() {
+        assertEquals(CornerSize(4.dp), RetroShapes.small.topStart)
+        assertEquals(CornerSize(6.dp), RetroShapes.medium.topStart)
+        assertEquals(CornerSize(8.dp), RetroShapes.large.topStart)
     }
 }

@@ -1,7 +1,6 @@
 package com.example.ui.designsystem
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -26,7 +25,6 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,9 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -53,121 +49,32 @@ import com.example.domain.model.AlertSeverity
  * its own pill shape, glass, or press behaviour.
  */
 
-/** Metrics for the floating navigation bar / rail. */
+/** Metrics for the solid navy navigation bar / side rail (R1). */
 object AuraBars {
-    /** Floating phone bar height. */
+    /** Solid bottom bar height. */
     val barHeight: Dp = 64.dp
 
-    /** Side margins of the floating phone bar. */
-    val sideMargin: Dp = 16.dp
-
-    /** Gap between the floating phone bar and the bottom gesture area. */
-    val bottomMargin: Dp = 12.dp
-
-    /** Floating wide rail width. */
+    /** Solid wide rail width. */
     val railWidth: Dp = 72.dp
 
     /**
-     * Bottom content padding for a screen whose content scrolls under the
-     * floating phone bar: bar height + bottom margin + the system bottom
-     * inset, so the last item is never hidden behind the bar. In wide mode
-     * (side rail) this is just harmless extra space at the list end.
+     * Bottom content padding for a screen whose content sits above the
+     * docked bottom bar: bar height + the system bottom inset, so the
+     * last item is never hidden behind the bar. In wide mode (side rail)
+     * this is just harmless extra space at the list end.
      */
     @Composable
     fun contentBottomPadding(): Dp {
         val bottomInset = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding()
-        return barHeight + bottomMargin + bottomInset
+        return barHeight + bottomInset
     }
 }
 
 /**
- * The glass container for floating bars (and, from 2.5, glass cards).
- * A real backdrop blur of the recorded sky (2.4b) under a scheme-tinted
- * scrim, a 1dp hairline border with a brighter lit top edge, and a soft
- * ambient shadow (optionally tinted by the condition colour). When there
- * is no backdrop to blur — Radar (its backdrop is the map), low-RAM
- * devices, battery saver — the scrim is stronger and the blur is skipped,
- * legibility first. A filled [color] (e.g. the Radar play button) also
- * skips the blur: nothing shows through an opaque fill.
- */
-@Composable
-fun GlassSurface(
-    level: GlassLevel,
-    shape: Shape,
-    modifier: Modifier = Modifier,
-    shadowElevation: Dp = 8.dp,
-    color: Color? = null,
-    progressive: Boolean = false,
-    progressiveEdge: ProgressiveEdge = ProgressiveEdge.Top,
-    shadowColor: Color? = null,
-    content: @Composable BoxScope.() -> Unit
-) {
-    val blurState = LocalBackdropBlur.current
-    val blurOn = blurState?.enabled == true && color == null
-    val surface = MaterialTheme.colorScheme.surface
-    val scrim = if (color != null) {
-        color
-    } else {
-        val base = AuraGlass.tint(surface, level)
-        if (blurOn) base else base.copy(alpha = (base.alpha + 0.12f).coerceAtMost(0.94f))
-    }
-    Surface(
-        modifier = modifier.shadow(
-            elevation = shadowElevation,
-            shape = shape,
-            ambientColor = shadowColor?.copy(alpha = 0.35f) ?: Color.Black,
-            spotColor = shadowColor?.copy(alpha = 0.5f) ?: Color.Black
-        ),
-        shape = shape,
-        color = Color.Transparent,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
-        border = BorderStroke(1.dp, Color.White.copy(alpha = AuraGlass.borderAlpha))
-    ) {
-        // The content is centred in the Surface. A plain Box defaults to
-        // TopStart, which left a short content (the freshness pill's
-        // "Updated just now") pinned to the top of a 48dp pill with the
-        // lower two-thirds empty — it read as the text sitting above an
-        // empty pill. matchParentSize children (blur, scrim) are unaffected
-        // and the lit edge keeps its own TopCenter alignment.
-        Box(contentAlignment = Alignment.Center) {
-            if (blurOn) {
-                BackdropBlurCanvas(
-                    level = level,
-                    shape = shape,
-                    progressive = progressive,
-                    progressiveEdge = progressiveEdge
-                )
-            }
-            // Scrim over the blurred (or plain) backdrop, then the lit edge.
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clip(shape)
-                    .background(scrim)
-            )
-            // Lit top edge. matchParentSize (not fillMaxWidth): the edge
-            // spans the pill's own width without forcing the pill to the
-            // full width of its parent Row — fillMaxWidth here made every
-            // glass pill claim the whole Row, starving a weighted sibling
-            // to 0dp (Radar station pill gone, Home place pill empty).
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .matchParentSize()
-                    .height(1.dp)
-                    .clip(shape)
-                    .background(Color.White.copy(alpha = 0.14f))
-            )
-            content()
-        }
-    }
-}
-
-/**
- * One navigation destination inside the floating bar / rail: icon on a
- * pill indicator + label underneath, with a spring press squash and a
- * spring indicator morph. The badge (alerts count) sits on the pill.
+ * One navigation destination inside the solid bottom bar / side rail:
+ * icon on a yellow pill indicator + label underneath, with a spring press
+ * squash and a spring indicator morph. The badge (alerts count) sits on
+ * the pill.
  *
  * Touch target: the caller gives this item its full cell (bar: weight +
  * full bar height; rail: full rail width), so the target is always ≥48dp
@@ -179,7 +86,6 @@ fun NavPillItem(
     label: String,
     selected: Boolean,
     badgeCount: Int?,
-    isExpressive: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -187,17 +93,17 @@ fun NavPillItem(
     val pressed by interactionSource.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
         targetValue = if (pressed) 0.92f else 1f,
-        animationSpec = AuraMotion.spec(isExpressive) { press },
+        animationSpec = AuraMotion.spec { press },
         label = "navPress"
     )
     val indicatorScale by animateFloatAsState(
         targetValue = if (selected) 1f else 0.6f,
-        animationSpec = AuraMotion.spec(isExpressive) { selection },
+        animationSpec = AuraMotion.spec { selection },
         label = "navIndicatorScale"
     )
     val indicatorAlpha by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
-        animationSpec = AuraMotion.spec(isExpressive) { selection },
+        animationSpec = AuraMotion.spec { selection },
         label = "navIndicatorAlpha"
     )
 
@@ -236,7 +142,7 @@ fun NavPillItem(
                             alpha = indicatorAlpha
                         }
                         .background(
-                            color = MaterialTheme.colorScheme.primaryContainer,
+                            color = RetroTokens.Yellow,
                             shape = AuraShapes.pill
                         )
                 )
@@ -244,11 +150,9 @@ fun NavPillItem(
                     imageVector = icon,
                     contentDescription = label,
                     tint = if (selected) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
+                        RetroTokens.Background
                     } else {
-                        // On the glass bar, not on the sky: the scheme's
-                        // on-surface, so this stays legible in light mode too.
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        RetroTokens.TextSecondary
                     }
                 )
             }
@@ -271,27 +175,26 @@ fun NavPillItem(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             color = if (selected) {
-                MaterialTheme.colorScheme.primary
+                RetroTokens.Yellow
             } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                RetroTokens.TextSecondary
             }
         )
     }
 }
 
 /**
- * A circular glass button with a 48dp touch target and a spring press
+ * A circular solid button with a 48dp touch target and a spring press
  * squash: refresh, location, PiP, zoom, recenter. The Radar play button
- * passes a filled [containerColor] (primary) instead of glass. The icon
- * itself comes from [content] so callers can show a progress indicator
- * instead (refresh while loading).
+ * passes a filled [containerColor] (primary) instead of the panel colour.
+ * The icon itself comes from [content] so callers can show a progress
+ * indicator instead (refresh while loading).
  */
 @Composable
 fun GlassIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    isExpressive: Boolean = false,
     containerColor: Color? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -299,14 +202,12 @@ fun GlassIconButton(
     val pressed by interactionSource.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
         targetValue = if (pressed) 0.9f else 1f,
-        animationSpec = AuraMotion.spec(isExpressive) { press },
+        animationSpec = AuraMotion.spec { press },
         label = "glassButtonPress"
     )
-    GlassSurface(
-        level = GlassLevel.Bar,
+    RetroPanel(
         shape = CircleShape,
         color = containerColor,
-        shadowElevation = 4.dp,
         modifier = modifier
             .size(48.dp)
             .graphicsLayer {
@@ -332,22 +233,20 @@ fun GlassIconButton(
 }
 
 /**
- * A pill segmented control: one glass pill holding N options, the selected
+ * A pill segmented control: one solid pill holding N options, the selected
  * option a filled pill that morphs in with the selection spring. Used for
- * the Air & Sky tab switcher, the Radar layer chooser, and (from 2.5) the
- * Settings palette selector. Every option cell is the full 48dp height, so
- * the touch target holds even though the pill looks smaller.
+ * the Air & Sky tab switcher and the Radar layer chooser. Every option cell
+ * is the full 48dp height, so the touch target holds even though the pill
+ * looks smaller.
  */
 @Composable
 fun PillSegmentedControl(
     options: List<String>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
-    isExpressive: Boolean,
     modifier: Modifier = Modifier
 ) {
-    GlassSurface(
-        level = GlassLevel.Bar,
+    RetroPanel(
         shape = AuraShapes.pill,
         modifier = modifier.height(48.dp)
     ) {
@@ -361,7 +260,6 @@ fun PillSegmentedControl(
                 SegmentOption(
                     label = label,
                     selected = index == selectedIndex,
-                    isExpressive = isExpressive,
                     onClick = { onSelect(index) },
                     modifier = Modifier.weight(1f)
                 )
@@ -374,7 +272,6 @@ fun PillSegmentedControl(
 private fun SegmentOption(
     label: String,
     selected: Boolean,
-    isExpressive: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -382,17 +279,17 @@ private fun SegmentOption(
     val pressed by interactionSource.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
         targetValue = if (pressed) 0.95f else 1f,
-        animationSpec = AuraMotion.spec(isExpressive) { press },
+        animationSpec = AuraMotion.spec { press },
         label = "segmentPress"
     )
     val indicatorScale by animateFloatAsState(
         targetValue = if (selected) 1f else 0.85f,
-        animationSpec = AuraMotion.spec(isExpressive) { selection },
+        animationSpec = AuraMotion.spec { selection },
         label = "segmentIndicator"
     )
     val indicatorAlpha by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
-        animationSpec = AuraMotion.spec(isExpressive) { selection },
+        animationSpec = AuraMotion.spec { selection },
         label = "segmentIndicatorAlpha"
     )
     Box(
@@ -423,7 +320,7 @@ private fun SegmentOption(
                     alpha = indicatorAlpha
                 }
                 .background(
-                    color = MaterialTheme.colorScheme.primary,
+                    color = RetroTokens.Yellow,
                     shape = AuraShapes.pill
                 )
         )
@@ -432,9 +329,9 @@ private fun SegmentOption(
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
             color = if (selected) {
-                MaterialTheme.colorScheme.onPrimary
+                RetroTokens.Background
             } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                RetroTokens.TextSecondary
             },
             textAlign = TextAlign.Center,
             maxLines = 1,

@@ -1,7 +1,6 @@
 package com.example.ui.designsystem
 
 import android.content.Context
-import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
@@ -14,17 +13,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.domain.model.AlertSeverity
-import com.example.domain.model.WeatherCondition
 
 /**
- * Aura design tokens (Phase 2.2). One home for every colour, shape, glass
- * level, spring, and sky value the screens use — no screen pastes a literal
- * after this phase. Values come from the 2.1 audit's token table; the
- * per-screen colour maps there are the source of truth for what each token
- * replaces.
+ * Aura design tokens (Phase 2.2, reskinned R1). One home for the data
+ * colour scales (severity, AQI, temperature, precipitation), the shapes,
+ * and the motion springs the screens use — no screen pastes a literal
+ * after this phase. The retro look's own colours live in [RetroTokens];
+ * the glass levels, the sky gradients, and the condition palettes were
+ * removed with the glass/sky/palette system in R1.
  */
 object AuraColors {
 
@@ -181,49 +179,18 @@ object AuraShapes {
     )
 }
 
-/** Glass levels for [GlassSurface]: content cards vs floating bars. */
-enum class GlassLevel { Card, Bar }
-
-object AuraGlass {
-    /** Backdrop blur radius (applied by the glass implementation in 2.4). */
-    fun blurRadius(level: GlassLevel): Dp =
-        when (level) {
-            GlassLevel.Card -> 16.dp
-            GlassLevel.Bar -> 24.dp
-        }
-
-    /** How opaque the scheme-tinted surface is: bars read over bright sky. */
-    fun scrimAlpha(level: GlassLevel): Float =
-        when (level) {
-            GlassLevel.Card -> 0.72f
-            // 0.88: scrolling text must not read through the floating bars.
-            GlassLevel.Bar -> 0.88f
-        }
-
-    /** Hairline border alpha (white, slightly brighter on the top edge). */
-    const val borderAlpha: Float = 0.12f
-
-    /** Scheme-tinted surface for a level. */
-    fun tint(surface: Color, level: GlassLevel): Color =
-        surface.copy(alpha = scrimAlpha(level))
-}
 
 /**
- * Motion tokens: the spring set every press / selection / bar / sheet
- * animation references, in a standard set and a bouncier expressive set.
- * Duration/easing curves are kept only for page enter/exit transitions.
- * Springs collapse to instant changes when reduced motion is on.
- *
- * Note: material3 1.4.0's MotionScheme / MaterialExpressiveTheme are
- * `internal` (verified in the 1.4.0 sources), so there is no public
- * theme-level expressive entry point to call. Expressive motion is
- * delivered here, as our own spring sets applied at the animated call
- * sites in 2.3+, selected with [AuraMotion.springs].
+ * Motion tokens: the one spring set every press / selection / bar / sheet
+ * animation references. Duration/easing curves are kept only for page
+ * enter/exit transitions. Springs collapse to instant changes when reduced
+ * motion is on. (The bouncier expressive set was removed with the palette
+ * system in R1; there is a single motion treatment now.)
  */
 data class AuraSprings(
     /** Press squash on pills and buttons. */
     val press: SpringSpec<Float>,
-    /** Selection morph on nav / tab / palette pills. */
+    /** Selection morph on nav / tab pills. */
     val selection: SpringSpec<Float>,
     /** Floating bar hide/show. */
     val bar: SpringSpec<Float>,
@@ -251,29 +218,7 @@ object AuraMotion {
         )
     )
 
-    /** Bouncier set for the expressive palette mode. */
-    val expressiveSprings: AuraSprings = AuraSprings(
-        press = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        selection = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
-        bar = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
-        sheet = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        )
-    )
 
-    /** The spring set for the palette mode in effect. */
-    fun springs(expressive: Boolean): AuraSprings =
-        if (expressive) expressiveSprings else standardSprings
 
     /**
      * True when the user turned animations off system-wide
@@ -301,94 +246,6 @@ object AuraMotion {
      * picks which spring of the set with [pick] — `{ press }`, `{ bar }` …
      */
     @Composable
-    fun <T> spec(expressive: Boolean, pick: AuraSprings.() -> FiniteAnimationSpec<T>): FiniteAnimationSpec<T> =
-        if (rememberReducedMotion()) tween(durationMillis = 0) else springs(expressive).pick()
+    fun <T> spec(pick: AuraSprings.() -> FiniteAnimationSpec<T>): FiniteAnimationSpec<T> =
+        if (rememberReducedMotion()) tween(durationMillis = 0) else standardSprings.pick()
 }
-
-/**
- * True while the device is in battery-saver mode (2.4a guardrail: the sky
- * keeps only drift + glow, and the backdrop blur is off).
- */
-@Composable
-fun rememberPowerSaveMode(): Boolean {
-    val context = LocalContext.current
-    return remember {
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        powerManager.isPowerSaveMode
-    }
-}
-
-/**
- * Sky colour inputs (Phase 2.2 token; the mesh sky in 2.4 consumes them).
- * The same condition key as [WeatherPalettes.getSchemeForCondition], so sky
- * and chrome can never disagree. Values are the gradients WeatherSky already
- * shipped, moved here as the single source.
- */
-object AuraSky {
-    fun gradientColors(condition: WeatherCondition, isDaytime: Boolean): List<Color> =
-        when {
-            condition == WeatherCondition.Thunderstorm -> listOf(
-                Color(0xFF0F0B1E),
-                Color(0xFF1B1438),
-                Color(0xFF2E1A47)
-            )
-            condition == WeatherCondition.Rain ||
-                condition == WeatherCondition.HeavyRain ||
-                condition == WeatherCondition.Drizzle -> listOf(
-                Color(0xFF121B24),
-                Color(0xFF1E2D3D),
-                Color(0xFF2C3E50)
-            )
-            condition == WeatherCondition.Snow ||
-                condition == WeatherCondition.Sleet ||
-                condition == WeatherCondition.FreezingRain -> listOf(
-                Color(0xFF162534),
-                Color(0xFF233950),
-                Color(0xFF355270)
-            )
-            isDaytime && (condition == WeatherCondition.ClearDay ||
-                condition == WeatherCondition.PartlyCloudyDay) -> listOf(
-                Color(0xFF1565C0),
-                Color(0xFF1E88E5),
-                Color(0xFF42A5F5)
-            )
-            isDaytime -> listOf( // Cloudy / foggy day
-                Color(0xFF263238),
-                Color(0xFF37474F),
-                Color(0xFF546E7A)
-            )
-            else -> listOf( // Night
-                Color(0xFF070B19),
-                Color(0xFF0D172E),
-                Color(0xFF132247)
-            )
-        }
-
-    fun celestialColor(isDaytime: Boolean): Color =
-        if (isDaytime) Color(0xFFFFD54F) else Color(0xFFE0E0E0)
-
-    /**
-     * Text colour for a heading that sits directly on the sky (not on a
-     * card). The sky's brightness follows the condition, not the theme, so
-     * onSurface can be invisible on it — dark text on a dark slate sky.
-     * Picked from the sky's own average luminance: light text on a dark
-     * sky, dark text on a light one.
-     */
-    fun headerTextColor(gradientColors: List<Color>): Color {
-        if (gradientColors.isEmpty()) return Color.White
-        // The headers sit at the top of the sky, so the top stop is what
-        // they read against — not the average (the bottom stops are
-        // lighter and would vote dark text onto a dark top). Light text
-        // wins below ~0.25 (the contrast crossover); dark text above it.
-        val top = gradientColors.first()
-        val luminance = 0.2126f * top.red + 0.7152f * top.green + 0.0722f * top.blue
-        return if (luminance < 0.25f) Color(0xFFF8FAFC) else Color(0xFF1A1C1E)
-    }
-}
-
-/**
- * Header colour for headings that sit directly on the sky. Provided by
- * [WeatherNavDisplay] from the sky's own luminance; headings inside cards
- * keep using onSurface.
- */
-val LocalSkyHeaderColor = androidx.compose.runtime.staticCompositionLocalOf { Color(0xFFF8FAFC) }

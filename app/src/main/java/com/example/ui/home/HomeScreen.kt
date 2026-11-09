@@ -85,12 +85,10 @@ import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
 import com.example.ui.designsystem.AuraMotion
 import com.example.ui.designsystem.AuraShapes
-import com.example.ui.designsystem.AuraSky
+import com.example.ui.designsystem.RetroPanel
+import com.example.ui.designsystem.RetroShapes
+import com.example.ui.designsystem.RetroTokens
 import com.example.ui.designsystem.GlassIconButton
-import com.example.ui.designsystem.GlassLevel
-import com.example.ui.designsystem.GlassSurface
-import com.example.ui.designsystem.LocalSkyHeaderColor
-import com.example.ui.designsystem.ProgressiveEdge
 import com.example.domain.model.DailyPoint
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.HourlyPoint
@@ -112,7 +110,6 @@ fun HomeScreen(
     loadError: String?,
     savedPlaces: List<Place>,
     unitFormatter: UnitFormatter,
-    paletteMode: String = "auto",
     onRefresh: () -> Unit,
     onSelectPlace: (String) -> Unit,
     onUseCurrentLocation: () -> Unit,
@@ -153,14 +150,6 @@ fun HomeScreen(
         freshnessText == null -> null
         state?.isStale == true -> "Cached • $freshnessText"
         else -> freshnessText
-    }
-
-    // The condition's deep sky tone, for the top bar's ambient shadow (2.4b).
-    val shadowTint = remember(state?.current?.condition, state?.solar?.isDaytime) {
-        AuraSky.gradientColors(
-            state?.current?.condition ?: WeatherCondition.ClearDay,
-            state?.solar?.isDaytime ?: true
-        ).last()
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -279,7 +268,6 @@ fun HomeScreen(
             HourlyForecastCard(
                 hourlyPoints = state?.hourly48h ?: emptyList(),
                 unitFormatter = unitFormatter,
-                isExpressive = paletteMode == "expressive",
                 zoneId = runCatching { ZoneId.of(state?.place?.zoneId ?: "") }.getOrDefault(ZoneId.systemDefault())
             )
         }
@@ -318,7 +306,7 @@ fun HomeScreen(
         }
     }
 
-    // Floating top bar pinned over the sky: place pill + circular
+    // Top bar pinned over the list: place pill + circular
     // location / refresh buttons. Safe-drawing insets are part of the
     // bar's placement (the ScreenContent container applies them above
     // this screen), so it never collides with the status bar.
@@ -326,8 +314,6 @@ fun HomeScreen(
         place = selectedPlace ?: state?.place,
         savedPlaces = savedPlaces,
         isRefreshing = isRefreshing,
-        isExpressive = paletteMode == "expressive",
-        shadowColor = shadowTint,
         menuExpanded = locationMenuExpanded,
         onToggleMenu = { locationMenuExpanded = !locationMenuExpanded },
         onSelectPlace = {
@@ -353,7 +339,7 @@ private fun NoPlaceCard(
     onUseCurrentLocation: () -> Unit,
     onAddPlace: () -> Unit
 ) {
-    GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
+    RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(24.dp)) {
             Icon(
                 imageVector = Icons.Default.LocationOn,
@@ -399,7 +385,7 @@ private fun NoPlaceCard(
 
 @Composable
 private fun LoadErrorCard(message: String, onRetry: () -> Unit) {
-    GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
+    RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(24.dp)) {
             Icon(
                 imageVector = Icons.Default.Warning,
@@ -447,8 +433,6 @@ private fun FloatingTopBar(
     place: Place?,
     savedPlaces: List<Place>,
     isRefreshing: Boolean,
-    isExpressive: Boolean,
-    shadowColor: Color?,
     menuExpanded: Boolean,
     onToggleMenu: () -> Unit,
     onSelectPlace: (String) -> Unit,
@@ -466,12 +450,8 @@ private fun FloatingTopBar(
     ) {
         // Place pill (with the place menu anchored to it)
         Box(modifier = Modifier.weight(1f)) {
-            GlassSurface(
-                level = GlassLevel.Bar,
+            RetroPanel(
                 shape = AuraShapes.pill,
-                progressive = true,
-                progressiveEdge = ProgressiveEdge.Bottom,
-                shadowColor = shadowColor,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
@@ -548,8 +528,7 @@ private fun FloatingTopBar(
 
 
         GlassIconButton(
-            onClick = onLocationClick,
-            isExpressive = isExpressive
+            onClick = onLocationClick
         ) {
             Icon(
                 imageVector = Icons.Default.MyLocation,
@@ -561,8 +540,7 @@ private fun FloatingTopBar(
 
         GlassIconButton(
             onClick = onRefresh,
-            enabled = !isRefreshing,
-            isExpressive = isExpressive
+            enabled = !isRefreshing
         ) {
             if (isRefreshing) {
                 CircularProgressIndicator(
@@ -589,10 +567,9 @@ private fun ActiveAlertBanner(
     count: Int,
     onClick: () -> Unit
 ) {
-    // Glass pill-banner with a severity pill, not a solid surface: the
-    // severity colour lives only in the pill; the banner itself is glass.
-    GlassSurface(
-        level = GlassLevel.Card,
+    // Solid pill-banner with a severity pill: the severity colour lives
+    // only in the pill; the banner itself is a solid navy panel.
+    RetroPanel(
         shape = AuraShapes.pill,
         modifier = Modifier
             .fillMaxWidth()
@@ -656,9 +633,8 @@ private fun HeroWeatherCard(
     // No invented low: when the daily low is missing the UI shows "--".
     val lowFormatted = unitFormatter.formatTemperature(todayDaily?.lowC)
 
-    GlassSurface(
-        level = GlassLevel.Card,
-        shape = AuraShapes.large,
+    RetroPanel(
+        shape = RetroShapes.large,
         modifier = Modifier
             .fillMaxWidth()
             .testTag("hero_weather_card")
@@ -672,7 +648,7 @@ private fun HeroWeatherCard(
             Icon(
                 imageVector = getWeatherIcon(condition, state?.solar?.isDaytime ?: true),
                 contentDescription = description,
-                tint = AuraSky.celestialColor(state?.solar?.isDaytime != false),
+                tint = RetroTokens.Yellow,
                 modifier = Modifier.size(68.dp)
             )
 
@@ -752,7 +728,7 @@ private fun MinuteCastCard(
     minutePoints: List<MinutePrecip>,
     summarySentence: String
 ) {
-    GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, 
+    RetroPanel(shape = RetroShapes.medium, 
         modifier = Modifier
             .fillMaxWidth()
             .testTag("minute_cast_card")
@@ -859,7 +835,6 @@ private fun MinuteCastCard(
 private fun HourlyForecastCard(
     hourlyPoints: List<HourlyPoint>,
     unitFormatter: UnitFormatter,
-    isExpressive: Boolean,
     zoneId: ZoneId = ZoneId.systemDefault()
 ) {
     val timeFormatter = remember(zoneId) {
@@ -871,7 +846,7 @@ private fun HourlyForecastCard(
     // the hour under the finger, nothing else reads it yet.
     var selectedIndex by remember { mutableIntStateOf(0) }
 
-    GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, 
+    RetroPanel(shape = RetroShapes.medium, 
         modifier = Modifier
             .fillMaxWidth()
             .testTag("hourly_forecast_card")
@@ -904,7 +879,7 @@ private fun HourlyForecastCard(
                     val pressed by interactionSource.collectIsPressedAsState()
                     val pressScale by animateFloatAsState(
                         targetValue = if (pressed) 0.92f else 1f,
-                        animationSpec = AuraMotion.spec(isExpressive) { press },
+                        animationSpec = AuraMotion.spec { press },
                         label = "hour_press"
                     )
 
@@ -992,7 +967,7 @@ private fun DailyForecastCard(
     val weekMin = dailyPoints.mapNotNull { it.lowC }.minOrNull()
     val weekMax = dailyPoints.mapNotNull { it.highC }.maxOrNull()
 
-    GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, 
+    RetroPanel(shape = RetroShapes.medium, 
         modifier = Modifier
             .fillMaxWidth()
             .testTag("daily_forecast_card")
@@ -1282,7 +1257,7 @@ private fun DetailMiniCard(
     modifier: Modifier = Modifier,
     trailing: (@Composable () -> Unit)? = null
 ) {
-    GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = modifier) {
+    RetroPanel(shape = RetroShapes.medium, modifier = modifier) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1340,7 +1315,7 @@ private fun AirAndPollenSummaryCard(
 
     val aqiColor = AuraColors.aqiColor(aqi)
 
-    GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, 
+    RetroPanel(shape = RetroShapes.medium, 
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
@@ -1357,7 +1332,7 @@ private fun AirAndPollenSummaryCard(
                     text = "AIR QUALITY & POLLEN",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
-                    color = LocalSkyHeaderColor.current.copy(alpha = 0.7f)
+                    color = RetroTokens.TextSecondary
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1419,7 +1394,7 @@ private fun SunAndMoonSummaryCard(
     val moonPhase = state?.lunar?.phaseName ?: "--"
     val illumination = state?.lunar?.illuminatedFraction?.let { "${(it * 100).roundToInt()}% illuminated" } ?: "--"
 
-    GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, 
+    RetroPanel(shape = RetroShapes.medium, 
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
@@ -1436,14 +1411,14 @@ private fun SunAndMoonSummaryCard(
                     text = "SUN & MOON DYNAMICS",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
-                    color = LocalSkyHeaderColor.current.copy(alpha = 0.7f)
+                    color = RetroTokens.TextSecondary
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.WbSunny,
                         contentDescription = "Sunrise",
-                        tint = AuraSky.celestialColor(true),
+                        tint = RetroTokens.Yellow,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))

@@ -65,9 +65,9 @@ import com.example.ui.RadarLayer
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
 import com.example.ui.designsystem.AuraShapes
+import com.example.ui.designsystem.RetroPanel
+import com.example.ui.designsystem.RetroShapes
 import com.example.ui.designsystem.GlassIconButton
-import com.example.ui.designsystem.GlassLevel
-import com.example.ui.designsystem.GlassSurface
 import com.example.ui.designsystem.PillSegmentedControl
 import kotlin.math.ln
 import kotlin.math.roundToInt
@@ -99,7 +99,6 @@ fun RadarScreen(
     onTogglePlay: () -> Unit,
     onScrubFrame: (Int) -> Unit,
     onEnterPiP: () -> Unit,
-    paletteMode: String = "auto",
     modifier: Modifier = Modifier
 ) {
     // No place selected yet: the radar centres on the place, and there is
@@ -333,8 +332,7 @@ fun RadarScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                GlassSurface(
-                    level = GlassLevel.Bar,
+                RetroPanel(
                     shape = AuraShapes.pill,
                     modifier = Modifier
                         .weight(1f)
@@ -377,8 +375,7 @@ fun RadarScreen(
                     }
                 }
 
-                GlassSurface(
-                    level = GlassLevel.Bar,
+                RetroPanel(
                     shape = AuraShapes.pill,
                     modifier = Modifier.height(48.dp)
                 ) {
@@ -413,7 +410,6 @@ fun RadarScreen(
                 ),
                 selectedIndex = selectedLayer.ordinal,
                 onSelect = { onSelectLayer(RadarLayer.entries[it]) },
-                isExpressive = paletteMode == "expressive",
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -435,7 +431,6 @@ fun RadarScreen(
                     }
                 },
                 containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                isExpressive = paletteMode == "expressive"
             ) {
                 Icon(
                     Icons.Default.Add,
@@ -454,7 +449,6 @@ fun RadarScreen(
                     }
                 },
                 containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                isExpressive = paletteMode == "expressive"
             ) {
                 Icon(
                     Icons.Default.Remove,
@@ -470,7 +464,6 @@ fun RadarScreen(
                     userScale = 1f
                 },
                 containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                isExpressive = paletteMode == "expressive"
             ) {
                 Icon(
                     Icons.Default.MyLocation,
@@ -497,7 +490,7 @@ fun RadarScreen(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             // Radar Legend Bar
-            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium) {
+            RetroPanel(shape = RetroShapes.medium) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -530,8 +523,7 @@ fun RadarScreen(
             // Floating transport pill: play/pause + frame scrubber inside
             // the pill, PiP attached to its end. The frame label lives in
             // the top pill now.
-            GlassSurface(
-                level = GlassLevel.Bar,
+            RetroPanel(
                 shape = AuraShapes.pill,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -547,7 +539,6 @@ fun RadarScreen(
                     GlassIconButton(
                         onClick = onTogglePlay,
                         containerColor = MaterialTheme.colorScheme.primary,
-                        isExpressive = paletteMode == "expressive"
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,

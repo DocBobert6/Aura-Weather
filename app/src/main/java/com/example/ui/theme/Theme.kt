@@ -1,51 +1,51 @@
 package com.example.ui.theme
 
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
-import com.example.domain.model.WeatherCondition
-import com.example.ui.designsystem.AuraShapes
-import com.example.ui.designsystem.WeatherPalettes
+import com.example.ui.designsystem.RetroShapes
+import com.example.ui.designsystem.RetroTokens
 
+/**
+ * The app theme (R1 of the retro reskin). ONE fixed retro navy colour
+ * scheme — no dark/light branch, no palette branch, no dynamic-colour /
+ * Material You code, no Expressive code. The app is always navy. All
+ * colours come from [RetroTokens]; there are no hardcoded colours here.
+ */
 @Composable
 fun AuraWeatherTheme(
-    paletteMode: String = "auto",
-    condition: WeatherCondition = WeatherCondition.ClearDay,
-    isDaytime: Boolean = true,
-    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val context = LocalContext.current
+    val colorScheme = darkColorScheme(
+        primary = RetroTokens.Yellow,
+        onPrimary = RetroTokens.Background,
+        primaryContainer = RetroTokens.PanelLight,
+        onPrimaryContainer = RetroTokens.Yellow,
+        secondary = RetroTokens.HeaderOrange,
+        onSecondary = RetroTokens.TextPrimary,
+        secondaryContainer = RetroTokens.PanelLight,
+        onSecondaryContainer = RetroTokens.TextPrimary,
+        tertiary = RetroTokens.HeaderRed,
+        onTertiary = RetroTokens.TextPrimary,
+        background = RetroTokens.Background,
+        onBackground = RetroTokens.TextPrimary,
+        surface = RetroTokens.Panel,
+        onSurface = RetroTokens.TextPrimary,
+        surfaceVariant = RetroTokens.PanelLight,
+        onSurfaceVariant = RetroTokens.TextSecondary,
+        surfaceContainer = RetroTokens.Panel,
+        surfaceContainerHigh = RetroTokens.PanelLight,
+        outline = RetroTokens.Border,
+        outlineVariant = RetroTokens.Border,
+        error = RetroTokens.HeaderRed,
+        onError = RetroTokens.TextPrimary,
+        errorContainer = RetroTokens.HeaderRed,
+        onErrorContainer = RetroTokens.TextPrimary
+    )
 
-    // "monet" (Material You) takes its colours from the phone; "expressive"
-    // resolves through the condition schemes, so it is a motion/theme
-    // treatment, not a second palette. The automatic "auto" palette was
-    // removed 2026-11-08, so these are the only two modes.
-    val colorScheme = when {
-        paletteMode == "monet" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            // Material You follows the global theme mode (Auto/Dark/Light
-            // in Settings). There is no separate Material You dropdown —
-            // it was removed 2026-11-08 as redundant with Theme Mode.
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        else -> {
-            WeatherPalettes.getSchemeForCondition(condition, isDaytime, darkTheme)
-        }
-    }
-
-    // "expressive" now does something real (audit finding 3): it selects
-    // the bouncier AuraMotion spring set at the animated call sites in
-    // 2.3+, instead of silently falling back to the default dark scheme.
-    // There is no theme-level expressive entry point to call here —
-    // material3 1.4.0 keeps MotionScheme and MaterialExpressiveTheme
-    // internal — so the theme itself is the one public MaterialTheme.
     MaterialTheme(
         colorScheme = colorScheme,
-        shapes = AuraShapes.materialShapes(),
+        shapes = RetroShapes.materialShapes(),
         typography = Typography,
         content = content
     )

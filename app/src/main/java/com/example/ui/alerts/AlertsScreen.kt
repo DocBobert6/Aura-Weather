@@ -47,9 +47,9 @@ import com.example.domain.model.WeatherAlert
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
 import com.example.ui.designsystem.AuraShapes
-import com.example.ui.designsystem.LocalSkyHeaderColor
-import com.example.ui.designsystem.GlassLevel
-import com.example.ui.designsystem.GlassSurface
+import com.example.ui.designsystem.RetroPanel
+import com.example.ui.designsystem.RetroShapes
+import com.example.ui.designsystem.RetroTokens
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -107,12 +107,12 @@ fun AlertsScreen(
                         text = "WEATHER ALERTS",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = LocalSkyHeaderColor.current
+                        color = RetroTokens.TextPrimary
                     )
                     Text(
                         text = "National Weather Service alerts" + (placeName?.let { " for $it" } ?: ""),
                         style = MaterialTheme.typography.labelSmall,
-                        color = LocalSkyHeaderColor.current.copy(alpha = 0.65f)
+                        color = RetroTokens.TextSecondary
                     )
                     if (cacheAgeText != null) {
                         Text(
@@ -159,9 +159,8 @@ fun AlertsScreen(
 
 @Composable
 private fun EmptyAlertsCard() {
-    GlassSurface(
-        level = GlassLevel.Card,
-        shape = AuraShapes.medium,
+    RetroPanel(
+        shape = RetroShapes.medium,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 24.dp)
@@ -217,9 +216,8 @@ private fun AlertExpandableCard(
         DateTimeFormatter.ofPattern("EEE, MMM d, h:mm a", Locale.US).withZone(zoneId)
     }
 
-    GlassSurface(
-        level = GlassLevel.Card,
-        shape = AuraShapes.medium,
+    RetroPanel(
+        shape = RetroShapes.medium,
         modifier = Modifier
             .fillMaxWidth()
             .clickable { expanded = !expanded }

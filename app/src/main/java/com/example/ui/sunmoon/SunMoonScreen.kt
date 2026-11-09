@@ -46,11 +46,9 @@ import com.example.domain.model.LunarTimes
 import com.example.domain.model.SolarTimes
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
-import com.example.ui.designsystem.LocalSkyHeaderColor
-import com.example.ui.designsystem.AuraShapes
-import com.example.ui.designsystem.AuraSky
-import com.example.ui.designsystem.GlassLevel
-import com.example.ui.designsystem.GlassSurface
+import com.example.ui.designsystem.RetroPanel
+import com.example.ui.designsystem.RetroShapes
+import com.example.ui.designsystem.RetroTokens
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -105,7 +103,7 @@ fun SunMoonScreen(
                     text = "SUN & MOON DYNAMICS",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = LocalSkyHeaderColor.current
+                    color = RetroTokens.TextPrimary
                 )
                 Text(
                     text = "Sunrise, sunset and moon times" + (placeName?.let { " for $it" } ?: ""),
@@ -117,7 +115,7 @@ fun SunMoonScreen(
 
         // Solar Arc Visualization Card
         item {
-            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -139,7 +137,7 @@ fun SunMoonScreen(
                             },
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = AuraSky.celestialColor(true)
+                            color = RetroTokens.Yellow
                         )
                     }
 
@@ -179,7 +177,7 @@ fun SunMoonScreen(
                             }
                             drawPath(
                                 path = arcPath,
-                                color = AuraSky.celestialColor(true).copy(alpha = 0.35f),
+                                color = RetroTokens.Yellow.copy(alpha = 0.35f),
                                 style = Stroke(width = 2.5f, cap = StrokeCap.Round)
                             )
 
@@ -207,7 +205,7 @@ fun SunMoonScreen(
                             if (isDaytime) {
                                 drawCircle(
                                     brush = Brush.radialGradient(
-                                        colors = listOf(AuraSky.celestialColor(true).copy(alpha = 0.5f), Color.Transparent),
+                                        colors = listOf(RetroTokens.Yellow.copy(alpha = 0.5f), Color.Transparent),
                                         center = Offset(sunX, sunY),
                                         radius = 28f
                                     ),
@@ -215,7 +213,7 @@ fun SunMoonScreen(
                                     center = Offset(sunX, sunY)
                                 )
                                 drawCircle(
-                                    color = AuraSky.celestialColor(true),
+                                    color = RetroTokens.Yellow,
                                     radius = 8f,
                                     center = Offset(sunX, sunY)
                                 )
@@ -287,7 +285,7 @@ fun SunMoonScreen(
                 text = "LIGHTING & TWILIGHT PHASES",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = LocalSkyHeaderColor.current.copy(alpha = 0.7f)
+                color = RetroTokens.TextSecondary
             )
         }
 
@@ -323,7 +321,7 @@ fun SunMoonScreen(
                 text = "LUNAR CYCLE",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = LocalSkyHeaderColor.current.copy(alpha = 0.7f)
+                color = RetroTokens.TextSecondary
             )
         }
 
@@ -332,7 +330,7 @@ fun SunMoonScreen(
             val illFraction = lunar?.illuminatedFraction ?: 0.0
             val illPercent = (illFraction * 100).roundToInt()
 
-            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -350,7 +348,7 @@ fun SunMoonScreen(
 
                             // Illuminated moon disk
                             drawCircle(
-                                color = AuraSky.celestialColor(false),
+                                color = RetroTokens.TextPrimary,
                                 radius = r,
                                 center = center
                             )
@@ -459,7 +457,7 @@ private fun TwilightCard(
     evening: String,
     modifier: Modifier = Modifier
 ) {
-    GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = modifier) {
+    RetroPanel(shape = RetroShapes.medium, modifier = modifier) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(

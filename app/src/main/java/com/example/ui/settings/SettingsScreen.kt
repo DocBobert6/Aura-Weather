@@ -17,10 +17,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Warning
@@ -57,21 +55,16 @@ import com.example.domain.model.Place
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
 import com.example.ui.designsystem.AuraShapes
-import com.example.ui.designsystem.GlassLevel
-import com.example.ui.designsystem.GlassSurface
-import com.example.ui.designsystem.PillSegmentedControl
+import com.example.ui.designsystem.RetroPanel
+import com.example.ui.designsystem.RetroShapes
 
 @Composable
 fun SettingsScreen(
     useMetric: Boolean,
-    paletteMode: String,
-    themeMode: String,
     tomorrowApiKey: String,
     savedPlaces: List<Place>,
     selectedPlaceId: String?,
     onSetUseMetric: (Boolean) -> Unit,
-    onSetPaletteMode: (String) -> Unit,
-    onSetThemeMode: (String) -> Unit,
     onSaveTomorrowApiKey: (String) -> Unit,
     onSelectPlace: (String) -> Unit,
     onAddPlace: (String, String, Double, Double) -> Unit,
@@ -102,7 +95,7 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Unit preferences, locations, themes and data sources",
+                    text = "Unit preferences, locations and data sources",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                 )
@@ -111,7 +104,7 @@ fun SettingsScreen(
 
         // Units Section
         item {
-            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -157,96 +150,9 @@ fun SettingsScreen(
             }
         }
 
-        // Palette Mode
-        item {
-            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Palette,
-                            contentDescription = "Palette",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "Color Palette Policy",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    PillSegmentedControl(
-                        options = listOf("Material You", "Expressive"),
-                        selectedIndex = listOf("monet", "expressive").indexOf(paletteMode).coerceAtLeast(0),
-                        onSelect = { onSetPaletteMode(listOf("monet", "expressive")[it]) },
-                        isExpressive = paletteMode == "expressive",
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    if (paletteMode == "monet") {
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // No separate Material You light/dark dropdown: the
-                        // Theme Mode below already covers Auto / Dark / Light,
-                        // and Material You follows it (removed 2026-11-08).
-                        Text(
-                            text = "Material You takes its colours from your phone's wallpaper. Light and dark follow the Theme Mode below.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                    }
-                }
-            }
-        }
-
-        // Theme Mode (Auto / Dark / Light) — wired to the 2.2 light schemes
-        item {
-            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.DarkMode,
-                            contentDescription = "Theme",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "Theme Mode",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    PillSegmentedControl(
-                        options = listOf("Auto", "Dark", "Light"),
-                        selectedIndex = listOf("auto", "dark", "light").indexOf(themeMode).coerceAtLeast(0),
-                        onSelect = { onSetThemeMode(listOf("auto", "dark", "light")[it]) },
-                        isExpressive = paletteMode == "expressive",
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = "Auto follows your system. Motion follows the system Reduce motion setting — there is no separate motion toggle.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                }
-            }
-        }
-
         // Saved Places (no presets — the user adds their own places)
         item {
-            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -334,7 +240,7 @@ fun SettingsScreen(
             var isKeyVisible by remember { mutableStateOf(false) }
             var isSavedMessageVisible by remember { mutableStateOf(false) }
 
-            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -458,7 +364,7 @@ fun SettingsScreen(
 
         // Data Sources & Attributions
         item {
-            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
@@ -483,15 +389,15 @@ fun SettingsScreen(
                     AttributionRow("Radar Reflectivity", "Iowa Environmental Mesonet (IEM) / NEXRAD")
                     AttributionRow("Radar Basemap", "Esri World Dark Gray Base")
                     AttributionRow("Satellite Imagery", "NASA GIBS (EOSDIS) GOES-East ABI")
+                    AttributionRow("Display Font", "Star4000 Large/Small by Nick Smith (twcclassics.com), via the MIT-licensed ws4kp project")
                 }
             }
         }
 
         // Emergency Warning Disclaimer
         item {
-            GlassSurface(
-                level = GlassLevel.Card,
-                shape = AuraShapes.medium,
+            RetroPanel(
+                shape = RetroShapes.medium,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(

@@ -1,6 +1,6 @@
 package com.example.ui.navigation
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -8,65 +8,35 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.background
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.toIntSize
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.Place
-import com.example.domain.model.WeatherCondition
 import com.example.ui.RadarLayer
 import com.example.ui.WeatherViewModel
 import com.example.ui.airpollen.AirPollenScreen
 import com.example.ui.alerts.AlertsScreen
 import com.example.ui.designsystem.AuraBars
-import com.example.ui.designsystem.AuraMotion
-import com.example.ui.designsystem.AuraShapes
-import com.example.ui.designsystem.AuraSky
-import com.example.ui.designsystem.BackdropBlurState
-import com.example.ui.designsystem.GlassLevel
-import com.example.ui.designsystem.GlassSurface
-import com.example.ui.designsystem.LocalBackdropBlur
-import com.example.ui.designsystem.LocalSkyHeaderColor
 import com.example.ui.designsystem.NavPillItem
 import com.example.ui.designsystem.PillSegmentedControl
-import com.example.ui.designsystem.ProgressiveEdge
-import com.example.ui.designsystem.WeatherSky
-import com.example.ui.designsystem.rememberBackdropBlurEnabled
+import com.example.ui.designsystem.RetroTokens
 import com.example.ui.home.HomeScreen
 import com.example.ui.radar.RadarScreen
 import com.example.ui.settings.SettingsScreen
@@ -86,6 +56,14 @@ enum class ScreenDestination(val label: String, val icon: ImageVector) {
     Settings("Settings", Icons.Default.Settings)
 }
 
+/**
+ * The app shell (R1 of the retro reskin). Flat navy background, the five
+ * tabs in a SOLID navy bottom bar (docked, full-width, no floating
+ * margins, no blur) on phones, and a solid navy side rail on wide
+ * screens. Same five tabs, same order, same destinations, yellow active
+ * indicator, white/yellow labels. The mesh sky, the backdrop-blur
+ * recording, and the palette/theme wiring are gone with R1.
+ */
 @Composable
 fun WeatherNavDisplay(
     viewModel: WeatherViewModel,
@@ -95,8 +73,6 @@ fun WeatherNavDisplay(
     loadError: String?,
     savedPlaces: List<Place>,
     useMetric: Boolean,
-    paletteMode: String,
-    themeMode: String,
     tomorrowApiKey: String,
     selectedRadarLayer: RadarLayer,
     currentRadarFrameIndex: Int,
@@ -107,262 +83,128 @@ fun WeatherNavDisplay(
     var currentDestination by rememberSaveable { mutableStateOf(ScreenDestination.Home) }
 
     val activeAlertsCount = weatherState?.activeAlerts?.size ?: 0
-    val condition = weatherState?.current?.condition ?: WeatherCondition.ClearDay
-    val isDaytime = weatherState?.solar?.isDaytime ?: true
-    val isExpressive = paletteMode == "expressive"
 
-    // Hide-on-scroll for the floating phone bar: it hides on a sustained
-    // downward scroll and springs back on any upward scroll. It never hides
-    // while the Home alert banner is visible or on the Alerts screen.
-    val canHideBar by rememberUpdatedState(
-        !(currentDestination == ScreenDestination.Home && activeAlertsCount > 0) &&
-            currentDestination != ScreenDestination.Alerts
-    )
-    var barHidden by remember { mutableStateOf(false) }
-    // Sky parallax (2.4a): total scrolled distance, 0..256px. The mesh
-    // shifts a quarter of it, so the sky moves slower than the content.
-    // Accumulated for every nested scroll, not only when the bar may hide.
-    var scrollAccumPx by remember { mutableStateOf(0f) }
-    val nestedScrollConnection = remember {
-        var downAccum = 0f
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                scrollAccumPx = (scrollAccumPx - available.y).coerceIn(0f, 256f)
-                if (!canHideBar) {
-                    barHidden = false
-                    downAccum = 0f
-                    return Offset.Zero
-                }
-                if (available.y < 0f) {
-                    downAccum += -available.y
-                    if (downAccum > 96f) barHidden = true
-                } else if (available.y > 0f) {
-                    downAccum = 0f
-                    barHidden = false
-                }
-                return Offset.Zero
-            }
-        }
-    }
-    val density = LocalDensity.current
-    val bottomInset = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding()
-    val hideOffsetPx = with(density) {
-        (AuraBars.barHeight + AuraBars.bottomMargin).toPx() +
-            WindowInsets.safeDrawing.getBottom(this).toFloat()
-    }
-    val barOffsetY by animateFloatAsState(
-        targetValue = if (barHidden) hideOffsetPx else 0f,
-        animationSpec = AuraMotion.spec(isExpressive) { bar },
-        label = "navBarOffset"
-    )
-
-    // Backdrop blur (2.4b): the sky is recorded into a graphics layer so
-    // the floating glass can sample a real blurred copy of it. Off on
-    // low-RAM devices and in battery saver (tint-only fallback).
-    val skyLayer = rememberGraphicsLayer()
-    val blurEnabled = rememberBackdropBlurEnabled()
-    val backdropBlurState = remember(skyLayer, blurEnabled) {
-        BackdropBlurState(skyLayer, blurEnabled)
-    }
-    // The condition's deep sky tone, for the bars' ambient shadows (2.4b).
-    val shadowTint = remember(condition, isDaytime) {
-        AuraSky.gradientColors(condition, isDaytime).last()
-    }
-    // Headings that sit directly on the sky take their colour from the
-    // sky's own luminance (light text on a dark sky), not onSurface.
-    val skyHeaderColor = remember(condition, isDaytime) {
-        AuraSky.headerTextColor(AuraSky.gradientColors(condition, isDaytime))
-    }
-
-    CompositionLocalProvider(
-        LocalBackdropBlur provides backdropBlurState,
-        LocalSkyHeaderColor provides skyHeaderColor
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .background(RetroTokens.Background)
     ) {
-    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val isWideScreen = maxWidth >= 600.dp
 
-        Box(modifier = Modifier.fillMaxSize()) {
-            // Full-screen mesh sky, recorded into the backdrop-blur layer.
-            // Only the sky is recorded: the screens' own glass sits over
-            // the sky, and Radar's glass opts out (its backdrop is the
-            // map, not the sky).
-            Box(
-                Modifier
+        if (isWideScreen) {
+            // Wide screens (tablets, foldables unfolded): solid navy side
+            // rail on the left, content filling the rest.
+            Row(
+                modifier = Modifier
                     .fillMaxSize()
-                    .onGloballyPositioned { coords ->
-                        backdropBlurState.skyOriginInWindow = coords.positionInWindow()
-                    }
-                    .drawWithContent {
-                        backdropBlurState.record(density, layoutDirection, size.toIntSize()) {
-                            this@drawWithContent.drawContent()
-                        }
-                        drawLayer(backdropBlurState.skyLayer)
-                    }
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing.only(
+                            WindowInsetsSides.Top + WindowInsetsSides.Horizontal
+                        )
+                    )
             ) {
-                WeatherSky(
-                    condition = condition,
-                    isDaytime = isDaytime,
-                    parallaxPx = scrollAccumPx,
-                    modifier = Modifier.fillMaxSize()
+                SolidNavRail(
+                    currentDestination = currentDestination,
+                    activeAlertsCount = activeAlertsCount,
+                    onSelect = { currentDestination = it }
                 )
-            }
 
-            if (isWideScreen) {
-                // Wide screens (tablets, foldables unfolded): floating
-                // vertical pill rail, detached from the edges and centred,
-                // instead of a full-height opaque strip.
-                Row(
+                Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .nestedScroll(nestedScrollConnection)
+                        .weight(1f)
+                        .fillMaxHeight()
+                ) {
+                    ScreenContent(
+                        destination = currentDestination,
+                        viewModel = viewModel,
+                        weatherState = weatherState,
+                        isRefreshing = isRefreshing,
+                        selectedPlace = selectedPlace,
+                        loadError = loadError,
+                        savedPlaces = savedPlaces,
+                        useMetric = useMetric,
+                        tomorrowApiKey = tomorrowApiKey,
+                        selectedRadarLayer = selectedRadarLayer,
+                        currentRadarFrameIndex = currentRadarFrameIndex,
+                        isRadarPlaying = isRadarPlaying,
+                        onNavigate = { currentDestination = it },
+                        onEnterPiP = onEnterPiP
+                    )
+                }
+            }
+        } else {
+            // Compact screens (standard phones): content above a docked
+            // solid bottom bar. The screens reserve the bar's height in
+            // their own bottom content padding.
+            Column(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
                         .windowInsetsPadding(
                             WindowInsets.safeDrawing.only(
                                 WindowInsetsSides.Top + WindowInsetsSides.Horizontal
                             )
                         )
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .width(AuraBars.railWidth + 16.dp)
-                            .fillMaxHeight(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        FloatingNavRail(
-                            currentDestination = currentDestination,
-                            activeAlertsCount = activeAlertsCount,
-                            isExpressive = isExpressive,
-                            shadowColor = shadowTint,
-                            onSelect = { currentDestination = it }
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                    ) {
-                        ScreenContent(
-                            destination = currentDestination,
-                            viewModel = viewModel,
-                            weatherState = weatherState,
-                            isRefreshing = isRefreshing,
-                            selectedPlace = selectedPlace,
-                            loadError = loadError,
-                            savedPlaces = savedPlaces,
-                            useMetric = useMetric,
-                            paletteMode = paletteMode,
-                            themeMode = themeMode,
-                            tomorrowApiKey = tomorrowApiKey,
-                            selectedRadarLayer = selectedRadarLayer,
-                            currentRadarFrameIndex = currentRadarFrameIndex,
-                            isRadarPlaying = isRadarPlaying,
-                            onNavigate = { currentDestination = it },
-                            onEnterPiP = onEnterPiP
-                        )
-                    }
-                }
-            } else {
-                // Compact screens (standard phones): content scrolls
-                // edge-to-edge under a floating pill bar.
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .nestedScroll(nestedScrollConnection)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .windowInsetsPadding(
-                                WindowInsets.safeDrawing.only(
-                                    WindowInsetsSides.Top + WindowInsetsSides.Horizontal
-                                )
-                            )
-                    ) {
-                        ScreenContent(
-                            destination = currentDestination,
-                            viewModel = viewModel,
-                            weatherState = weatherState,
-                            isRefreshing = isRefreshing,
-                            selectedPlace = selectedPlace,
-                            loadError = loadError,
-                            savedPlaces = savedPlaces,
-                            useMetric = useMetric,
-                            paletteMode = paletteMode,
-                            themeMode = themeMode,
-                            tomorrowApiKey = tomorrowApiKey,
-                            selectedRadarLayer = selectedRadarLayer,
-                            currentRadarFrameIndex = currentRadarFrameIndex,
-                            isRadarPlaying = isRadarPlaying,
-                            onNavigate = { currentDestination = it },
-                            onEnterPiP = onEnterPiP
-                        )
-                    }
-
-                    FloatingNavBar(
-                        currentDestination = currentDestination,
-                        activeAlertsCount = activeAlertsCount,
-                        isExpressive = isExpressive,
-                        shadowColor = shadowTint,
-                        onSelect = { currentDestination = it },
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .padding(
-                                start = AuraBars.sideMargin,
-                                end = AuraBars.sideMargin,
-                                bottom = AuraBars.bottomMargin + bottomInset
-                            )
-                            .graphicsLayer { translationY = barOffsetY }
+                    ScreenContent(
+                        destination = currentDestination,
+                        viewModel = viewModel,
+                        weatherState = weatherState,
+                        isRefreshing = isRefreshing,
+                        selectedPlace = selectedPlace,
+                        loadError = loadError,
+                        savedPlaces = savedPlaces,
+                        useMetric = useMetric,
+                        tomorrowApiKey = tomorrowApiKey,
+                        selectedRadarLayer = selectedRadarLayer,
+                        currentRadarFrameIndex = currentRadarFrameIndex,
+                        isRadarPlaying = isRadarPlaying,
+                        onNavigate = { currentDestination = it },
+                        onEnterPiP = onEnterPiP
                     )
                 }
+
+                SolidNavBar(
+                    currentDestination = currentDestination,
+                    activeAlertsCount = activeAlertsCount,
+                    onSelect = { currentDestination = it }
+                )
             }
-            // Top fade: scrolled cards fade into the sky under the status
-            // bar instead of hard-clipping at the screen's top edge. Drawn
-            // after the content (so it sits over the scrolling cards) and
-            // above the top bar pill's own area.
-            val skyTopColor = remember(condition, isDaytime) {
-                AuraSky.gradientColors(condition, isDaytime).first()
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(36.dp)
-                    .align(Alignment.TopCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(skyTopColor, skyTopColor.copy(alpha = 0f))
-                        )
-                    )
-            )
         }
-    }
     }
 }
 
 /**
- * The floating phone navigation bar: one glass pill, 16dp side margins,
- * 12dp above the bottom gesture area, ~64dp tall, with the 5 destinations
- * as icon + label items inside it. The Alerts badge sits on the pill.
+ * The solid navy bottom bar: full-width, docked at the bottom, a 1dp
+ * lighter-blue top edge, ~64dp tall, with the 5 destinations as icon +
+ * label items inside it. The Alerts badge sits on the pill.
  */
 @Composable
-private fun FloatingNavBar(
+private fun SolidNavBar(
     currentDestination: ScreenDestination,
     activeAlertsCount: Int,
-    isExpressive: Boolean,
-    shadowColor: Color?,
     onSelect: (ScreenDestination) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    GlassSurface(
-        level = GlassLevel.Bar,
-        shape = AuraShapes.pill,
-        progressive = true,
-        progressiveEdge = ProgressiveEdge.Top,
-        shadowColor = shadowColor,
-        modifier = modifier.height(AuraBars.barHeight)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(RetroTokens.Panel)
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)
+            )
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(RetroTokens.Border)
+        )
         Row(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(AuraBars.barHeight),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -376,7 +218,6 @@ private fun FloatingNavBar(
                     } else {
                         null
                     },
-                    isExpressive = isExpressive,
                     onClick = { onSelect(destination) },
                     modifier = Modifier
                         .weight(1f)
@@ -389,24 +230,21 @@ private fun FloatingNavBar(
 }
 
 /**
- * The floating wide navigation rail: a vertical glass pill, detached from
- * the left edge and vertically centred, with the same 5 destinations and
- * the same badge as the phone bar.
+ * The solid navy wide navigation rail: a full-height strip on the left
+ * with the same 5 destinations and the same badge as the phone bar.
  */
 @Composable
-private fun FloatingNavRail(
+private fun SolidNavRail(
     currentDestination: ScreenDestination,
     activeAlertsCount: Int,
-    isExpressive: Boolean,
-    shadowColor: Color?,
     onSelect: (ScreenDestination) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    GlassSurface(
-        level = GlassLevel.Bar,
-        shape = AuraShapes.pill,
-        shadowColor = shadowColor,
-        modifier = modifier.width(AuraBars.railWidth)
+    Box(
+        modifier = modifier
+            .width(AuraBars.railWidth)
+            .fillMaxHeight()
+            .background(RetroTokens.Panel)
     ) {
         Column(
             modifier = Modifier
@@ -425,7 +263,6 @@ private fun FloatingNavRail(
                     } else {
                         null
                     },
-                    isExpressive = isExpressive,
                     onClick = { onSelect(destination) },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -433,6 +270,14 @@ private fun FloatingNavRail(
                 )
             }
         }
+        // 1dp lighter-blue right edge.
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .width(1.dp)
+                .background(RetroTokens.Border)
+        )
     }
 }
 
@@ -446,8 +291,6 @@ private fun ScreenContent(
     loadError: String?,
     savedPlaces: List<Place>,
     useMetric: Boolean,
-    paletteMode: String,
-    themeMode: String,
     tomorrowApiKey: String,
     selectedRadarLayer: RadarLayer,
     currentRadarFrameIndex: Int,
@@ -463,7 +306,6 @@ private fun ScreenContent(
             loadError = loadError,
             savedPlaces = savedPlaces,
             unitFormatter = viewModel.getUnitFormatter(),
-            paletteMode = paletteMode,
             onRefresh = { viewModel.refresh() },
             onSelectPlace = { viewModel.selectPlace(it) },
             onUseCurrentLocation = { viewModel.useCurrentLocation() },
@@ -473,21 +315,16 @@ private fun ScreenContent(
             onNavigateToSettings = { onNavigate(ScreenDestination.Settings) }
         )
 
-        ScreenDestination.Radar -> CompositionLocalProvider(LocalBackdropBlur provides null) {
-            // Radar's backdrop is the map, not the sky: its glass falls
-            // back to the stronger tint-only scrim (2.4b).
-            RadarScreen(
-                state = weatherState,
-                selectedLayer = selectedRadarLayer,
-                currentFrameIndex = currentRadarFrameIndex,
-                isPlaying = isRadarPlaying,
-                onSelectLayer = { viewModel.setRadarLayer(it) },
-                onTogglePlay = { viewModel.toggleRadarPlay() },
-                onScrubFrame = { viewModel.setRadarFrameIndex(it) },
-                onEnterPiP = onEnterPiP,
-                paletteMode = paletteMode
-            )
-        }
+        ScreenDestination.Radar -> RadarScreen(
+            state = weatherState,
+            selectedLayer = selectedRadarLayer,
+            currentFrameIndex = currentRadarFrameIndex,
+            isPlaying = isRadarPlaying,
+            onSelectLayer = { viewModel.setRadarLayer(it) },
+            onTogglePlay = { viewModel.toggleRadarPlay() },
+            onScrubFrame = { viewModel.setRadarFrameIndex(it) },
+            onEnterPiP = onEnterPiP
+        )
 
         ScreenDestination.Alerts -> AlertsScreen(
             alerts = weatherState?.activeAlerts ?: emptyList(),
@@ -504,21 +341,16 @@ private fun ScreenContent(
             AirSkyCompositeView(
                 weatherState = weatherState,
                 selectedPlace = selectedPlace,
-                paletteMode = paletteMode,
                 onNavigateToSettings = { onNavigate(ScreenDestination.Settings) }
             )
         }
 
         ScreenDestination.Settings -> SettingsScreen(
             useMetric = useMetric,
-            paletteMode = paletteMode,
-            themeMode = themeMode,
             tomorrowApiKey = tomorrowApiKey,
             savedPlaces = savedPlaces,
             selectedPlaceId = selectedPlace?.id,
             onSetUseMetric = { viewModel.setUseMetric(it) },
-            onSetPaletteMode = { viewModel.setPaletteMode(it) },
-            onSetThemeMode = { viewModel.setThemeMode(it) },
             onSaveTomorrowApiKey = { viewModel.setTomorrowApiKey(it) },
             onSelectPlace = { viewModel.selectPlace(it) },
             onAddPlace = { name, state, lat, lon -> viewModel.addPlace(name, state, lat, lon) }
@@ -530,7 +362,6 @@ private fun ScreenContent(
 private fun AirSkyCompositeView(
     weatherState: FullWeatherState?,
     selectedPlace: Place?,
-    paletteMode: String,
     onNavigateToSettings: () -> Unit
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(0) } // 0: Air & Pollen, 1: Sun & Moon
@@ -540,7 +371,6 @@ private fun AirSkyCompositeView(
             options = listOf("Air & Pollen", "Sun & Moon"),
             selectedIndex = selectedTab,
             onSelect = { selectedTab = it },
-            isExpressive = paletteMode == "expressive",
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)

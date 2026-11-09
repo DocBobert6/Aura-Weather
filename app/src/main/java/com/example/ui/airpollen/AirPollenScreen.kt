@@ -45,10 +45,10 @@ import com.example.domain.model.AirQuality
 import com.example.domain.model.PollenData
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
-import com.example.ui.designsystem.LocalSkyHeaderColor
 import com.example.ui.designsystem.AuraShapes
-import com.example.ui.designsystem.GlassLevel
-import com.example.ui.designsystem.GlassSurface
+import com.example.ui.designsystem.RetroPanel
+import com.example.ui.designsystem.RetroShapes
+import com.example.ui.designsystem.RetroTokens
 
 @Composable
 fun AirPollenScreen(
@@ -84,7 +84,7 @@ fun AirPollenScreen(
                     text = "AIR QUALITY & POLLEN",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = LocalSkyHeaderColor.current
+                    color = RetroTokens.TextPrimary
                 )
                 Text(
                     text = "Open-Meteo Air Quality",
@@ -96,7 +96,7 @@ fun AirPollenScreen(
 
         // AQI Dial Card
         item {
-            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -212,7 +212,7 @@ fun AirPollenScreen(
                 text = "POLLUTANT CONCENTRATION",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = LocalSkyHeaderColor.current.copy(alpha = 0.7f)
+                color = RetroTokens.TextSecondary
             )
         }
 
@@ -254,12 +254,12 @@ fun AirPollenScreen(
                 text = "POLLEN",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = LocalSkyHeaderColor.current.copy(alpha = 0.7f)
+                color = RetroTokens.TextSecondary
             )
         }
 
         item {
-            GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = Modifier.fillMaxWidth()) {
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -344,7 +344,7 @@ private fun PollutantCard(
     status: String,
     modifier: Modifier = Modifier
 ) {
-    GlassSurface(level = GlassLevel.Card, shape = AuraShapes.medium, modifier = modifier) {
+    RetroPanel(shape = RetroShapes.medium, modifier = modifier) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
                 text = title,

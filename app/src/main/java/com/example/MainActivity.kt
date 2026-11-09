@@ -8,12 +8,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.domain.model.WeatherCondition
 import com.example.ui.WeatherViewModel
 import com.example.ui.navigation.WeatherNavDisplay
 import com.example.ui.theme.AuraWeatherTheme
@@ -40,35 +38,19 @@ class MainActivity : ComponentActivity() {
             val loadError by viewModel.loadError.collectAsStateWithLifecycle()
             val savedPlaces by viewModel.savedPlaces.collectAsStateWithLifecycle()
             val useMetric by viewModel.useMetric.collectAsStateWithLifecycle()
-            val paletteMode by viewModel.paletteMode.collectAsStateWithLifecycle()
-            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
             val selectedRadarLayer by viewModel.selectedRadarLayer.collectAsStateWithLifecycle()
             val currentRadarFrameIndex by viewModel.currentRadarFrameIndex.collectAsStateWithLifecycle()
             val isRadarPlaying by viewModel.isRadarPlaying.collectAsStateWithLifecycle()
             val tomorrowApiKey by viewModel.tomorrowApiKey.collectAsStateWithLifecycle()
 
-            val condition = weatherState?.current?.condition ?: WeatherCondition.ClearDay
-            val isDaytime = weatherState?.solar?.isDaytime ?: true
-
-            // "auto" follows the system; "dark"/"light" force the 2.2 schemes.
-            val darkTheme = when (themeMode) {
-                "dark" -> true
-                "light" -> false
-                else -> isSystemInDarkTheme()
-            }
-            // Status-bar icons must follow the theme: enableEdgeToEdge
-            // alone leaves dark icons on a dark sky in dark mode.
+            // The app is always the dark navy retro look, so status-bar
+            // icons are always light (isAppearanceLightStatusBars = false).
             SideEffect {
                 WindowCompat.getInsetsController(window, window.decorView)
-                    .isAppearanceLightStatusBars = !darkTheme
+                    .isAppearanceLightStatusBars = false
             }
 
-            AuraWeatherTheme(
-                paletteMode = paletteMode,
-                condition = condition,
-                isDaytime = isDaytime,
-                darkTheme = darkTheme,
-            ) {
+            AuraWeatherTheme {
                 WeatherNavDisplay(
                     viewModel = viewModel,
                     weatherState = weatherState,
@@ -77,8 +59,6 @@ class MainActivity : ComponentActivity() {
                     loadError = loadError,
                     savedPlaces = savedPlaces,
                     useMetric = useMetric,
-                    paletteMode = paletteMode,
-                    themeMode = themeMode,
                     tomorrowApiKey = tomorrowApiKey,
                     selectedRadarLayer = selectedRadarLayer,
                     currentRadarFrameIndex = currentRadarFrameIndex,
