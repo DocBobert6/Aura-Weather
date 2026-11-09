@@ -8,15 +8,22 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.music.BackgroundMusicPlayer
 import com.example.ui.WeatherViewModel
 import com.example.ui.navigation.WeatherNavDisplay
 import com.example.ui.theme.AuraWeatherTheme
 
 class MainActivity : ComponentActivity() {
+
+    // Background music: owned by the Activity (never by a composable, so
+    // it survives recomposition). Foreground-only — no service, no
+    // notification, no background playback.
+    private val musicPlayer by lazy { BackgroundMusicPlayer(this) }
 
     private val viewModel: WeatherViewModel by viewModels {
         val app = application as AuraWeatherApp
@@ -43,6 +50,13 @@ class MainActivity : ComponentActivity() {
             val isRadarPlaying by viewModel.isRadarPlaying.collectAsStateWithLifecycle()
             val tomorrowApiKey by viewModel.tomorrowApiKey.collectAsStateWithLifecycle()
             val regionalPoints by viewModel.regionalPoints.collectAsStateWithLifecycle()
+            val musicEnabled by viewModel.musicEnabled.collectAsStateWithLifecycle()
+
+            // The Home music toggle is the master switch: flip the player
+            // on/off. The player itself gates on the foreground state.
+            LaunchedEffect(musicEnabled) {
+                musicPlayer.setEnabled(musicEnabled)
+            }
 
             // The app is always the dark navy retro look, so status-bar
             // icons are always light (isAppearanceLightStatusBars = false).
@@ -65,10 +79,27 @@ class MainActivity : ComponentActivity() {
                     currentRadarFrameIndex = currentRadarFrameIndex,
                     isRadarPlaying = isRadarPlaying,
                     onEnterPiP = { enterRadarPictureInPicture() },
-                    regionalPoints = regionalPoints
+                    regionalPoints = regionalPoints,
+                    musicEnabled = musicEnabled,
+                    onToggleMusic = { viewModel.setMusicEnabled(!musicEnabled) }
                 )
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        musicPlayer.onForeground()
+    }
+
+    override fun onStop() {
+        musicPlayer.onBackground()
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        musicPlayer.release()
+        super.onDestroy()
     }
 
     private fun enterRadarPictureInPicture() {

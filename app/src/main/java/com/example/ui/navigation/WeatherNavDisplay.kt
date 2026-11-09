@@ -97,6 +97,8 @@ fun WeatherNavDisplay(
     isRadarPlaying: Boolean,
     onEnterPiP: () -> Unit,
     regionalPoints: List<RegionalPoint> = emptyList(),
+    musicEnabled: Boolean = false,
+    onToggleMusic: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var currentDestination by rememberSaveable { mutableStateOf(ScreenDestination.Home) }
@@ -561,7 +563,9 @@ private fun ScreenContent(
             onNavigateToSunMoon = { onNavigate(ScreenDestination.AirSky) },
             onNavigateToSettings = { onNavigate(ScreenDestination.Settings) },
             tickerVisible = tickerVisible,
-            regionalPoints = regionalPoints
+            regionalPoints = regionalPoints,
+            musicEnabled = musicEnabled,
+            onToggleMusic = onToggleMusic
         )
 
         ScreenDestination.Radar -> RadarScreen(

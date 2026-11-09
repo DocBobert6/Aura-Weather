@@ -19,6 +19,7 @@ class SettingsManager(private val context: Context) {
         val KEY_SELECTED_PLACE_ID = stringPreferencesKey("selected_place_id")
         val KEY_TOMORROW_API_KEY = stringPreferencesKey("tomorrow_api_key")
         val KEY_AIRNOW_API_KEY = stringPreferencesKey("airnow_api_key")
+        val KEY_MUSIC_ENABLED = booleanPreferencesKey("music_enabled")
     }
 
     val useMetricFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -37,6 +38,11 @@ class SettingsManager(private val context: Context) {
 
     val airNowApiKeyFlow: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[KEY_AIRNOW_API_KEY] ?: ""
+    }
+
+    // Background music (Home toggle): off by default, remembered across launches.
+    val musicEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_MUSIC_ENABLED] ?: false
     }
 
     suspend fun setUseMetric(useMetric: Boolean) {
@@ -60,6 +66,12 @@ class SettingsManager(private val context: Context) {
     suspend fun setAirNowApiKey(key: String) {
         context.dataStore.edit { preferences ->
             preferences[KEY_AIRNOW_API_KEY] = key
+        }
+    }
+
+    suspend fun setMusicEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_MUSIC_ENABLED] = enabled
         }
     }
 }

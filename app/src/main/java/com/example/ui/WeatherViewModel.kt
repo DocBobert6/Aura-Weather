@@ -56,6 +56,10 @@ class WeatherViewModel(
     val tomorrowApiKey: StateFlow<String> = settingsManager.tomorrowApiKeyFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
+    /** Background music toggle (Home screen): off by default. */
+    val musicEnabled: StateFlow<Boolean> = settingsManager.musicEnabledFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     private val _selectedRadarLayer = MutableStateFlow(RadarLayer.Reflectivity)
     val selectedRadarLayer = _selectedRadarLayer.asStateFlow()
 
@@ -168,6 +172,12 @@ class WeatherViewModel(
         viewModelScope.launch {
             settingsManager.setTomorrowApiKey(key.trim())
             refresh()
+        }
+    }
+
+    fun setMusicEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsManager.setMusicEnabled(enabled)
         }
     }
 

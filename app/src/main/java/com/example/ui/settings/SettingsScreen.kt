@@ -391,6 +391,7 @@ fun SettingsScreen(
                     AttributionRow("Radar Basemap", "Esri World Dark Gray Base")
                     AttributionRow("Satellite Imagery", "NASA GIBS (EOSDIS) GOES-East ABI")
                     AttributionRow("Display Font", "Star4000 Large/Small by Nick Smith (twcclassics.com), via the MIT-licensed ws4kp project")
+                    AttributionRow("Background Music", "WeatherStar-inspired tracks from the ws4kp project (netbymatt/ws4kp), AI-generated and unencumbered by copyright")
                 }
             }
         }
