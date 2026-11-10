@@ -567,6 +567,12 @@ class WeatherRepository(
             settingsManager.setAirNowWorking(airNowWorked)
         }
 
+        // The minute-cast starts as the Open-Meteo 15-minute
+        // interpolation; Pirate Weather (below) and then Tomorrow.io
+        // replace it when their key delivers real 1-minute data.
+        var minutely = omMinutely
+        var minuteSentence = omMinuteSentence
+
         // --- Pirate Weather: true 1-minute precipitation.
         // First-choice minute-cast source when a key is set: one call
         // per refresh, 60 minutes of 1-minute data. Free tier is
@@ -623,8 +629,6 @@ class WeatherRepository(
         // records whether the key actually delivered usable data, so
         // the Settings "KEY ACTIVE" pill is honest.
         val tomorrowKey = settingsManager.tomorrowApiKeyFlow.first()
-        var minutely = omMinutely
-        var minuteSentence = omMinuteSentence
         var pollen = PollenData(
             treeIndex = null,
             grassIndex = null,
