@@ -95,29 +95,24 @@ fun radarPrefetchUrls(
 }
 
 // ---------------------------------------------------------------------------
-// Radar ranges (Build B): past 24/48/72h from the archived NEXRAD mosaic
-// and future 24/48h from HRRR simulated reflectivity, both served by the
-// same IEM tile service the live loop already uses.
+// Radar ranges (Build B): future 24/48h from HRRR simulated reflectivity,
+// served by the same IEM tile service the live loop already uses.
+// The past 24/48/72h ranges were removed at Robert's direction
+// (2026-11-09); only LIVE and the two future ranges remain.
 // ---------------------------------------------------------------------------
 
 /** A radar time range the loop can show. Forecast ranges are model output. */
 enum class RadarRange(val title: String, val isForecast: Boolean) {
     Live("LIVE", false),
-    Past24h("PAST 24H", false),
-    Past48h("PAST 48H", false),
-    Past72h("PAST 72H", false),
     Future24h("FUTURE 24H", true),
     Future48h("FUTURE 48H", true);
 
-    /** Short label for the segmented control: six options share one row,
-     * so the full titles ("FUTURE 24H") would clip. "24H AGO" / "IN 24H"
-     * still say which direction and how far. */
+    /** Short label for the segmented control: three options share one
+     * row, so the full titles ("FUTURE 24H") would clip. "IN 24H" /
+     * "IN 48H" still say how far ahead. */
     val shortTitle: String
         get() = when (this) {
             Live -> "LIVE"
-            Past24h -> "24H AGO"
-            Past48h -> "48H AGO"
-            Past72h -> "72H AGO"
             Future24h -> "IN 24H"
             Future48h -> "IN 48H"
         }
@@ -132,29 +127,17 @@ private val iemTimeFormat: DateTimeFormatter =
 
 fun iemTimestamp(instant: Instant): String = iemTimeFormat.format(instant)
 
-/**
- * Archived NEXRAD mosaic layer for a valid time. The mosaic is produced
- * every 5 minutes, so the time must already be on a 5-minute boundary
- * (pastFrames rounds the reference down to one). Verified live: a tile
- * for ridge::USCOMP-N0Q-202611100040 returned HTTP 200, a valid
- * 256x256 PNG (368 bytes, clear sky over Crittenden KY at zoom 8).
- */
-fun pastMosaicLayerName(validTime: Instant): String =
-    "ridge::USCOMP-N0Q-${iemTimestamp(validTime)}"
 
 /**
  * HRRR simulated-reflectivity layer. FXXXX is the FORECAST MINUTE
  * (not hour): F000 is the analysis, F360 is 6 hours out, F2880 is
  * 48 hours out. The run time is the HRRR initialisation (hourly).
  *
- * VERIFICATION CAVEAT (2026-11-09): the layer name parses correctly
- * (the tile service builds the right WMS request), but the IEM HRRR
- * backend returns HTTP 503 for every run/forecast-minute tried
- * (latest + archived runs back to 3 days, F000/F006/F060/F360) — the
- * WMS reports the raster file "corrupt, empty or missing". So the
- * future ranges are built on the documented format but their tiles
- * could NOT be confirmed live; they may render blank until the IEM
- * HRRR backend recovers.
+ * The IEM HRRR backend was down on 2026-11-09 (HTTP 503 for every
+ * run/forecast-minute tried), so the future ranges could not be
+ * confirmed live then. It has since recovered: probed live on
+ * 2026-11-10, the latest run at F000 and F060 both returned HTTP 200
+ * with a valid PNG tile, so the future radar works.
  */
 fun hrrrLayerName(runTime: Instant, forecastMinutes: Int): String {
     val f = forecastMinutes.toString().padStart(4, '0')
@@ -183,12 +166,11 @@ fun radarFrameLabel(validTime: Instant, now: Instant): String {
  * The frames for a range, oldest first, ending at (past/live) or
  * starting from (future) the present.
  *
- * Sampling (per the audit brief): past 24h every 30 min (49 frames),
- * past 48/72h every 60 min (49 / 73 frames). Future: HRRR steps every
- * 15 min for the first 18h from the run, then hourly — so Future 24h
- * is ~75 frames and Future 48h ~99. The loop is a scrubber, not a
- * prefetch-everything list: only the current frame's tiles are
- * prefetched for ranges (see radarFrameUrls), the rest load on demand.
+ * Future: HRRR steps every 15 min for the first 18h from the run,
+ * then hourly — so Future 24h is ~75 frames and Future 48h ~99.
+ * The loop is a scrubber, not a prefetch-everything list: only the
+ * current frame's tiles are prefetched for ranges (see
+ * radarFrameUrls), the rest load on demand.
  *
  * Future 72h is NOT offered: HRRR caps at 48h from the run.
  */
@@ -202,26 +184,11 @@ fun radarRangeFrames(range: RadarRange, now: Instant): List<RadarFrame> {
                 RadarFrame(validTime, iemLayerNameFor(i), label)
             }
         }
-        RadarRange.Past24h -> pastFrames(now, hours = 24, stepMinutes = 30)
-        RadarRange.Past48h -> pastFrames(now, hours = 48, stepMinutes = 60)
-        RadarRange.Past72h -> pastFrames(now, hours = 72, stepMinutes = 60)
         RadarRange.Future24h -> futureFrames(now, hours = 24)
         RadarRange.Future48h -> futureFrames(now, hours = 48)
     }
 }
 
-private fun pastFrames(now: Instant, hours: Int, stepMinutes: Int): List<RadarFrame> {
-    // Reference = now rounded down to the 5-minute mosaic grid.
-    val refMin = (now.epochSecond / 60 / 5) * 5
-    val ref = Instant.ofEpochSecond(refMin * 60)
-    val totalMin = hours * 60
-    val count = totalMin / stepMinutes + 1
-    return (0 until count).map { k ->
-        val validTime = ref.minusSeconds((totalMin - k * stepMinutes) * 60L)
-        val label = if (k == count - 1) "NOW" else radarFrameLabel(validTime, ref)
-        RadarFrame(validTime, pastMosaicLayerName(validTime), label)
-    }
-}
 
 private fun futureFrames(now: Instant, hours: Int): List<RadarFrame> {
     // HRRR run: the latest hourly run, allowing ~1h for publish.

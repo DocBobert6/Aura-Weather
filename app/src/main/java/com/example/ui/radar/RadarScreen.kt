@@ -613,20 +613,34 @@ fun RadarScreen(
                 }
             }
 
-            // Clear-air speckle: the lightest echoes can be insects or
-            // ground clutter, not rain. The tiles are pre-rendered, so
-            // labelling (not filtering) is what the app can do. Forecast
-            // ranges show simulated reflectivity instead.
-            Text(
-                text = if (isForecastRange) {
-                    "Simulated reflectivity from the HRRR model — a forecast, not observed radar."
-                } else {
-                    "Lightest echoes can be clear-air returns, not rain."
-                },
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = RetroTokens.TextSecondary,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
+            // Forecast ranges are model output: a short one-line caption
+            // on a solid panel (like the dBZ legend bar), so it never
+            // wraps with an orphaned word or collides with map labels.
+            // The live clear-air caption stays a plain line.
+            if (isForecastRange) {
+                RetroPanel(shape = RetroShapes.medium) {
+                    Text(
+                        text = "SIMULATED RADAR - HRRR FORECAST, NOT OBSERVED",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = RetroTokens.HeaderOrange,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                // Clear-air speckle: the lightest echoes can be insects or
+                // ground clutter, not rain. The tiles are pre-rendered, so
+                // labelling (not filtering) is what the app can do.
+                Text(
+                    text = "Lightest echoes can be clear-air returns, not rain.",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                    color = RetroTokens.TextSecondary,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
 
             // Classic transport pill: play/pause + frame scrubber inside
             // the pill. The frame label lives in the top pill now.
