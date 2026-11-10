@@ -1,6 +1,7 @@
 package com.example.data.mapper
 
 import com.example.domain.model.AirQuality
+import com.example.domain.model.PollenData
 import com.example.domain.model.AlertSeverity
 import com.example.domain.model.GeoPoint
 import com.example.domain.model.MinutePrecip
@@ -12,6 +13,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import java.security.MessageDigest
 import kotlin.math.roundToInt
@@ -126,6 +128,17 @@ fun stableAlertId(event: String?, areaDesc: String?, effective: Instant): String
  * converts to this plain type first. Keeping the mapping pure and
  * Moshi-free is what lets the unit tests cover it. */
 data class AirNowReading(val parameterName: String?, val aqi: Int?)
+
+/** One Tomorrow.io Timelines "1m" interval, stripped to what the
+ * minute-cast mapping needs (time + intensity + probability). The
+ * Retrofit model (TomorrowInterval, Moshi-annotated) lives in data.api
+ * and cannot be compiled into the pure tests (no Moshi jar on that
+ * classpath), so the repository converts to this plain type first. */
+data class TomorrowMinutePoint(
+    val time: Instant,
+    val mmPerHour: Double?,
+    val probabilityPct: Int?
+)
 
 object WeatherMappers {
 
@@ -360,6 +373,67 @@ object WeatherMappers {
             dominant = dominant,
             source = "AirNow",
             healthGuidance = guidance
+        )
+    }
+
+    /**
+     * Tomorrow.io "1m" timeline intervals -> a 60-minute minute-cast.
+     * Anchors on the current minute and builds one MinutePrecip per
+     * minute (0..59); a missing interval carries the last known rate
+     * forward, exactly like the 15-minute interpolation. The sentence
+     * is the same nowcast sentence the interpolated path uses, so the
+     * Home minute-cast reads identically — only the data is real.
+     * An empty interval list means the "1m" timeline was unavailable
+     * (Enterprise on a free key): the caller keeps the interpolated
+     * fallback instead of using this.
+     */
+    fun mapTomorrowMinutely(
+        points: List<TomorrowMinutePoint>,
+        now: Instant,
+        zoneId: ZoneId
+    ): Pair<List<MinutePrecip>, String> {
+        if (points.isEmpty()) {
+            return Pair(emptyList(), "Minutely precipitation is unavailable right now.")
+        }
+        val anchor = now.truncatedTo(ChronoUnit.MINUTES)
+        val byOffset = points.mapNotNull { p ->
+            val offset = ChronoUnit.MINUTES.between(anchor, p.time).toInt()
+            if (offset in 0..59) offset to p else null
+        }.toMap()
+        val minutePoints = mutableListOf<MinutePrecip>()
+        var lastMm = 0.0
+        var lastProb: Int? = null
+        for (m in 0 until 60) {
+            val p = byOffset[m]
+            if (p != null) {
+                lastMm = p.mmPerHour ?: lastMm
+                lastProb = p.probabilityPct ?: lastProb
+            }
+            minutePoints += MinutePrecip(
+                time = anchor.plus(m.toLong(), ChronoUnit.MINUTES),
+                mmPerHour = lastMm,
+                probabilityPct = lastProb
+            )
+        }
+        return Pair(minutePoints, generateNowcastSentence(minutePoints, now, zoneId))
+    }
+
+    /** Tomorrow.io pollen indices -> PollenData. hasKey is true when a
+     * Tomorrow.io key is configured (the repository passes it), so the
+     * Air & Pollen screen shows the gauges; a missing index stays null
+     * and renders "--" rather than an invented value. */
+    fun mapTomorrowPollen(
+        treeIndex: Int?,
+        grassIndex: Int?,
+        weedIndex: Int?,
+        hasKey: Boolean
+    ): PollenData {
+        return PollenData(
+            treeIndex = treeIndex,
+            grassIndex = grassIndex,
+            weedIndex = weedIndex,
+            source = "Tomorrow.io",
+            hasKey = hasKey
         )
     }
 

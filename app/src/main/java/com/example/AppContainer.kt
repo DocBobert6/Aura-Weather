@@ -4,6 +4,7 @@ import android.content.Context
 import com.example.core.HttpClients
 import com.example.core.ProviderEndpoints
 import com.example.data.api.AirNowApi
+import com.example.data.api.TomorrowApi
 import com.example.data.api.NwsApi
 import com.example.data.api.OpenMeteoAirQualityApi
 import com.example.data.api.OpenMeteoWeatherApi
@@ -61,6 +62,16 @@ class AppContainer(private val context: Context) {
             .build()
     }
 
+    // Tomorrow.io gets the plain client (no NWS headers — it is not
+    // an NWS endpoint, and its key travels as a query parameter).
+    private val tomorrowRetrofit: Retrofit by lazy {
+        Retrofit.Builder()
+            .baseUrl(ProviderEndpoints.TOMORROW_BASE_URL)
+            .client(plainOkHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+    }
+
     // AirNow gets the plain client (no NWS headers — it is not an NWS
     // endpoint, and its key travels as a query parameter, not a header).
     private val airNowRetrofit: Retrofit by lazy {
@@ -87,6 +98,10 @@ class AppContainer(private val context: Context) {
         airNowRetrofit.create(AirNowApi::class.java)
     }
 
+    val tomorrowApi: TomorrowApi by lazy {
+        tomorrowRetrofit.create(TomorrowApi::class.java)
+    }
+
     val database: WeatherDatabase by lazy {
         WeatherDatabase.getInstance(context)
     }
@@ -105,6 +120,7 @@ class AppContainer(private val context: Context) {
             openMeteoWeatherApi = openMeteoWeatherApi,
             openMeteoAirQualityApi = openMeteoAirQualityApi,
             airNowApi = airNowApi,
+            tomorrowApi = tomorrowApi,
             settingsManager = settingsManager,
             weatherCacheDao = database.weatherCacheDao(),
             savedPlaceDao = database.savedPlaceDao()

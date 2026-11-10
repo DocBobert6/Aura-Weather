@@ -59,6 +59,11 @@ class WeatherViewModel(
     val tomorrowApiKey: StateFlow<String> = settingsManager.tomorrowApiKeyFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
+    /** Tomorrow.io "KEY ACTIVE" pill: true only after the client has
+     * actually fetched usable data with the stored key. */
+    val tomorrowWorking: StateFlow<Boolean> = settingsManager.tomorrowWorkingFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     val airNowApiKey: StateFlow<String> = settingsManager.airNowApiKeyFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 

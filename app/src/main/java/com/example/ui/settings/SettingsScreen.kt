@@ -69,6 +69,7 @@ import com.example.ui.designsystem.RetroTokens
 fun SettingsScreen(
     useMetric: Boolean,
     tomorrowApiKey: String,
+    tomorrowWorking: Boolean = false,
     airNowApiKey: String,
     savedPlaces: List<Place>,
     selectedPlaceId: String?,
@@ -357,7 +358,7 @@ fun SettingsScreen(
                             )
                         }
 
-                        if (tomorrowApiKey.isNotBlank()) {
+                        if (tomorrowApiKey.isNotBlank() && tomorrowWorking) {
                             Surface(
                                 color = RetroTokens.Yellow,
                                 shape = AuraShapes.pill
@@ -376,7 +377,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "A Tomorrow.io key is stored here for a future update. It does not unlock anything today: 1-minute precipitation and live pollen are not connected yet, so no live values are shown with or without a key. Core weather works keyless.",
+                        text = "A Tomorrow.io key turns on live pollen (tree, grass, weed) and 1-minute precipitation for the minute-cast when your plan provides it. Without a key, pollen stays empty and the minute-cast uses the 15-minute Open-Meteo interpolation. The \"KEY ACTIVE\" pill appears only once the app has actually fetched with your key. Core weather works keyless.",
                         style = MaterialTheme.typography.bodySmall,
                         color = RetroTokens.TextSecondary
                     )

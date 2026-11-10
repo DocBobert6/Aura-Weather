@@ -2,6 +2,7 @@ package com.example
 
 import com.example.core.UnitFormatter
 import com.example.data.mapper.AirNowReading
+import com.example.data.mapper.TomorrowMinutePoint
 import com.example.data.mapper.WeatherMappers
 import com.example.data.mapper.destinationPoint
 import com.example.data.mapper.distanceMeters
@@ -357,6 +358,71 @@ class AuraWeatherUnitTest {
         assertEquals("2026-11-09T11:40:00Z", gibsTimestamp(Instant.parse("2026-11-09T12:40:00Z")))
         assertEquals("2026-11-09T11:30:00Z", gibsTimestamp(Instant.parse("2026-11-09T12:39:59Z")))
         assertEquals("2026-11-08T23:00:00Z", gibsTimestamp(Instant.parse("2026-11-09T00:04:59Z")))
+    }
+
+    @Test
+    fun testMapTomorrowMinutely_buildsSixtyPointsAndSentence() {
+        // 1-minute intervals, dry then a rain band from minute 20.
+        val now = Instant.parse("2026-11-09T12:00:00Z")
+        val zone = ZoneId.of("America/New_York")
+        val points = (0 until 60).map { m ->
+            val mm = if (m >= 20 && m < 40) 2.5 else 0.0
+            val prob = if (m >= 20 && m < 40) 80 else 0
+            TomorrowMinutePoint(now.plusSeconds(m.toLong() * 60), mm, prob)
+        }
+        val (minutely, sentence) = WeatherMappers.mapTomorrowMinutely(points, now, zone)
+        assertEquals(60, minutely.size)
+        assertEquals(0.0, minutely[0].mmPerHour, 0.001)
+        assertEquals(2.5, minutely[25].mmPerHour, 0.001)
+        assertEquals(80, minutely[25].probabilityPct)
+        assertEquals(0.0, minutely[50].mmPerHour, 0.001)
+        assertTrue("Sentence must describe the rain", sentence.contains("rain", ignoreCase = true))
+    }
+
+    @Test
+    fun testMapTomorrowMinutely_emptyListIsUnavailable() {
+        val now = Instant.parse("2026-11-09T12:00:00Z")
+        val (minutely, sentence) = WeatherMappers.mapTomorrowMinutely(
+            emptyList(), now, ZoneId.of("America/New_York")
+        )
+        assertTrue(minutely.isEmpty())
+        assertTrue(sentence.contains("unavailable", ignoreCase = true))
+    }
+
+    @Test
+    fun testMapTomorrowMinutely_missingMinutesCarryForward() {
+        // Only minutes 0 and 30 present; the gap carries minute 0's rate.
+        val now = Instant.parse("2026-11-09T12:00:00Z")
+        val points = listOf(
+            TomorrowMinutePoint(now, 1.0, 50),
+            TomorrowMinutePoint(now.plusSeconds(30 * 60), 3.0, 90)
+        )
+        val (minutely, _) = WeatherMappers.mapTomorrowMinutely(
+            points, now, ZoneId.of("America/New_York")
+        )
+        assertEquals(60, minutely.size)
+        assertEquals(1.0, minutely[15].mmPerHour, 0.001)
+        assertEquals(3.0, minutely[45].mmPerHour, 0.001)
+    }
+
+    @Test
+    fun testMapTomorrowPollen_keepsIndicesAndKeyFlag() {
+        val pollen = WeatherMappers.mapTomorrowPollen(2, 1, 0, true)
+        assertEquals(2, pollen.treeIndex)
+        assertEquals(1, pollen.grassIndex)
+        assertEquals(0, pollen.weedIndex)
+        assertEquals("Tomorrow.io", pollen.source)
+        assertTrue(pollen.hasKey)
+    }
+
+    @Test
+    fun testMapTomorrowPollen_nullIndicesStayNull() {
+        // A key with no pollen data is not invented: indices stay null.
+        val pollen = WeatherMappers.mapTomorrowPollen(null, null, null, true)
+        assertNull(pollen.treeIndex)
+        assertNull(pollen.grassIndex)
+        assertNull(pollen.weedIndex)
+        assertTrue(pollen.hasKey)
     }
 
     @Test

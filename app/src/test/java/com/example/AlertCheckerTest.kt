@@ -17,6 +17,8 @@ import com.example.data.api.OpenMeteoAirQualityApi
 import com.example.data.api.OpenMeteoAirQualityResponse
 import com.example.data.api.OpenMeteoWeatherApi
 import com.example.data.api.OpenMeteoWeatherResponse
+import com.example.data.api.TomorrowApi
+import com.example.data.api.TomorrowTimelinesResponse
 import com.example.data.db.SavedPlaceEntity
 import com.example.data.db.WeatherDatabase
 import com.example.data.settings.SettingsManager
@@ -124,6 +126,16 @@ class AlertCheckerTest {
         ): List<AirNowObservation> = emptyList()
     }
 
+    // Tomorrow.io is not used by the checker test (alerts only): the
+    // stub returns no timelines, so the minute-cast stays the
+    // Open-Meteo interpolation and pollen stays empty.
+    private val stubTomorrow = object : TomorrowApi {
+        override suspend fun getTimelines(
+            location: String, fields: String, timesteps: String, units: String,
+            startTime: String, endTime: String, apiKey: String
+        ): TomorrowTimelinesResponse = TomorrowTimelinesResponse(data = null)
+    }
+
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -135,6 +147,7 @@ class AlertCheckerTest {
             openMeteoWeatherApi = stubOpenMeteo,
             openMeteoAirQualityApi = stubAirQuality,
             airNowApi = stubAirNow,
+            tomorrowApi = stubTomorrow,
             settingsManager = SettingsManager(context),
             weatherCacheDao = db.weatherCacheDao(),
             savedPlaceDao = db.savedPlaceDao()
