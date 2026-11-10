@@ -10,8 +10,8 @@ import java.time.Instant
  * and the worker calls it through [AlertCheckWorker].
  *
  * The minute-cast is the same data the Home "Next 60 minutes" card shows:
- * Rainbow 1-minute points when a key is set, else Tomorrow.io 1-minute
- * when the plan provides it, else Open-Meteo 15-minute interpolation.
+ * Tomorrow.io 1-minute when the plan provides it, else Open-Meteo
+ * 15-minute interpolation.
  * The resolution does not matter here — every comparison is on the
  * point's *time*, never its index.
  *

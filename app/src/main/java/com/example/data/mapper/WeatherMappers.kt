@@ -232,19 +232,6 @@ data class TomorrowMinutePoint(
     val probabilityPct: Int?
 )
 
-/** One Rainbow Nowcast forecast minute, stripped to what the
- * minute-cast mapping needs (time + intensity + probability). The
- * Retrofit model (RainbowForecastPoint, Moshi-annotated) lives in
- * data.api and cannot be compiled into the pure tests (no Moshi jar
- * on that classpath), so the repository converts to this plain type
- * first. Rainbow probability is a 0-1 fraction; the repository
- * converts it to a 0-100 percent before building this. */
-data class RainbowMinutePoint(
-    val time: Instant,
-    val mmPerHour: Double?,
-    val probabilityPct: Int?
-)
-
 object WeatherMappers {
 
     fun mapWmoCodeToCondition(code: Int?, isDaytime: Boolean = true): WeatherCondition {
@@ -521,26 +508,6 @@ object WeatherMappers {
             )
         }
         return Pair(minutePoints, generateNowcastSentence(minutePoints, now, zoneId))
-    }
-
-    /**
-     * Rainbow Nowcast minutes -> a 60-minute minute-cast. The Rainbow
-     * forecast runs up to 4 hours at 1-minute resolution; the
-     * minute-cast takes the first 60 minutes, exactly like the
-     * Tomorrow.io path (missing minutes carry the last known rate
-     * forward). Delegates to mapTomorrowMinutely so the curve and the
-     * sentence are identical — only the source differs.
-     */
-    fun mapRainbowMinutely(
-        points: List<RainbowMinutePoint>,
-        now: Instant,
-        zoneId: ZoneId
-    ): Pair<List<MinutePrecip>, String> {
-        if (points.isEmpty()) {
-            return Pair(emptyList(), "Minutely precipitation is unavailable right now.")
-        }
-        val converted = points.map { TomorrowMinutePoint(it.time, it.mmPerHour, it.probabilityPct) }
-        return mapTomorrowMinutely(converted, now, zoneId)
     }
 
     /** Tomorrow.io pollen indices -> PollenData. hasKey is true when a
