@@ -2,6 +2,7 @@ package com.example.ui.designsystem
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -343,11 +344,12 @@ private fun SegmentOption(
             // Star4000Small face explicitly (audit fix F).
             style = MaterialTheme.typography.labelMedium.copy(fontFamily = Star4000Small),
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = if (selected) {
-                RetroTokens.Background
-            } else {
-                RetroTokens.TextSecondary
-            },
+            // The colour tracks the indicator alpha, so it stays readable
+            // through the morph: a binary selected/unselected colour snaps
+            // to dark text while the yellow pill is still fading in (and
+            // to dim text while it is fading out), which is the muted-olive
+            // mid-transition that hides the label during the slide.
+            color = lerp(RetroTokens.TextSecondary, RetroTokens.Background, indicatorAlpha),
             textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Clip,
