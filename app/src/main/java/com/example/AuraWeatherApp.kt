@@ -5,6 +5,7 @@ import androidx.glance.appwidget.updateAll
 import com.example.data.work.AlertNotifier
 import com.example.data.work.AlertScheduler
 import com.example.ui.widget.AuraWeatherWidget
+import com.example.ui.widget.HourlyStripWidget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -49,6 +50,8 @@ class AuraWeatherApp : Application() {
             container.weatherRepository.weatherState.collect { state ->
                 if (state != null) {
                     runCatching { AuraWeatherWidget().updateAll(this@AuraWeatherApp) }
+                    // Build E: the hourly strip updates on the same triggers.
+                    runCatching { HourlyStripWidget().updateAll(this@AuraWeatherApp) }
                 }
             }
         }

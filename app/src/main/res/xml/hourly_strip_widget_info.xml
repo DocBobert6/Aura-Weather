@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Build E: hourly-strip widget (audit item 19). A wide 4x1 strip;
+     a narrower placement shows fewer hours. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:maxResizeWidth="320dp"
+    android:maxResizeHeight="110dp"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_preview"
+    android:previewLayout="@layout/widget_preview"
+    android:resizeMode="horizontal"
+    android:widgetCategory="home_screen"
+    android:targetCellWidth="4"
+    android:targetCellHeight="1" />

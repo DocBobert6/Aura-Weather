@@ -40,6 +40,7 @@ import com.example.domain.model.RegionalPoint
 import com.example.domain.model.WeatherAlert
 import com.example.domain.model.WeatherCondition
 import com.example.ui.widget.WidgetState
+import com.example.ui.widget.hourlyStripPoints
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -151,7 +152,9 @@ class WeatherRepository(
             isStale = state.isStale,
             zoneId = state.place.zoneId,
             useMetric = useMetric,
-            isDaytime = state.solar.isDaytime
+            isDaytime = state.solar.isDaytime,
+            // Build E: the next 6 hours for the hourly-strip widget.
+            hourly = hourlyStripPoints(state.hourly48h, state.place.zoneId, 6)
         )
     }
 

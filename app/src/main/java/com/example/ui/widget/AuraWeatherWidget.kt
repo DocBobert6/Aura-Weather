@@ -3,7 +3,6 @@ package com.example.ui.widget
 import android.content.Context
 import android.content.ComponentName
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,11 +30,9 @@ import androidx.glance.layout.size
 import androidx.glance.layout.width
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
-import androidx.glance.color.ColorProvider
 import com.example.AuraWeatherApp
 import com.example.MainActivity
 import com.example.R
-import com.example.ui.designsystem.RetroTokens
 import java.util.Locale
 import kotlinx.coroutines.flow.first
 
@@ -85,67 +82,6 @@ class AuraWeatherWidget : GlanceAppWidget() {
                 }
             }
         }
-    }
-}
-
-/** Retro palette as day/night providers, from RetroTokens (the §2.8
- * gate: no hardcoded Color(0xFF...) outside the token files). Night is
- * the app's own navy/yellow; day is the light variant (white background,
- * navy text, orange temp — yellow is unreadable on white). */
-private object WidgetColors {
-    val background = ColorProvider(
-        day = RetroTokens.TextPrimary,
-        night = RetroTokens.Background
-    )
-    val primary = ColorProvider(
-        day = RetroTokens.Background,
-        night = RetroTokens.TextPrimary
-    )
-    val temp = ColorProvider(
-        day = RetroTokens.HeaderOrange,
-        night = RetroTokens.Yellow
-    )
-    val icon = ColorProvider(
-        day = RetroTokens.Background,
-        night = RetroTokens.TextPrimary
-    )
-}
-
-private fun conditionIconRes(icon: WidgetConditionIcon): Int = when (icon) {
-    WidgetConditionIcon.Sunny -> R.drawable.ic_widget_sunny
-    WidgetConditionIcon.Moon -> R.drawable.ic_widget_moon
-    WidgetConditionIcon.PartlyCloudy -> R.drawable.ic_widget_partly
-    WidgetConditionIcon.Cloudy -> R.drawable.ic_widget_cloud
-    WidgetConditionIcon.Rain -> R.drawable.ic_widget_rain
-    WidgetConditionIcon.Snow -> R.drawable.ic_widget_snow
-    WidgetConditionIcon.Storm -> R.drawable.ic_widget_storm
-}
-
-private fun iconTint(icon: WidgetConditionIcon) =
-    if (icon == WidgetConditionIcon.Sunny) WidgetColors.temp else WidgetColors.icon
-
-@Composable
-private fun WidgetEmptyContent() {
-    Column(
-        modifier = GlanceModifier.fillMaxSize(),
-        verticalAlignment = Alignment.Vertical.CenterVertically,
-        horizontalAlignment = Alignment.Horizontal.CenterHorizontally
-    ) {
-        Text(
-            text = "AURA WEATHER",
-            style = TextStyle(
-                fontSize = 13.sp,
-                color = WidgetColors.temp
-            )
-        )
-        Spacer(modifier = GlanceModifier.height(8.dp))
-        Text(
-            text = "OPEN AURA WEATHER TO LOAD",
-            style = TextStyle(
-                fontSize = 13.sp,
-                color = WidgetColors.primary
-            )
-        )
     }
 }
 

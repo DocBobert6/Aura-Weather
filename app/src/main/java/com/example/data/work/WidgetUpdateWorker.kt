@@ -6,6 +6,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.AuraWeatherApp
 import com.example.ui.widget.AuraWeatherWidget
+import com.example.ui.widget.HourlyStripWidget
 import retrofit2.HttpException
 import java.io.IOException
 
@@ -33,6 +34,8 @@ class WidgetUpdateWorker(
         return try {
             container.weatherRepository.loadWeather(place, forceRefresh = false)
             AuraWeatherWidget().updateAll(applicationContext)
+            // Build E: the hourly strip updates on the same triggers.
+            HourlyStripWidget().updateAll(applicationContext)
             Result.success()
         } catch (e: IOException) {
             Result.retry()
