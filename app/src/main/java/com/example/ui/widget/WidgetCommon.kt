@@ -26,25 +26,29 @@ import com.example.ui.designsystem.RetroTokens
  * live here instead of being duplicated.
  *
  * Retro palette as day/night providers, from RetroTokens (the §2.8
- * gate: no hardcoded Color(0xFF...) outside the token files). Night is
- * the app's own navy/yellow; day is the light variant (white background,
- * navy text, orange temp — yellow is unreadable on white).
+ * gate: no hardcoded Color(0xFF...) outside the token files). Both
+ * day and night resolve to the app's own solid navy/yellow (navy
+ * background, white text, yellow temp) — there is no light variant:
+ * the widgets are solid navy at all times, matching the app.
  */
 internal object WidgetColors {
+    // Solid navy/yellow in both day and night: no light variant.
+    // ColorProvider is kept (Glance resolves day/night per host), but
+    // both sides carry the same navy/yellow values from RetroTokens.
     val background = ColorProvider(
-        day = RetroTokens.TextPrimary,
+        day = RetroTokens.Background,
         night = RetroTokens.Background
     )
     val primary = ColorProvider(
-        day = RetroTokens.Background,
+        day = RetroTokens.TextPrimary,
         night = RetroTokens.TextPrimary
     )
     val temp = ColorProvider(
-        day = RetroTokens.HeaderOrange,
+        day = RetroTokens.Yellow,
         night = RetroTokens.Yellow
     )
     val icon = ColorProvider(
-        day = RetroTokens.Background,
+        day = RetroTokens.TextPrimary,
         night = RetroTokens.TextPrimary
     )
 }
@@ -103,7 +107,7 @@ internal fun WidgetHourColumn(
         Text(
             text = point.hourLabel,
             style = TextStyle(
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 color = WidgetColors.primary
             ),
             maxLines = 1
@@ -112,14 +116,14 @@ internal fun WidgetHourColumn(
         Image(
             provider = ImageProvider(conditionIconRes(icon)),
             contentDescription = point.condition.displayName,
-            modifier = GlanceModifier.size(28.dp),
+            modifier = GlanceModifier.size(32.dp),
             colorFilter = ColorFilter.tint(iconTint(icon))
         )
         Spacer(modifier = GlanceModifier.height(4.dp))
         Text(
             text = formatter.formatTemperature(point.tempC),
             style = TextStyle(
-                fontSize = 14.sp,
+                fontSize = 16.sp,
                 color = WidgetColors.temp
             ),
             maxLines = 1
