@@ -296,7 +296,7 @@ class WeatherRepository(
         _isRefreshing.value = true
 
         // 1. Read Room cache first (offline-first). A cache row in the old
-        // pipe-delimited format cannot be parsed and is treated as absent.
+        // bar-delimited format cannot be parsed and is treated as absent.
         val cached = weatherCacheDao.getCache(place.id)
         val now = Instant.now()
         if (cached != null) {
@@ -814,7 +814,7 @@ class WeatherRepository(
     }
 
     // --- Cache: real JSON, one adapter per section. A row whose JSON does not
-    // parse (including any old pipe-delimited row) is treated as absent.
+    // parse (including any old bar-delimited row) is treated as absent.
     private fun <T> listAdapter(clazz: Class<T>) =
         moshi.adapter<List<T>>(Types.newParameterizedType(List::class.java, clazz))
 

@@ -5,7 +5,7 @@ import androidx.room.PrimaryKey
 
 /**
  * One cache row per place. The JSON columns hold real Moshi JSON for one
- * section each (see WeatherRepository) — never pipe/comma-delimited strings,
+ * section each (see WeatherRepository) — never bar/comma-delimited strings,
  * which silently dropped fields and invented defaults on restore.
  */
 @Entity(tableName = "weather_cache")

@@ -2,7 +2,6 @@ package com.example.ui.radar
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
-import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -23,7 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Warning
@@ -96,7 +94,6 @@ fun RadarScreen(
     onSelectLayer: (RadarLayer) -> Unit,
     onTogglePlay: () -> Unit,
     onScrubFrame: (Int) -> Unit,
-    onEnterPiP: () -> Unit,
     tickerVisible: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -362,8 +359,7 @@ fun RadarScreen(
         }
 
         // Top floating pill cluster: station pill + frame label pill, then
-        // the layer chooser as a pill segmented control. PiP lives on the
-        // transport pill at the bottom now.
+        // the layer chooser as a pill segmented control.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -566,8 +562,7 @@ fun RadarScreen(
             )
 
             // Classic transport pill: play/pause + frame scrubber inside
-            // the pill, PiP attached to its end. The frame label lives in
-            // the top pill now.
+            // the pill. The frame label lives in the top pill now.
             RetroPanel(
                 shape = RetroShapes.medium,
                 modifier = Modifier
@@ -632,35 +627,6 @@ fun RadarScreen(
                         color = RetroTokens.Yellow
                     )
 
-                    // Labelled 'PiP': the icon alone did not say what it
-                    // does. A small pill with the icon + text.
-                    Surface(
-                        color = RetroTokens.PanelLight,
-                        shape = RetroShapes.small,
-                        modifier = Modifier.clickable(
-                            onClick = onEnterPiP,
-                            role = Role.Button
-                        )
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PictureInPicture,
-                                contentDescription = "Picture in Picture",
-                                tint = RetroTokens.TextPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "PiP",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = RetroTokens.TextPrimary
-                            )
-                        }
-                    }
                 }
             }
         }

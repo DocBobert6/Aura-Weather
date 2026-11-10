@@ -101,7 +101,6 @@ fun WeatherNavDisplay(
     selectedRadarLayer: RadarLayer,
     currentRadarFrameIndex: Int,
     isRadarPlaying: Boolean,
-    onEnterPiP: () -> Unit,
     regionalPoints: List<RegionalPoint> = emptyList(),
     musicEnabled: Boolean = false,
     onToggleMusic: () -> Unit = {},
@@ -208,7 +207,6 @@ fun WeatherNavDisplay(
                             currentRadarFrameIndex = currentRadarFrameIndex,
                             isRadarPlaying = isRadarPlaying,
                             onNavigate = { currentDestination = it },
-                            onEnterPiP = onEnterPiP,
                             tickerVisible = tickerVisible,
                             regionalPoints = regionalPoints,
                             alertsEnabled = alertsEnabled,
@@ -248,7 +246,6 @@ fun WeatherNavDisplay(
                     currentRadarFrameIndex = currentRadarFrameIndex,
                     isRadarPlaying = isRadarPlaying,
                     onNavigate = { currentDestination = it },
-                    onEnterPiP = onEnterPiP,
                     tickerVisible = tickerVisible,
                     regionalPoints = regionalPoints,
                     alertsEnabled = alertsEnabled,
@@ -582,7 +579,6 @@ private fun ScreenContent(
     currentRadarFrameIndex: Int,
     isRadarPlaying: Boolean,
     onNavigate: (ScreenDestination) -> Unit,
-    onEnterPiP: () -> Unit,
     tickerVisible: Boolean,
     regionalPoints: List<RegionalPoint> = emptyList(),
     alertsEnabled: Boolean = false,
@@ -616,7 +612,6 @@ private fun ScreenContent(
             onSelectLayer = { viewModel.setRadarLayer(it) },
             onTogglePlay = { viewModel.toggleRadarPlay() },
             onScrubFrame = { viewModel.setRadarFrameIndex(it) },
-            onEnterPiP = onEnterPiP,
             tickerVisible = tickerVisible
         )
 
