@@ -75,6 +75,7 @@ class WeatherViewModel(
 
     /** 3.1 alert notifications toggle (Settings): off by default. */
     val alertsEnabled: StateFlow<Boolean> = settingsManager.alertsEnabledFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     // Build C: rain-starting alerts, off by default (opt-in).
     val rainAlertsEnabled: StateFlow<Boolean> = settingsManager.rainAlertsEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
