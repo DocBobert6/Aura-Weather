@@ -257,6 +257,7 @@ private fun RegionalCityLabel(
             maxLines = 1,
             overflow = TextOverflow.Clip
         )
+        Spacer(modifier = Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 imageVector = getWeatherIcon(point.condition, point.isDaytime),
