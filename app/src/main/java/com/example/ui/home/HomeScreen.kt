@@ -308,7 +308,7 @@ fun HomeScreen(
         // 7. 7-Day Forecast Card
         item {
             DailyForecastCard(
-                dailyPoints = state?.daily15d ?: emptyList(),
+                dailyPoints = state?.daily14d ?: emptyList(),
                 unitFormatter = unitFormatter,
                 isDaytimeNow = state?.solar?.isDaytime ?: true
             )
@@ -652,7 +652,7 @@ private fun HeroWeatherCard(
     // rendered as an empty grey circle.
     val description = state?.current?.description?.ifBlank { null } ?: condition.displayName
 
-    val todayDaily = state?.daily15d?.firstOrNull()
+    val todayDaily = state?.daily14d?.firstOrNull()
     val highFormatted = unitFormatter.formatTemperature(todayDaily?.highC ?: state?.current?.tempC)
     // No invented low: when the daily low is missing the UI shows "--".
     val lowFormatted = unitFormatter.formatTemperature(todayDaily?.lowC)
@@ -953,7 +953,7 @@ private fun DailyForecastCard(
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Text(
-                text = "15-DAY OUTLOOK",
+                text = "14-DAY OUTLOOK",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = RetroTokens.Yellow
@@ -1098,7 +1098,7 @@ private fun WeatherDetailsGrid(
 
     val pressureFormatted = unitFormatter.formatPressure(state?.current?.pressurePa)
     val visibilityFormatted = unitFormatter.formatVisibility(state?.current?.visibilityM)
-    val uvIndex = state?.daily15d?.firstOrNull()?.uvIndexMax
+    val uvIndex = state?.daily14d?.firstOrNull()?.uvIndexMax
     // Nighttime (not missing data): the UV card should say so
     // intentionally instead of showing bare dashes. A null isDaytime
     // (no sun data) is unknown, not night, so it keeps "--".

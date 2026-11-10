@@ -181,7 +181,7 @@ data class FullWeatherState(
     val place: Place,
     val current: CurrentConditions,
     val hourly48h: List<HourlyPoint>,
-    val daily15d: List<DailyPoint>,
+    val daily14d: List<DailyPoint>,
     val minutely60m: List<MinutePrecip>,
     val minuteSummary: String,
     val activeAlerts: List<WeatherAlert>,

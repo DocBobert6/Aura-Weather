@@ -549,9 +549,9 @@ class AuraWeatherUnitTest {
     }
 
     @Test
-    fun testFillDailyPrecipAndExtend_fillsSumsAndExtendsTo15() {
+    fun testFillDailyPrecipAndExtend_fillsSumsAndExtendsTo14() {
         // NWS covers 7 days (no sums); Open-Meteo covers 15 (with sums).
-        // The NWS rows must gain their sums, and days 8-15 must appear.
+        // The NWS rows must gain their sums, and days 8-14 must appear (capped at 14).
         val base = LocalDate.of(2026, 11, 9)
         val nws = (0 until 7).map { d ->
             DailyPoint(base.plusDays(d.toLong()), 10.0, 2.0, 10, WeatherCondition.ClearDay, "Clear", null)
@@ -563,11 +563,11 @@ class AuraWeatherUnitTest {
             )
         }
         val merged = fillDailyPrecipAndExtend(nws, om)
-        assertEquals(15, merged.size)
+        assertEquals(14, merged.size)
         // First 7 rows kept their NWS highs but gained OM sums.
         assertEquals(1.5, merged[0].precipSumMm!!, 0.001)
         assertEquals(2.5, merged[3].snowfallSumCm!!, 0.001)
-        // Days 8-15 came from Open-Meteo whole.
+        // Days 8-14 came from Open-Meteo whole.
         assertEquals(base.plusDays(10), merged[10].date)
         assertEquals(11.5, merged[10].precipSumMm!!, 0.001)
     }
@@ -579,7 +579,7 @@ class AuraWeatherUnitTest {
             DailyPoint(base.plusDays(d.toLong()), 10.0, 2.0, 10, WeatherCondition.ClearDay, "Clear", 2.0, 1.0, null)
         }
         val merged = fillDailyPrecipAndExtend(emptyList(), om)
-        assertEquals(15, merged.size)
+        assertEquals(14, merged.size)
         assertEquals(1.0, merged[0].precipSumMm!!, 0.001)
     }
 

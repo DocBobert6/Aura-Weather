@@ -157,7 +157,7 @@ fun fillDailyHighs(
  *
  * NWS forecast periods cover ~7 days, so an NWS-first daily list
  * stops there. Open-Meteo provides up to 16 days: its rows for dates
- * the NWS list does not cover (days 8-15) are appended, and the NWS
+ * the NWS list does not cover (days 8-14) are appended, and the NWS
  * rows get their precipitation_sum / snowfall_sum from the matching
  * Open-Meteo row. Rows already carrying sums, and dates Open-Meteo
  * does not cover, are untouched. The result is sorted by date.
@@ -165,7 +165,7 @@ fun fillDailyHighs(
 fun fillDailyPrecipAndExtend(
     daily: List<DailyPoint>,
     openMeteoDaily: List<DailyPoint>,
-    maxDays: Int = 15
+    maxDays: Int = 14
 ): List<DailyPoint> {
     if (daily.isEmpty()) return openMeteoDaily.take(maxDays)
     if (openMeteoDaily.isEmpty()) return daily.take(maxDays)

@@ -141,7 +141,7 @@ class WeatherRepository(
                 val isStale = (Instant.now().toEpochMilli() - cached.cachedAt) > 15 * 60 * 1000
                 parseCacheToState(place, cached, isStale) ?: return@withContext null
             }
-        val today = state.daily15d.firstOrNull()
+        val today = state.daily14d.firstOrNull()
         WidgetState(
             placeName = state.place.name,
             tempC = state.current.tempC,
@@ -484,7 +484,7 @@ class WeatherRepository(
                 } else list
             }
 
-        // --- Daily (15d). Same split as hourly.
+        // --- Daily (14d). Same split as hourly.
         val omDailyList = parseOpenMeteoDaily(openMeteoResult, zoneId)
         val dailyList = parseNwsDaily(nwsForecastResult?.properties?.periods, zoneId)
             .ifEmpty { omDailyList }
@@ -507,7 +507,7 @@ class WeatherRepository(
             // it starts at the current hour, so its max would be the
             // overnight temp, not the daytime high.
             .let { list -> fillDailyHighs(list, omDailyList) }
-            // NWS only covers ~7 days, so days 8-15 come from
+            // NWS only covers ~7 days, so days 8-14 come from
             // Open-Meteo, and the NWS rows get their precip/snow sums
             // from Open-Meteo by date (audit Build A).
             .let { list -> fillDailyPrecipAndExtend(list, omDailyList) }
@@ -636,7 +636,7 @@ class WeatherRepository(
             place = resolvedPlace,
             current = current,
             hourly48h = hourlyList,
-            daily15d = dailyList,
+            daily14d = dailyList,
             minutely60m = minutely,
             minuteSummary = minuteSentence,
             activeAlerts = alerts,
@@ -752,7 +752,7 @@ class WeatherRepository(
                 bucket.lowC = tempC
             }
         }
-        return buckets.entries.take(15).map { (date, b) ->
+        return buckets.entries.take(14).map { (date, b) ->
             val cond = b.dayCond ?: WeatherCondition.ClearDay
             val summary = b.dayShort?.let { short ->
                 val hi = b.highC?.let { "${it.toInt()}°" } ?: "--"
@@ -844,7 +844,7 @@ class WeatherRepository(
             cachedAt = state.fetchedAt.toEpochMilli(),
             currentJson = moshi.adapter(CurrentConditions::class.java).toJson(state.current),
             hourlyJson = listAdapter(HourlyPoint::class.java).toJson(state.hourly48h),
-            dailyJson = listAdapter(DailyPoint::class.java).toJson(state.daily15d),
+            dailyJson = listAdapter(DailyPoint::class.java).toJson(state.daily14d),
             minutelyJson = listAdapter(MinutePrecip::class.java).toJson(state.minutely60m),
             alertsJson = listAdapter(WeatherAlert::class.java).toJson(state.activeAlerts),
             aqiJson = moshi.adapter(com.example.domain.model.AirQuality::class.java).toJson(state.airQuality),
@@ -882,7 +882,7 @@ class WeatherRepository(
                 place = place,
                 current = current,
                 hourly48h = hourly,
-                daily15d = daily,
+                daily14d = daily,
                 minutely60m = minutely,
                 minuteSummary = cache.minuteSummary,
                 activeAlerts = alerts,
