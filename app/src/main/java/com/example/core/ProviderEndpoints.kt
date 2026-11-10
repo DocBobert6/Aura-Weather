@@ -14,15 +14,11 @@ object ProviderEndpoints {
     const val OPEN_METEO_BASE_URL = "https://api.open-meteo.com/"
     const val OPEN_METEO_AQ_BASE_URL = "https://air-quality-api.open-meteo.com/"
 
-    // Tomorrow.io Timelines (free API key, 500 calls/day): 1-minute
-    // precipitation for the minute-cast and the live pollen index.
-    // Sub-hourly timesteps (1m/5m/15m/30m) are Enterprise in
-    // Tomorrow.io's docs, so a free key may return no 1m timeline.
-    const val TOMORROW_BASE_URL = "https://api.tomorrow.io/"
-
-    // AirNow (US EPA, free API key): current AQI observations by lat/lon.
-    // AQI + category only, no concentrations.
-    const val AIRNOW_BASE_URL = "https://www.airnowapi.org/"
+    // AQI comes from Open-Meteo Air Quality (modelled, not station
+    // observations). There is no keyed provider: Tomorrow.io and
+    // AirNow were removed (2026-11-10 audit build D) — their free
+    // plans cannot deliver 1-minute precipitation, pollen, or a
+    // station AQI that turns the key pill green.
 
     // Iowa Environmental Mesonet (IEM) NEXRAD Radar Tiles (Keyless)
     const val IEM_TILE_BASE = "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/"

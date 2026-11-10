@@ -4,8 +4,11 @@ package com.example.data.mapper
  * The pure allergy index for Build D (audit item 16). No Android, no
  * Room — plain JUnit tests cover it (AllergyIndexTest).
  *
- * A SIMPLE index from the pollen counts (tree/grass/weed, each 0-5 from
- * Tomorrow.io) and the AQI (EPA 0-500) already fetched for this screen.
+ * A SIMPLE index from the pollen counts (tree/grass/weed, each 0-5) and
+ * the AQI (EPA 0-500) already fetched for this screen. Pollen counts
+ * are currently always missing — there is no free US pollen source —
+ * so in practice the index runs on the AQI alone; the pollen inputs
+ * stay so the function (and its tests) still cover the combined case.
  * It is NOT a medical-grade allergy forecast and is never presented as
  * one — the screen labels it as a simple index from these numbers.
  *

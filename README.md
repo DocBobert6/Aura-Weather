@@ -40,7 +40,7 @@ The look is the classic late-90s / early-2000s Weather Channel local forecast �
 7. **Air Quality & Pollen**
    - US AQI dial with EPA standard color coding (Good, Moderate, USG, Unhealthy, Very Unhealthy, Hazardous).
    - Individual pollutant breakdowns: PM2.5, PM10, and Ozone (O₃), rounded to whole numbers. Missing readings show as unavailable, never as invented values.
-   - Pollen gauges are present but not yet connected to a live provider: they show no values until a real pollen source is wired up. A Tomorrow.io key stored in Settings does not enable them yet.
+   - Pollen gauges are present but show no values: there is no free US pollen source. The allergy index runs on air quality alone.
 
 8. **Astronomical Solar & Lunar Dynamics**
    - Pure Kotlin NOAA solar position algorithm: Sunrise, Solar Noon, Sunset, Civil Dawn/Dusk, Golden Hour (morning & evening), Blue Hour, day length changes — all rendered in the selected place's timezone.
@@ -91,11 +91,9 @@ A pure-Kotlin subset of the logic (mappers, solar/lunar calculators, unit format
 
 ---
 
-## 🔐 Optional API Keys
+## 🔐 API Keys
 
-Core weather runs without keys. You can optionally supply keys in **Settings**:
-- **Tomorrow.io**: stored for a future update. It does not unlock anything today — 1-minute precipitation and live pollen are not connected yet.
-- **AirNow**: stored in Settings, but not currently used by the app (no AirNow client exists yet).
+No keys are needed or accepted: core weather, the minute-cast, and AQI all run keyless. AQI comes from Open-Meteo Air Quality (modelled, not station observations) and the minute-cast is the Open-Meteo 15-minute interpolation. Pollen is unavailable — there is no free US pollen source (Tomorrow.io and AirNow were removed in the 2026-11-10 audit build: their free plans cannot deliver 1-minute precipitation, pollen, or a station AQI).
 
 ---
 

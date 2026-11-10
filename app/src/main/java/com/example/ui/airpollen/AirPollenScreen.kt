@@ -17,12 +17,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Park
 import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material.icons.filled.Yard
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -56,7 +53,6 @@ import kotlin.math.roundToInt
 fun AirPollenScreen(
     airQuality: AirQuality?,
     pollen: PollenData?,
-    onNavigateToSettings: () -> Unit,
     tickerVisible: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -327,56 +323,23 @@ fun AirPollenScreen(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "A SIMPLE INDEX FROM TODAY'S POLLEN COUNTS AND AIR QUALITY - NOT A MEDICAL FORECAST.",
+                            text = "A SIMPLE INDEX FROM TODAY'S AIR QUALITY - POLLEN COUNTS ARE UNAVAILABLE, SO THEY DO NOT CONTRIBUTE. NOT A MEDICAL FORECAST.",
                             style = MaterialTheme.typography.bodySmall,
                             color = RetroTokens.TextSecondary
                         )
                     }
 
-                    if (pollen?.hasKey != true) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Surface(
-                            color = RetroTokens.PanelLight,
-                            shape = AuraShapes.medium,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.Key,
-                                        contentDescription = "Key required",
-                                        tint = RetroTokens.Yellow,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "POLLEN COUNTS",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = RetroTokens.TextPrimary
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "No pollen data yet - add a Tomorrow.io key in Settings to turn on live pollen (tree, grass, weed).",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = RetroTokens.TextSecondary
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Button(
-                                    onClick = onNavigateToSettings,
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = RetroTokens.Yellow,
-                                        contentColor = RetroTokens.Background
-                                    ),
-                                    shape = RetroShapes.small
-                                ) {
-                                    Text(text = "CONFIGURE IN SETTINGS", style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                        }
-                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Pollen counts are unavailable - there is no free US pollen source. The allergy index above runs on air quality alone.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = RetroTokens.TextSecondary
+                    )
                 }
+            }
+        }
+    }
+}                }
             }
         }
     }

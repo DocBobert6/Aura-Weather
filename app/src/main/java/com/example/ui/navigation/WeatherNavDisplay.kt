@@ -97,9 +97,6 @@ fun WeatherNavDisplay(
     loadError: String?,
     savedPlaces: List<Place>,
     useMetric: Boolean,
-    tomorrowApiKey: String,
-    tomorrowWorking: Boolean,
-    airNowApiKey: String,
     selectedRadarLayer: RadarLayer,
     selectedRadarRange: RadarRange,
     currentRadarFrameIndex: Int,
@@ -205,9 +202,6 @@ fun WeatherNavDisplay(
                             loadError = loadError,
                             savedPlaces = savedPlaces,
                             useMetric = useMetric,
-                            tomorrowApiKey = tomorrowApiKey,
-                            tomorrowWorking = tomorrowWorking,
-                            airNowApiKey = airNowApiKey,
                             selectedRadarLayer = selectedRadarLayer,
                             selectedRadarRange = selectedRadarRange,
                             currentRadarFrameIndex = currentRadarFrameIndex,
@@ -247,9 +241,6 @@ fun WeatherNavDisplay(
                     loadError = loadError,
                     savedPlaces = savedPlaces,
                     useMetric = useMetric,
-                    tomorrowApiKey = tomorrowApiKey,
-                    tomorrowWorking = tomorrowWorking,
-                    airNowApiKey = airNowApiKey,
                     selectedRadarLayer = selectedRadarLayer,
                     selectedRadarRange = selectedRadarRange,
                     currentRadarFrameIndex = currentRadarFrameIndex,
@@ -583,9 +574,6 @@ private fun ScreenContent(
     loadError: String?,
     savedPlaces: List<Place>,
     useMetric: Boolean,
-    tomorrowApiKey: String,
-    tomorrowWorking: Boolean,
-    airNowApiKey: String,
     selectedRadarLayer: RadarLayer,
     selectedRadarRange: RadarRange,
     currentRadarFrameIndex: Int,
@@ -648,21 +636,15 @@ private fun ScreenContent(
             AirSkyCompositeView(
                 weatherState = weatherState,
                 selectedPlace = selectedPlace,
-                tickerVisible = tickerVisible,
-                onNavigateToSettings = { onNavigate(ScreenDestination.Settings) }
+                tickerVisible = tickerVisible
             )
         }
 
         ScreenDestination.Settings -> SettingsScreen(
             useMetric = useMetric,
-            tomorrowApiKey = tomorrowApiKey,
-            tomorrowWorking = tomorrowWorking,
-            airNowApiKey = airNowApiKey,
             savedPlaces = savedPlaces,
             selectedPlaceId = selectedPlace?.id,
             onSetUseMetric = { viewModel.setUseMetric(it) },
-            onSaveTomorrowApiKey = { viewModel.setTomorrowApiKey(it) },
-            onSaveAirNowApiKey = { viewModel.setAirNowApiKey(it) },
             onSelectPlace = { viewModel.selectPlace(it) },
             onAddPlace = { name, state, lat, lon -> viewModel.addPlace(name, state, lat, lon) },
             tickerVisible = tickerVisible,
@@ -678,8 +660,7 @@ private fun ScreenContent(
 private fun AirSkyCompositeView(
     weatherState: FullWeatherState?,
     selectedPlace: Place?,
-    tickerVisible: Boolean,
-    onNavigateToSettings: () -> Unit
+    tickerVisible: Boolean
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(0) } // 0: Air & Pollen, 1: Sun & Moon
 
@@ -697,8 +678,7 @@ private fun AirSkyCompositeView(
             AirPollenScreen(
                 airQuality = weatherState?.airQuality,
                 pollen = weatherState?.pollen,
-                tickerVisible = tickerVisible,
-                onNavigateToSettings = onNavigateToSettings
+                tickerVisible = tickerVisible
             )
         } else {
             SunMoonScreen(

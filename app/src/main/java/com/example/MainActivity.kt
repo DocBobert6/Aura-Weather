@@ -65,9 +65,6 @@ class MainActivity : ComponentActivity() {
             val selectedRadarRange by viewModel.selectedRadarRange.collectAsStateWithLifecycle()
             val currentRadarFrameIndex by viewModel.currentRadarFrameIndex.collectAsStateWithLifecycle()
             val isRadarPlaying by viewModel.isRadarPlaying.collectAsStateWithLifecycle()
-            val tomorrowApiKey by viewModel.tomorrowApiKey.collectAsStateWithLifecycle()
-            val tomorrowWorking by viewModel.tomorrowWorking.collectAsStateWithLifecycle()
-            val airNowApiKey by viewModel.airNowApiKey.collectAsStateWithLifecycle()
             val regionalPoints by viewModel.regionalPoints.collectAsStateWithLifecycle()
             val musicEnabled by viewModel.musicEnabled.collectAsStateWithLifecycle()
             val alertsEnabled by viewModel.alertsEnabled.collectAsStateWithLifecycle()
@@ -97,9 +94,6 @@ class MainActivity : ComponentActivity() {
                     loadError = loadError,
                     savedPlaces = savedPlaces,
                     useMetric = useMetric,
-                    tomorrowApiKey = tomorrowApiKey,
-                    tomorrowWorking = tomorrowWorking,
-                    airNowApiKey = airNowApiKey,
                     selectedRadarLayer = selectedRadarLayer,
                     selectedRadarRange = selectedRadarRange,
                     currentRadarFrameIndex = currentRadarFrameIndex,

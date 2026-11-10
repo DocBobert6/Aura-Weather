@@ -22,7 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Warning
@@ -46,11 +45,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.IconButton
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -69,14 +63,9 @@ import com.example.ui.designsystem.RetroTokens
 @Composable
 fun SettingsScreen(
     useMetric: Boolean,
-    tomorrowApiKey: String,
-    tomorrowWorking: Boolean = false,
-    airNowApiKey: String,
     savedPlaces: List<Place>,
     selectedPlaceId: String?,
     onSetUseMetric: (Boolean) -> Unit,
-    onSaveTomorrowApiKey: (String) -> Unit,
-    onSaveAirNowApiKey: (String) -> Unit,
     onSelectPlace: (String) -> Unit,
     onAddPlace: (String, String, Double, Double) -> Unit,
     tickerVisible: Boolean = false,
@@ -407,262 +396,6 @@ fun SettingsScreen(
             }
         }
 
-        // Tomorrow.io API Key & Live Upgrades
-        item {
-            var inputKey by remember(tomorrowApiKey) { mutableStateOf(tomorrowApiKey) }
-            var isKeyVisible by remember { mutableStateOf(false) }
-            var isSavedMessageVisible by remember { mutableStateOf(false) }
-
-            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Key,
-                                contentDescription = "Tomorrow.io Key",
-                                tint = AuraColors.Warning,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "TOMORROW.IO API KEY",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = RetroTokens.TextPrimary
-                            )
-                        }
-
-                        if (tomorrowApiKey.isNotBlank() && tomorrowWorking) {
-                            Surface(
-                                color = RetroTokens.Yellow,
-                                shape = AuraShapes.pill
-                            ) {
-                                Text(
-                                    text = "KEY ACTIVE",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                    fontWeight = FontWeight.Bold,
-                                    color = RetroTokens.Background,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = "A Tomorrow.io key turns on live pollen (tree, grass, weed) and 1-minute precipitation for the minute-cast when your plan provides it. Without a key, pollen stays empty and the minute-cast uses the 15-minute Open-Meteo interpolation. The \"KEY ACTIVE\" pill appears only once the app has actually fetched with your key. Core weather works keyless.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = RetroTokens.TextSecondary
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    OutlinedTextField(
-                        value = inputKey,
-                        onValueChange = {
-                            inputKey = it
-                            isSavedMessageVisible = false
-                        },
-                        label = { Text("Tomorrow.io API Key") },
-                        placeholder = { Text("Paste your API key here...") },
-                        singleLine = true,
-                        visualTransformation = if (isKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { isKeyVisible = !isKeyVisible }) {
-                                Icon(
-                                    imageVector = if (isKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = if (isKeyVisible) "Hide key" else "Show key",
-                                    tint = RetroTokens.TextSecondary
-                                )
-                            }
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = RetroTokens.TextPrimary,
-                            unfocusedTextColor = RetroTokens.TextPrimary,
-                            focusedBorderColor = RetroTokens.Yellow,
-                            unfocusedBorderColor = RetroTokens.Border
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (inputKey.isNotBlank()) {
-                            TextButton(
-                                onClick = {
-                                    inputKey = ""
-                                    onSaveTomorrowApiKey("")
-                                }
-                            ) {
-                                Text("Clear", color = RetroTokens.HeaderRed)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                        }
-
-                        Button(
-                            onClick = {
-                                onSaveTomorrowApiKey(inputKey)
-                                isSavedMessageVisible = true
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = RetroTokens.Yellow,
-                                contentColor = RetroTokens.Background
-                            ),
-                            shape = RetroShapes.medium
-                        ) {
-                            Text(if (isSavedMessageVisible) "SAVED!" else "SAVE KEY")
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Text(
-                        text = "Need a key? Free API keys with 500 calls/day are available at tomorrow.io/weather-api",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                        color = RetroTokens.TextSecondary
-                    )
-                }
-            }
-        }
-
-        // AirNow API Key & Live AQI
-        item {
-            var inputKey by remember(airNowApiKey) { mutableStateOf(airNowApiKey) }
-            var isKeyVisible by remember { mutableStateOf(false) }
-            var isSavedMessageVisible by remember { mutableStateOf(false) }
-
-            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Key,
-                                contentDescription = "AirNow Key",
-                                tint = AuraColors.Warning,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "AIRNOW API KEY",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = RetroTokens.TextPrimary
-                            )
-                        }
-
-                        if (airNowApiKey.isNotBlank()) {
-                            Surface(
-                                color = RetroTokens.Yellow,
-                                shape = AuraShapes.pill
-                            ) {
-                                Text(
-                                    text = "KEY ACTIVE",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                    fontWeight = FontWeight.Bold,
-                                    color = RetroTokens.Background,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = "An AirNow key turns on live AQI from the nearest EPA monitoring station. The headline AQI, its category, and the dominant pollutant come from AirNow; the pollutant concentrations (PM2.5, PM10, ozone) still come from Open-Meteo, which reports AQI only as a model estimate. Without a key, the AQI comes from Open-Meteo. AirNow covers the US only.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = RetroTokens.TextSecondary
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    OutlinedTextField(
-                        value = inputKey,
-                        onValueChange = {
-                            inputKey = it
-                            isSavedMessageVisible = false
-                        },
-                        label = { Text("AirNow API Key") },
-                        placeholder = { Text("Paste your API key here...") },
-                        singleLine = true,
-                        visualTransformation = if (isKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { isKeyVisible = !isKeyVisible }) {
-                                Icon(
-                                    imageVector = if (isKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = if (isKeyVisible) "Hide key" else "Show key",
-                                    tint = RetroTokens.TextSecondary
-                                )
-                            }
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = RetroTokens.TextPrimary,
-                            unfocusedTextColor = RetroTokens.TextPrimary,
-                            focusedBorderColor = RetroTokens.Yellow,
-                            unfocusedBorderColor = RetroTokens.Border
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (inputKey.isNotBlank()) {
-                            TextButton(
-                                onClick = {
-                                    inputKey = ""
-                                    onSaveAirNowApiKey("")
-                                }
-                            ) {
-                                Text("Clear", color = RetroTokens.HeaderRed)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                        }
-
-                        Button(
-                            onClick = {
-                                onSaveAirNowApiKey(inputKey)
-                                isSavedMessageVisible = true
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = RetroTokens.Yellow,
-                                contentColor = RetroTokens.Background
-                            ),
-                            shape = RetroShapes.medium
-                        ) {
-                            Text(if (isSavedMessageVisible) "SAVED!" else "SAVE KEY")
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Text(
-                        text = "Need a key? Free API keys are available at airnowapi.org",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                        color = RetroTokens.TextSecondary
-                    )
-                }
-            }
-        }
-
         // Data Sources & Attributions
         item {
             RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
@@ -686,8 +419,8 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     AttributionRow("Weather & Alerts", "National Weather Service (NOAA / api.weather.gov)")
-                    AttributionRow("Minute-Cast & AQI", "Open-Meteo.com (CC BY 4.0)")
-                    AttributionRow("Live AQI (with key)", "AirNow (US EPA)")
+                    AttributionRow("Minute-Cast & AQI", "Open-Meteo.com (CC BY 4.0) — minute-cast is the 15-minute interpolation; AQI is modelled, not station observations")
+                    AttributionRow("Pollen", "Unavailable — no free US pollen source")
                     AttributionRow("Radar Reflectivity", "Iowa Environmental Mesonet (IEM) / NEXRAD")
                     AttributionRow("Radar Basemap", "Esri World Dark Gray Base")
                     AttributionRow("Satellite Imagery", "NASA GIBS (EOSDIS) GOES-East ABI")

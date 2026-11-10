@@ -18,10 +18,7 @@ class SettingsManager(private val context: Context) {
     companion object {
         val KEY_USE_METRIC = booleanPreferencesKey("use_metric_units")
         val KEY_SELECTED_PLACE_ID = stringPreferencesKey("selected_place_id")
-        val KEY_TOMORROW_API_KEY = stringPreferencesKey("tomorrow_api_key")
-        val KEY_AIRNOW_API_KEY = stringPreferencesKey("airnow_api_key")
         val KEY_MUSIC_ENABLED = booleanPreferencesKey("music_enabled")
-        val KEY_TOMORROW_WORKING = booleanPreferencesKey("tomorrow_working")
         val KEY_ALERTS_ENABLED = booleanPreferencesKey("alerts_enabled")
         val KEY_RAIN_ALERTS_ENABLED = booleanPreferencesKey("rain_alerts_enabled")
         val KEY_RAIN_ALERT_ACTIVE_SINCE = longPreferencesKey("rain_alert_active_since")
@@ -35,23 +32,6 @@ class SettingsManager(private val context: Context) {
     // in Room; this flow is currently unused.)
     val selectedPlaceIdFlow: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[KEY_SELECTED_PLACE_ID] ?: ""
-    }
-
-    val tomorrowApiKeyFlow: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[KEY_TOMORROW_API_KEY] ?: ""
-    }
-
-    // Tomorrow.io "KEY ACTIVE" pill: true only after the client has
-    // actually fetched usable Tomorrow.io data with the stored key.
-    // A stored key that has never successfully fetched does not show
-    // as active. Reset whenever the key is saved/changed/cleared, so
-    // a new key must re-verify before the pill appears.
-    val tomorrowWorkingFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[KEY_TOMORROW_WORKING] ?: false
-    }
-
-    val airNowApiKeyFlow: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[KEY_AIRNOW_API_KEY] ?: ""
     }
 
     // Background music (Home toggle): off by default, remembered across launches.
@@ -89,26 +69,6 @@ class SettingsManager(private val context: Context) {
     suspend fun setSelectedPlaceId(placeId: String) {
         context.dataStore.edit { preferences ->
             preferences[KEY_SELECTED_PLACE_ID] = placeId
-        }
-    }
-
-    suspend fun setTomorrowApiKey(key: String) {
-        context.dataStore.edit { preferences ->
-            preferences[KEY_TOMORROW_API_KEY] = key
-            // A changed key must re-verify before it can show active.
-            preferences[KEY_TOMORROW_WORKING] = false
-        }
-    }
-
-    suspend fun setTomorrowWorking(working: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[KEY_TOMORROW_WORKING] = working
-        }
-    }
-
-    suspend fun setAirNowApiKey(key: String) {
-        context.dataStore.edit { preferences ->
-            preferences[KEY_AIRNOW_API_KEY] = key
         }
     }
 

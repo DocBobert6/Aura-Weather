@@ -58,17 +58,6 @@ class WeatherViewModel(
     val useMetric: StateFlow<Boolean> = settingsManager.useMetricFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    val tomorrowApiKey: StateFlow<String> = settingsManager.tomorrowApiKeyFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
-
-    /** Tomorrow.io "KEY ACTIVE" pill: true only after the client has
-     * actually fetched usable data with the stored key. */
-    val tomorrowWorking: StateFlow<Boolean> = settingsManager.tomorrowWorkingFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    val airNowApiKey: StateFlow<String> = settingsManager.airNowApiKeyFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
-
     /** Background music toggle (Home screen): off by default. */
     val musicEnabled: StateFlow<Boolean> = settingsManager.musicEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -191,20 +180,6 @@ class WeatherViewModel(
     fun setUseMetric(enabled: Boolean) {
         viewModelScope.launch {
             settingsManager.setUseMetric(enabled)
-        }
-    }
-
-    fun setTomorrowApiKey(key: String) {
-        viewModelScope.launch {
-            settingsManager.setTomorrowApiKey(key.trim())
-            refresh()
-        }
-    }
-
-    fun setAirNowApiKey(key: String) {
-        viewModelScope.launch {
-            settingsManager.setAirNowApiKey(key.trim())
-            refresh()
         }
     }
 
