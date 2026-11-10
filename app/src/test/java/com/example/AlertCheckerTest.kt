@@ -104,7 +104,7 @@ class AlertCheckerTest {
     private val stubOpenMeteo = object : OpenMeteoWeatherApi {
         override suspend fun getForecast(
             lat: Double, lon: Double, current: String, hourly: String,
-            minutely15: String, daily: String, timezone: String
+            minutely15: String, daily: String, forecastDays: Int, timezone: String
         ): OpenMeteoWeatherResponse = throw NotImplementedError("not used by the checker test")
 
         override suspend fun getCurrentMulti(
