@@ -71,11 +71,14 @@ fun SettingsScreen(
     tomorrowApiKey: String,
     tomorrowWorking: Boolean = false,
     airNowApiKey: String,
+    rainbowApiKey: String,
+    rainbowWorking: Boolean = false,
     savedPlaces: List<Place>,
     selectedPlaceId: String?,
     onSetUseMetric: (Boolean) -> Unit,
     onSaveTomorrowApiKey: (String) -> Unit,
     onSaveAirNowApiKey: (String) -> Unit,
+    onSaveRainbowApiKey: (String) -> Unit,
     onSelectPlace: (String) -> Unit,
     onAddPlace: (String, String, Double, Double) -> Unit,
     tickerVisible: Boolean = false,
@@ -457,6 +460,134 @@ fun SettingsScreen(
             }
         }
 
+        // Rainbow Weather Nowcast API Key & 1-Minute Rain
+        item {
+            var inputKey by remember(rainbowApiKey) { mutableStateOf(rainbowApiKey) }
+            var isKeyVisible by remember { mutableStateOf(false) }
+            var isSavedMessageVisible by remember { mutableStateOf(false) }
+
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Key,
+                                contentDescription = "Rainbow Key",
+                                tint = AuraColors.Warning,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "RAINBOW API KEY",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = RetroTokens.TextPrimary
+                            )
+                        }
+
+                        if (rainbowApiKey.isNotBlank() && rainbowWorking) {
+                            Surface(
+                                color = RetroTokens.Yellow,
+                                shape = AuraShapes.pill
+                            ) {
+                                Text(
+                                    text = "KEY ACTIVE",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    fontWeight = FontWeight.Bold,
+                                    color = RetroTokens.Background,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "A Rainbow key turns on true 1-minute precipitation for the minute-cast - minute-by-minute rain nowcasts up to 4 hours ahead. Without a key, the minute-cast uses the Tomorrow.io 1-minute data when your plan provides it, or the 15-minute Open-Meteo interpolation. The \"KEY ACTIVE\" pill appears only once the app has actually fetched with your key. Free tier: 5,000 requests a month. Core weather works keyless.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = RetroTokens.TextSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    OutlinedTextField(
+                        value = inputKey,
+                        onValueChange = {
+                            inputKey = it
+                            isSavedMessageVisible = false
+                        },
+                        label = { Text("Rainbow API Key") },
+                        placeholder = { Text("Paste your API key here...") },
+                        singleLine = true,
+                        visualTransformation = if (isKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { isKeyVisible = !isKeyVisible }) {
+                                Icon(
+                                    imageVector = if (isKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = if (isKeyVisible) "Hide key" else "Show key",
+                                    tint = RetroTokens.TextSecondary
+                                )
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = RetroTokens.TextPrimary,
+                            unfocusedTextColor = RetroTokens.TextPrimary,
+                            focusedBorderColor = RetroTokens.Yellow,
+                            unfocusedBorderColor = RetroTokens.Border
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (inputKey.isNotBlank()) {
+                            TextButton(
+                                onClick = {
+                                    inputKey = ""
+                                    onSaveRainbowApiKey("")
+                                }
+                            ) {
+                                Text("Clear", color = RetroTokens.HeaderRed)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+
+                        Button(
+                            onClick = {
+                                onSaveRainbowApiKey(inputKey)
+                                isSavedMessageVisible = true
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = RetroTokens.Yellow,
+                                contentColor = RetroTokens.Background
+                            ),
+                            shape = RetroShapes.medium
+                        ) {
+                            Text(if (isSavedMessageVisible) "SAVED!" else "SAVE KEY")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "Need a key? Free API keys with 5,000 requests/month are available at developer.rainbow.ai",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        color = RetroTokens.TextSecondary
+                    )
+                }
+            }
+        }
+
         // AirNow API Key & Live AQI
         item {
             var inputKey by remember(airNowApiKey) { mutableStateOf(airNowApiKey) }
@@ -610,6 +741,7 @@ fun SettingsScreen(
                     AttributionRow("Weather & Alerts", "National Weather Service (NOAA / api.weather.gov)")
                     AttributionRow("Minute-Cast & AQI", "Open-Meteo.com (CC BY 4.0)")
                     AttributionRow("Live AQI (with key)", "AirNow (US EPA)")
+                    AttributionRow("1-Minute Rain (with key)", "Rainbow Weather Nowcast (rainbow.ai)")
                     AttributionRow("Radar Reflectivity", "Iowa Environmental Mesonet (IEM) / NEXRAD")
                     AttributionRow("Radar Basemap", "Esri World Dark Gray Base")
                     AttributionRow("Satellite Imagery", "NASA GIBS (EOSDIS) GOES-East ABI")

@@ -19,8 +19,10 @@ class SettingsManager(private val context: Context) {
         val KEY_SELECTED_PLACE_ID = stringPreferencesKey("selected_place_id")
         val KEY_TOMORROW_API_KEY = stringPreferencesKey("tomorrow_api_key")
         val KEY_AIRNOW_API_KEY = stringPreferencesKey("airnow_api_key")
+        val KEY_RAINBOW_API_KEY = stringPreferencesKey("rainbow_api_key")
         val KEY_MUSIC_ENABLED = booleanPreferencesKey("music_enabled")
         val KEY_TOMORROW_WORKING = booleanPreferencesKey("tomorrow_working")
+        val KEY_RAINBOW_WORKING = booleanPreferencesKey("rainbow_working")
         val KEY_ALERTS_ENABLED = booleanPreferencesKey("alerts_enabled")
     }
 
@@ -49,6 +51,19 @@ class SettingsManager(private val context: Context) {
 
     val airNowApiKeyFlow: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[KEY_AIRNOW_API_KEY] ?: ""
+    }
+
+    val rainbowApiKeyFlow: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[KEY_RAINBOW_API_KEY] ?: ""
+    }
+
+    // Rainbow "KEY ACTIVE" pill: true only after the client has
+    // actually fetched usable nowcast data with the stored key.
+    // A stored key that has never successfully fetched does not show
+    // as active. Reset whenever the key is saved/changed/cleared, so
+    // a new key must re-verify before the pill appears.
+    val rainbowWorkingFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_RAINBOW_WORKING] ?: false
     }
 
     // Background music (Home toggle): off by default, remembered across launches.
@@ -92,6 +107,20 @@ class SettingsManager(private val context: Context) {
     suspend fun setAirNowApiKey(key: String) {
         context.dataStore.edit { preferences ->
             preferences[KEY_AIRNOW_API_KEY] = key
+        }
+    }
+
+    suspend fun setRainbowApiKey(key: String) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_RAINBOW_API_KEY] = key
+            // A changed key must re-verify before it can show active.
+            preferences[KEY_RAINBOW_WORKING] = false
+        }
+    }
+
+    suspend fun setRainbowWorking(working: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_RAINBOW_WORKING] = working
         }
     }
 
