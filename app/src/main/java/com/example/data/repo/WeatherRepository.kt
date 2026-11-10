@@ -485,7 +485,25 @@ class WeatherRepository(
             }
 
         // --- Daily (14d). Same split as hourly.
-        val omDailyList = parseOpenMeteoDaily(openMeteoResult, zoneId)
+        // The date-matched daily fills (UV merge, fillDailyHighs,
+        // fillDailyPrecipAndExtend) and the NWS-unavailable fallback all
+        // read the Open-Meteo daily list by LOCAL date. The main forecast
+        // call requests timezone=UTC, so its daily array starts at the UTC
+        // date — in the evening, once UTC has rolled past the local date,
+        // the local today is missing from it and TODAY's high cannot be
+        // filled ("HI --"). Fetch the daily section in the place's local
+        // timezone instead, so the array starts at the local today. A
+        // fixed-offset zone has no IANA name for the API, so "auto" (the
+        // coordinates' own timezone) is used there. Any failure falls back
+        // to the UTC daily list (the old behaviour) — never a crash, never
+        // a blank screen.
+        val omDailyList = runCatching {
+            val tz = if (zoneId is ZoneOffset) "auto" else zoneId.id
+            openMeteoWeatherApi.getDailyLocal(lat, lon, timezone = tz)
+        }.getOrNull().let { localResult ->
+            parseOpenMeteoDaily(localResult, zoneId)
+                .ifEmpty { parseOpenMeteoDaily(openMeteoResult, zoneId) }
+        }
         val dailyList = parseNwsDaily(nwsForecastResult?.properties?.periods, zoneId)
             .ifEmpty { omDailyList }
             // NWS daily has no UV index (parseNwsDaily leaves uvIndexMax

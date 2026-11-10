@@ -93,6 +93,29 @@ interface OpenMeteoWeatherApi {
     ): OpenMeteoWeatherResponse
 
     /**
+     * Daily max/min in the PLACE's local timezone, for the date-matched
+     * daily fills (fillDailyHighs, fillDailyPrecipAndExtend, the UV merge).
+     *
+     * The main getForecast call requests timezone=UTC (so its hourly
+     * parses as UTC), which means its daily array starts at the UTC date.
+     * In the evening, once the UTC date has rolled past the local date
+     * (after 7 PM EST / 8 PM EDT), the local today is missing from that
+     * array, so fillDailyHighs cannot fill TODAY's high and the outlook
+     * shows "HI --". This lean daily-only call uses the place timezone
+     * (or "auto"), so its daily array starts at the local today. Only
+     * the daily section is read from this response; the hourly wall-time
+     * question does not apply to daily dates.
+     */
+    @GET("v1/forecast")
+    suspend fun getDailyLocal(
+        @Query("latitude") lat: Double,
+        @Query("longitude") lon: Double,
+        @Query("daily") daily: String = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,snowfall_sum,uv_index_max",
+        @Query("forecast_days") forecastDays: Int = 16,
+        @Query("timezone") timezone: String
+    ): OpenMeteoWeatherResponse
+
+    /**
      * Multi-location current conditions (R5 regional map): one call for
      * several points. latitude/longitude are comma-separated lists and the
      * response is a JSON array in the same order. `encoded = true` so the
