@@ -309,7 +309,8 @@ fun HomeScreen(
         item {
             DailyForecastCard(
                 dailyPoints = state?.daily15d ?: emptyList(),
-                unitFormatter = unitFormatter
+                unitFormatter = unitFormatter,
+                isDaytimeNow = state?.solar?.isDaytime ?: true
             )
         }
 
@@ -919,13 +920,13 @@ private fun HourlyForecastCard(
                                 )
                                 Text(
                                     text = "$pop%",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                                     fontWeight = FontWeight.Bold,
-                                    color = AuraColors.PopBlue
+                                    color = RetroTokens.TextPrimary
                                 )
                             }
                         } else {
-                            Text(text = " ", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp))
+                            Text(text = " ", style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp))
                         }
                     }
                 }
@@ -937,7 +938,11 @@ private fun HourlyForecastCard(
 @Composable
 private fun DailyForecastCard(
     dailyPoints: List<DailyPoint>,
-    unitFormatter: UnitFormatter
+    unitFormatter: UnitFormatter,
+    // The current day/night, from the solar position: the TODAY row
+    // must show the moon at night, matching the hero and hourly strip.
+    // Future days keep day icons.
+    isDaytimeNow: Boolean = true
 ) {
     val dayFormatter = remember { DateTimeFormatter.ofPattern("EEE", Locale.US) }
 
@@ -1002,7 +1007,7 @@ private fun DailyForecastCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = getWeatherIcon(displayCondition, isDaytime = true),
+                            imageVector = getWeatherIcon(displayCondition, isDaytime = if (index == 0) isDaytimeNow else true),
                             contentDescription = displayCondition.displayName,
                             tint = RetroTokens.TextPrimary,
                             modifier = Modifier.size(24.dp)
@@ -1011,8 +1016,8 @@ private fun DailyForecastCard(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "$pop%",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = AuraColors.PopBlue
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = RetroTokens.TextPrimary
                             )
                         }
                     }
@@ -1422,9 +1427,9 @@ private fun SunAndMoonSummaryCard(
 
 fun getWeatherIcon(condition: WeatherCondition, isDaytime: Boolean = true): ImageVector {
     return when (condition) {
-        WeatherCondition.ClearDay -> Icons.Default.WbSunny
+        WeatherCondition.ClearDay -> if (isDaytime) Icons.Default.WbSunny else Icons.Default.DarkMode
         WeatherCondition.ClearNight -> Icons.Default.DarkMode
-        WeatherCondition.PartlyCloudyDay -> Icons.Default.WbSunny
+        WeatherCondition.PartlyCloudyDay -> if (isDaytime) Icons.Default.WbSunny else Icons.Default.NightsStay
         WeatherCondition.PartlyCloudyNight -> Icons.Default.NightsStay
         WeatherCondition.Cloudy -> Icons.Default.Cloud
         WeatherCondition.Fog, WeatherCondition.Haze -> Icons.Default.Cloud

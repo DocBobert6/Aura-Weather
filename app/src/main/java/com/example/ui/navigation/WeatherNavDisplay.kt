@@ -547,7 +547,7 @@ private fun buildTickerItems(
     val items = mutableListOf<String>()
     current.visibilityM?.let {
         val desc = visibilityDescriptor(it)?.let { d -> " ($d)" } ?: ""
-        items.add("VISIB: ${unitFormatter.formatVisibility(it).uppercase()}$desc")
+        items.add("VISIBILITY: ${unitFormatter.formatVisibility(it).uppercase()}$desc")
     }
     current.pressurePa?.let {
         items.add("BAROMETRIC PRESSURE: ${unitFormatter.formatPressure(it).uppercase()}")
