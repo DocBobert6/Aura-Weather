@@ -3,8 +3,6 @@ package com.example
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
-import com.example.data.api.AirNowApi
-import com.example.data.api.AirNowObservation
 import com.example.data.api.NwsAlertFeature
 import com.example.data.api.NwsAlertProperties
 import com.example.data.api.NwsAlertsResponse
@@ -19,8 +17,6 @@ import com.example.data.api.OpenMeteoWeatherApi
 import com.example.data.api.OpenMeteoWeatherResponse
 import com.example.data.api.PirateWeatherApi
 import com.example.data.api.PirateWeatherForecastResponse
-import com.example.data.api.TomorrowApi
-import com.example.data.api.TomorrowTimelinesResponse
 import com.example.data.db.SavedPlaceEntity
 import com.example.data.db.WeatherDatabase
 import com.example.data.settings.SettingsManager
@@ -124,24 +120,6 @@ class AlertCheckerTest {
         ): OpenMeteoAirQualityResponse = throw NotImplementedError("not used by the checker test")
     }
 
-    // AirNow is not used by the checker test (alerts only): the stub
-    // returns no observations, so the AQI falls back to Open-Meteo.
-    private val stubAirNow = object : AirNowApi {
-        override suspend fun getCurrentObservations(
-            lat: Double, lon: Double, distance: Int, format: String, apiKey: String
-        ): List<AirNowObservation> = emptyList()
-    }
-
-    // Tomorrow.io is not used by the checker test (alerts only): the
-    // stub returns no timelines, so the minute-cast stays the
-    // Open-Meteo interpolation and pollen stays empty.
-    private val stubTomorrow = object : TomorrowApi {
-        override suspend fun getTimelines(
-            location: String, fields: String, timesteps: String, units: String,
-            startTime: String, endTime: String, apiKey: String
-        ): TomorrowTimelinesResponse = TomorrowTimelinesResponse(data = null)
-    }
-
     // Pirate Weather is not used by the checker test either: the stub
     // returns no minutely block, so the minute-cast stays the
     // Open-Meteo interpolation.
@@ -161,8 +139,6 @@ class AlertCheckerTest {
             nwsApi = fakeNwsApi,
             openMeteoWeatherApi = stubOpenMeteo,
             openMeteoAirQualityApi = stubAirQuality,
-            airNowApi = stubAirNow,
-            tomorrowApi = stubTomorrow,
             pirateWeatherApi = stubPirateWeather,
             settingsManager = SettingsManager(context),
             weatherCacheDao = db.weatherCacheDao(),

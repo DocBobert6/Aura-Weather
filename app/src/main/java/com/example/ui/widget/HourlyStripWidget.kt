@@ -39,15 +39,17 @@ import kotlinx.coroutines.flow.first
  *
  * Follows the 3.2 widget pattern exactly: cache-only via
  * [com.example.data.repo.WeatherRepository.getWidgetState] (never a
- * network fetch from the widget, never invented weather), day/night
- * colours from RetroTokens, system sans font (Star4000 cannot be used
+ * network fetch from the widget, never invented weather), solid
+ * navy/yellow colours from RetroTokens at all times (no light/day
+ * variant), system sans font (Star4000 cannot be used
  * in Glance), and the same update triggers — the Application re-renders
  * it on every in-app refresh and the shared 60-minute
  * WidgetUpdateWorker keeps it fresh while the app is closed.
  *
- * Layout: a wide 4x1 strip shows 6 hours; a narrower placement shows
- * 4. The hours come from WidgetState.hourly (the repository fills the
- * first 6 from the 48-hour forecast).
+ * Layout: a wide 4x1 strip shows 6 hours, the middle size shows 5,
+ * and a narrower placement shows 4. The hours come from
+ * WidgetState.hourly (the repository fills the first 6 from the
+ * 48-hour forecast).
  */
 class HourlyStripWidget : GlanceAppWidget() {
 
@@ -55,6 +57,7 @@ class HourlyStripWidget : GlanceAppWidget() {
         SizeMode.Responsive(
             setOf(
                 DpSize(320.dp, 110.dp),
+                DpSize(250.dp, 110.dp),
                 DpSize(180.dp, 110.dp)
             )
         )
@@ -78,7 +81,14 @@ class HourlyStripWidget : GlanceAppWidget() {
                 if (state == null || state.hourly.isEmpty()) {
                     WidgetEmptyContent()
                 } else {
-                    HourlyStripContent(state, if (size.width >= 300.dp) 6 else 4)
+                    HourlyStripContent(
+                        state,
+                        when {
+                            size.width >= 300.dp -> 6
+                            size.width >= 250.dp -> 5
+                            else -> 4
+                        }
+                    )
                 }
             }
         }
@@ -88,7 +98,11 @@ class HourlyStripWidget : GlanceAppWidget() {
 @Composable
 private fun HourlyStripContent(state: WidgetState, hourCount: Int) {
     val hours = state.hourly.take(hourCount)
-    Column(modifier = GlanceModifier.fillMaxSize()) {
+    Column(
+        modifier = GlanceModifier.fillMaxSize(),
+        verticalAlignment = Alignment.Vertical.CenterVertically,
+        horizontalAlignment = Alignment.Horizontal.CenterHorizontally
+    ) {
         Text(
             text = state.placeName.uppercase(Locale.US),
             style = TextStyle(

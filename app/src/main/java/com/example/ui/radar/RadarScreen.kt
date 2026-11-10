@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -172,6 +173,37 @@ fun RadarScreen(
     // imagery is still arriving. The Esri basemap stays visible
     // underneath as the placeholder for unloaded regions.
     var satSettled by remember(selectedLayer, effectiveZoomLevel) { mutableIntStateOf(0) }
+
+    // Future-radar (HRRR) tile health (radar fix A): counts the current
+    // range's radar tiles that loaded vs errored, for forecast ranges
+    // only. A forecast range with no tiles at all would otherwise read
+    // as a blank navy void. Reset when the range changes or a retry is
+    // requested, since that is a new tile set. The retry generation is
+    // declared first: the counters are keyed on it.
+    var forecastRetryGen by remember(selectedRange) { mutableIntStateOf(0) }
+    var forecastAutoRetries by remember(selectedRange) { mutableIntStateOf(0) }
+    var forecastTileOk by remember(selectedRange, forecastRetryGen) { mutableIntStateOf(0) }
+    var forecastTileErr by remember(selectedRange, forecastRetryGen) { mutableIntStateOf(0) }
+    // Unavailable when the first few forecast tiles all fail and none
+    // loaded: IEM is down (or the layer is wrong), not a slow load.
+    val forecastUnavailable = isForecastRange && !isSatellite &&
+        forecastTileErr >= 3 && forecastTileOk == 0
+
+    // Auto-retry when the forecast is unavailable: up to 3 attempts
+    // with exponential backoff (5s, 10s, 20s), then stop and leave the
+    // RETRY button. Each attempt bumps the retry generation, which
+    // recreates the tile AsyncImages (keyed below) so the failed set
+    // is re-requested. Coil does not cache failures, so the retry hits
+    // the network again.
+    LaunchedEffect(forecastUnavailable, forecastAutoRetries) {
+        if (!forecastUnavailable || forecastAutoRetries >= 3) return@LaunchedEffect
+        val backoffMs = 5000L * (1L shl forecastAutoRetries)
+        delay(backoffMs)
+        if (forecastUnavailable) {
+            forecastAutoRetries++
+            forecastRetryGen++
+        }
+    }
 
     // The radar loop lives here now (3.3), not in the ViewModel: it runs
     // only while this screen is composed and playing, and only for radar
@@ -353,19 +385,36 @@ fun RadarScreen(
                         // (loaded or errored) so the loading overlay knows
                         // when the imagery has arrived; radar layers do not
                         // need it (prefetched, and the loop shows progress).
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(radarUrl)
-                                .crossfade(false)
-                                .build(),
-                            contentDescription = "Radar tile",
-                            contentScale = ContentScale.FillBounds,
-                            onSuccess = { if (isSatellite) satSettled++ },
-                            onError = { if (isSatellite) satSettled++ },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .alpha(0.85f)
-                        )
+                        // Forecast ranges also report each tile, so a down
+                        // IEM backend shows the "future radar unavailable"
+                        // state instead of a blank void. Explicit cache
+                        // policies: the prefetch and the screen share the
+                        // same ImageLoader and URLs, so a prefetched tile
+                        // is a cache hit here. key(forecastRetryGen)
+                        // recreates the request on a retry.
+                        key(forecastRetryGen) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(radarUrl)
+                                    .crossfade(false)
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .build(),
+                                contentDescription = "Radar tile",
+                                contentScale = ContentScale.FillBounds,
+                                onSuccess = {
+                                    if (isSatellite) satSettled++
+                                    if (isForecastRange && !isSatellite) forecastTileOk++
+                                },
+                                onError = {
+                                    if (isSatellite) satSettled++
+                                    if (isForecastRange && !isSatellite) forecastTileErr++
+                                },
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .alpha(0.85f)
+                            )
+                        }
 
                         // 3. Esri reference layer (city labels + boundaries,
                         // keyless) on top, so the map names places instead
@@ -447,6 +496,54 @@ fun RadarScreen(
                             fontWeight = FontWeight.Bold,
                             color = RetroTokens.TextPrimary
                         )
+                    }
+                }
+            }
+        }
+
+        // Future-radar unavailable (radar fix A): when the forecast
+        // tiles all fail (IEM down), the map would otherwise be a blank
+        // navy void with the Esri basemap and no radar. Say so, and
+        // offer a retry. Auto-retry (above) already tried with backoff;
+        // this is the manual path after those attempts.
+        if (forecastUnavailable) {
+            Box(
+                modifier = Modifier.align(Alignment.Center),
+                contentAlignment = Alignment.Center
+            ) {
+                RetroPanel(shape = RetroShapes.medium) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "FUTURE RADAR UNAVAILABLE",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = RetroTokens.Yellow
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "THE HRRR FORECAST IS NOT LOADING RIGHT NOW.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = RetroTokens.TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        RetroPanel(
+                            shape = RetroShapes.medium,
+                            modifier = Modifier.clickable {
+                                forecastRetryGen++
+                                forecastAutoRetries = 0
+                            }
+                        ) {
+                            Text(
+                                text = "RETRY",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = RetroTokens.Yellow,
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)
+                            )
+                        }
                     }
                 }
             }

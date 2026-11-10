@@ -65,12 +65,6 @@ class MainActivity : ComponentActivity() {
             val selectedRadarRange by viewModel.selectedRadarRange.collectAsStateWithLifecycle()
             val currentRadarFrameIndex by viewModel.currentRadarFrameIndex.collectAsStateWithLifecycle()
             val isRadarPlaying by viewModel.isRadarPlaying.collectAsStateWithLifecycle()
-            val tomorrowApiKey by viewModel.tomorrowApiKey.collectAsStateWithLifecycle()
-            val tomorrowWorking by viewModel.tomorrowWorking.collectAsStateWithLifecycle()
-            val airNowApiKey by viewModel.airNowApiKey.collectAsStateWithLifecycle()
-            val airNowWorking by viewModel.airNowWorking.collectAsStateWithLifecycle()
-            val tomorrowAttempted by viewModel.tomorrowAttempted.collectAsStateWithLifecycle()
-            val airNowAttempted by viewModel.airNowAttempted.collectAsStateWithLifecycle()
             val pirateWeatherApiKey by viewModel.pirateWeatherApiKey.collectAsStateWithLifecycle()
             val pirateWeatherWorking by viewModel.pirateWeatherWorking.collectAsStateWithLifecycle()
             val pirateWeatherAttempted by viewModel.pirateWeatherAttempted.collectAsStateWithLifecycle()
@@ -103,12 +97,6 @@ class MainActivity : ComponentActivity() {
                     loadError = loadError,
                     savedPlaces = savedPlaces,
                     useMetric = useMetric,
-                    tomorrowApiKey = tomorrowApiKey,
-                    tomorrowWorking = tomorrowWorking,
-                    airNowApiKey = airNowApiKey,
-                    airNowWorking = airNowWorking,
-                    tomorrowAttempted = tomorrowAttempted,
-                    airNowAttempted = airNowAttempted,
                     pirateWeatherApiKey = pirateWeatherApiKey,
                     pirateWeatherWorking = pirateWeatherWorking,
                     pirateWeatherAttempted = pirateWeatherAttempted,

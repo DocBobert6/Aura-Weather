@@ -7,6 +7,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -676,13 +678,21 @@ private fun HeroWeatherCard(
                 modifier = Modifier.size(68.dp)
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
+            // Optically centered on the numerals: the degree glyph hangs
+            // off the right edge, so the numerals' visual center sits
+            // left of the geometric center - a small rightward shift
+            // puts the numerals themselves on the panel center line.
             Text(
                 text = tempFormatted.uppercase(),
                 style = MaterialTheme.typography.displayLarge.copy(fontSize = 72.sp),
                 fontWeight = FontWeight.Bold,
-                color = RetroTokens.Yellow
+                color = RetroTokens.Yellow,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .offset(x = 8.dp)
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -857,76 +867,84 @@ private fun HourlyForecastCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            LazyRow(
-                // fillMaxWidth constrains the row to the card width so
-                // it is actually scrollable: without it the row can size
-                // to its content and the last item clips off-screen with
-                // no way to reach it. The generous end padding gives the
-                // final item room to draw fully.
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(start = 16.dp, end = 28.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                items(hourlyPoints.size) { index ->
-                    val point = hourlyPoints[index]
-                    // The first hour is now — label it, so the strip reads
-                    // against the present instead of a redundant "9 AM".
-                    val hourLabel = if (index == 0) "NOW" else timeFormatter.format(point.time).uppercase()
-                    // Single source of truth for "now": the hero card
-                    // shows the current observation, so the NOW cell
-                    // shows the same value.
-                    val nowTempC = if (index == 0) currentTempC ?: point.tempC else point.tempC
-                    val temp = unitFormatter.formatTemperature(nowTempC)
-                    val pop = point.popPct
+            // Exactly five cells fill the card width: the cell width is
+            // derived from the measured card width, so the fifth cell
+            // ends at the card edge and the sixth starts off-screen -
+            // no partial sixth peeking in at the edge. Still scrolls.
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                // Start padding (16.dp) plus four 8.dp gaps is 48.dp;
+                // the rest splits five ways.
+                val cellWidth = (maxWidth - 48.dp) / 5f
+                LazyRow(
+                    // fillMaxWidth constrains the row to the card width so
+                    // it stays scrollable: without it the row can size to
+                    // its content and the last item clips off-screen with
+                    // no way to reach it.
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(hourlyPoints.size) { index ->
+                        val point = hourlyPoints[index]
+                        // The first hour is now — label it, so the strip reads
+                        // against the present instead of a redundant "9 AM".
+                        val hourLabel = if (index == 0) "NOW" else timeFormatter.format(point.time).uppercase()
+                        // Single source of truth for "now": the hero card
+                        // shows the current observation, so the NOW cell
+                        // shows the same value.
+                        val nowTempC = if (index == 0) currentTempC ?: point.tempC else point.tempC
+                        val temp = unitFormatter.formatTemperature(nowTempC)
+                        val pop = point.popPct
 
-                    // Plain cell on the navy panel: no glass, no pill
-                    // highlight. "Now" is plain yellow text, not a fill.
-                    Column(
-                        modifier = Modifier
-                            .width(52.dp)
-                            .padding(vertical = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = hourLabel,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (index == 0) FontWeight.Bold else FontWeight.Normal,
-                            color = if (index == 0) RetroTokens.Yellow else RetroTokens.TextSecondary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Icon(
-                            imageVector = getWeatherIcon(point.condition, isDaytime = point.isDaytime),
-                            contentDescription = point.condition.displayName,
-                            tint = RetroTokens.TextPrimary,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = temp.uppercase(),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = RetroTokens.Yellow
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        // Rain % whenever there is any chance (not only
-                        // above 10%). 0% is clutter, so it stays hidden.
-                        if (pop != null && pop > 0) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.WaterDrop,
-                                    contentDescription = "Rain chance",
-                                    tint = AuraColors.PopBlue,
-                                    modifier = Modifier.size(10.dp)
-                                )
-                                Text(
-                                    text = "$pop%",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                                    fontWeight = FontWeight.Bold,
-                                    color = RetroTokens.TextPrimary
-                                )
+                        // Plain cell on the navy panel: no glass, no pill
+                        // highlight. "Now" is plain yellow text, not a fill.
+                        Column(
+                            modifier = Modifier
+                                .width(cellWidth)
+                                .padding(vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = hourLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (index == 0) FontWeight.Bold else FontWeight.Normal,
+                                color = if (index == 0) RetroTokens.Yellow else RetroTokens.TextSecondary
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Icon(
+                                imageVector = getWeatherIcon(point.condition, isDaytime = point.isDaytime),
+                                contentDescription = point.condition.displayName,
+                                tint = RetroTokens.TextPrimary,
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = temp.uppercase(),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = RetroTokens.Yellow
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            // Rain % whenever there is any chance (not only
+                            // above 10%). 0% is clutter, so it stays hidden.
+                            if (pop != null && pop > 0) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.WaterDrop,
+                                        contentDescription = "Rain chance",
+                                        tint = AuraColors.PopBlue,
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                    Text(
+                                        text = "$pop%",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                        fontWeight = FontWeight.Bold,
+                                        color = RetroTokens.TextPrimary
+                                    )
+                                }
+                            } else {
+                                Text(text = " ", style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp))
                             }
-                        } else {
-                            Text(text = " ", style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp))
                         }
                     }
                 }
@@ -1003,23 +1021,23 @@ private fun DailyForecastCard(
                     }
 
                     Row(
-                        modifier = Modifier.width(56.dp),
+                        modifier = Modifier.width(88.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = getWeatherIcon(displayCondition, isDaytime = if (index == 0) isDaytimeNow else true),
                             contentDescription = displayCondition.displayName,
                             tint = RetroTokens.TextPrimary,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(32.dp)
                         )
-                        if (pop > 0) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "$pop%",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = RetroTokens.TextPrimary
-                            )
-                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (pop > 0) "$pop%" else "",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = RetroTokens.TextPrimary,
+                            modifier = Modifier.width(40.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                     }
 
                     // Condition as a text column, not a bar: the tabular

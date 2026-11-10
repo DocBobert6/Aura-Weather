@@ -2,7 +2,6 @@ package com.example.data.mapper
 
 import com.example.domain.model.AirQuality
 import com.example.domain.model.DailyPoint
-import com.example.domain.model.PollenData
 import com.example.domain.model.AlertSeverity
 import com.example.domain.model.GeoPoint
 import com.example.domain.model.MinutePrecip
@@ -213,25 +212,6 @@ fun visibilityDescriptor(visibilityM: Double?): String? {
     }
 }
 
-/** One AirNow current-observation row, stripped to what the AQI mapping
- * needs (pollutant + AQI). The Retrofit model (AirNowObservation,
- * Moshi-annotated) lives in data.api and cannot be compiled into the
- * pure tests (no Moshi jar on that classpath), so the repository
- * converts to this plain type first. Keeping the mapping pure and
- * Moshi-free is what lets the unit tests cover it. */
-data class AirNowReading(val parameterName: String?, val aqi: Int?)
-
-/** One Tomorrow.io Timelines "1m" interval, stripped to what the
- * minute-cast mapping needs (time + intensity + probability). The
- * Retrofit model (TomorrowInterval, Moshi-annotated) lives in data.api
- * and cannot be compiled into the pure tests (no Moshi jar on that
- * classpath), so the repository converts to this plain type first. */
-data class TomorrowMinutePoint(
-    val time: Instant,
-    val mmPerHour: Double?,
-    val probabilityPct: Int?
-)
-
 /** One Pirate Weather minutely data point, stripped to what the
  * minute-cast mapping needs (time + intensity + probability). The
  * Retrofit model (PirateWeatherMinuteData, Moshi-annotated) lives in
@@ -404,9 +384,8 @@ object WeatherMappers {
      * Returns null when the provider returned no AQI at all. A missing AQI is
      * "unavailable", not a made-up 28 with made-up PM2.5/PM10/ozone defaults.
      */
-    /** EPA AQI bands (category + health guidance). Shared by the
-     * Open-Meteo and AirNow paths so the two never disagree about what
-     * an AQI number means. */
+    /** EPA AQI bands (category + health guidance). The one place
+     * that turns an AQI number into a category + guidance. */
     fun aqiCategoryAndGuidance(aqi: Int): Pair<String, String> = when {
         aqi <= 50 -> "Good" to "Air quality is satisfactory and poses little or no health risk."
         aqi <= 100 -> "Moderate" to "Air quality is acceptable. Unusually sensitive individuals should limit prolonged outdoor exertion."
@@ -449,53 +428,19 @@ object WeatherMappers {
     }
 
     /**
-     * AirNow AQI (post-Phase-3 batch, item 2): when an AirNow key is set,
-     * the headline AQI comes from the nearest EPA monitoring station
-     * instead of the Open-Meteo model. AirNow reports AQI + category per
-     * pollutant but no concentrations, so the pollutant concentrations
-     * (PM2.5 / PM10 / ozone) stay Open-Meteo's — only the headline AQI,
-     * its category, and the dominant pollutant are replaced, and the
-     * source becomes "AirNow". Returns the Open-Meteo value unchanged
-     * when AirNow returned no usable observation (empty list, or outside
-     * US coverage), and null only when neither source has an AQI.
+     * Pirate Weather minutely data -> a 60-minute minute-cast. The
+     * Pirate Weather minutely block runs 60 minutes at 1-minute
+     * resolution, exactly the minute-cast's window. Anchors on the
+     * current minute and builds one MinutePrecip per minute (0..59);
+     * a missing minute carries the last known rate forward, exactly
+     * like the 15-minute interpolation. The sentence is the same
+     * nowcast sentence the interpolated path uses, so the Home
+     * minute-cast reads identically — only the data is real.
+     * An empty point list means the minutely block was unavailable:
+     * the caller keeps the interpolated fallback instead of using this.
      */
-    fun mapAirNowAqi(readings: List<AirNowReading>, openMeteoAqi: AirQuality?): AirQuality? {
-        val withAqi = readings.filter { it.aqi != null }
-        if (withAqi.isEmpty()) return openMeteoAqi
-        val worst = withAqi.maxByOrNull { it.aqi!! }!!
-        val aqi = worst.aqi!!
-        val (category, guidance) = aqiCategoryAndGuidance(aqi)
-        val dominant = when (worst.parameterName) {
-            "PM2.5" -> "PM2.5"
-            "PM10" -> "PM10"
-            "O3" -> "Ozone (O₃)"
-            else -> openMeteoAqi?.dominant
-        }
-        return AirQuality(
-            aqi = aqi,
-            category = category,
-            pm25 = openMeteoAqi?.pm25,
-            pm10 = openMeteoAqi?.pm10,
-            ozonePpb = openMeteoAqi?.ozonePpb,
-            dominant = dominant,
-            source = "AirNow",
-            healthGuidance = guidance
-        )
-    }
-
-    /**
-     * Tomorrow.io "1m" timeline intervals -> a 60-minute minute-cast.
-     * Anchors on the current minute and builds one MinutePrecip per
-     * minute (0..59); a missing interval carries the last known rate
-     * forward, exactly like the 15-minute interpolation. The sentence
-     * is the same nowcast sentence the interpolated path uses, so the
-     * Home minute-cast reads identically — only the data is real.
-     * An empty interval list means the "1m" timeline was unavailable
-     * (Enterprise on a free key): the caller keeps the interpolated
-     * fallback instead of using this.
-     */
-    fun mapTomorrowMinutely(
-        points: List<TomorrowMinutePoint>,
+    fun mapPirateWeatherMinutely(
+        points: List<PirateWeatherMinutePoint>,
         now: Instant,
         zoneId: ZoneId
     ): Pair<List<MinutePrecip>, String> {
@@ -523,44 +468,6 @@ object WeatherMappers {
             )
         }
         return Pair(minutePoints, generateNowcastSentence(minutePoints, now, zoneId))
-    }
-
-    /**
-     * Pirate Weather minutely data -> a 60-minute minute-cast. The
-     * Pirate Weather minutely block runs 60 minutes at 1-minute
-     * resolution, exactly the minute-cast's window. Delegates to
-     * mapTomorrowMinutely so the curve and the sentence are
-     * identical — only the source differs.
-     */
-    fun mapPirateWeatherMinutely(
-        points: List<PirateWeatherMinutePoint>,
-        now: Instant,
-        zoneId: ZoneId
-    ): Pair<List<MinutePrecip>, String> {
-        if (points.isEmpty()) {
-            return Pair(emptyList(), "Minutely precipitation is unavailable right now.")
-        }
-        val converted = points.map { TomorrowMinutePoint(it.time, it.mmPerHour, it.probabilityPct) }
-        return mapTomorrowMinutely(converted, now, zoneId)
-    }
-
-    /** Tomorrow.io pollen indices -> PollenData. hasKey is true when a
-     * Tomorrow.io key is configured (the repository passes it), so the
-     * Air & Pollen screen shows the gauges; a missing index stays null
-     * and renders "--" rather than an invented value. */
-    fun mapTomorrowPollen(
-        treeIndex: Int?,
-        grassIndex: Int?,
-        weedIndex: Int?,
-        hasKey: Boolean
-    ): PollenData {
-        return PollenData(
-            treeIndex = treeIndex,
-            grassIndex = grassIndex,
-            weedIndex = weedIndex,
-            source = "Tomorrow.io",
-            hasKey = hasKey
-        )
     }
 
     /** Outcome of a location-permission request: whether any location

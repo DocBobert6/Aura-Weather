@@ -58,17 +58,6 @@ class WeatherViewModel(
     val useMetric: StateFlow<Boolean> = settingsManager.useMetricFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    val tomorrowApiKey: StateFlow<String> = settingsManager.tomorrowApiKeyFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
-
-    /** Tomorrow.io "KEY ACTIVE" pill: true only after the client has
-     * actually fetched usable data with the stored key. */
-    val tomorrowWorking: StateFlow<Boolean> = settingsManager.tomorrowWorkingFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    val airNowApiKey: StateFlow<String> = settingsManager.airNowApiKeyFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
-
     val pirateWeatherApiKey: StateFlow<String> = settingsManager.pirateWeatherApiKeyFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
@@ -77,19 +66,10 @@ class WeatherViewModel(
     val pirateWeatherWorking: StateFlow<Boolean> = settingsManager.pirateWeatherWorkingFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    /** AirNow "KEY ACTIVE" pill: true only after a real AirNow fetch. */
-    val airNowWorking: StateFlow<Boolean> = settingsManager.airNowWorkingFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
     /** "KEY FAILED" pills: true once a fetch was attempted with the key. */
-    val tomorrowAttempted: StateFlow<Boolean> = settingsManager.tomorrowAttemptedFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    val airNowAttempted: StateFlow<Boolean> = settingsManager.airNowAttemptedFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
     val pirateWeatherAttempted: StateFlow<Boolean> = settingsManager.pirateWeatherAttemptedFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
 
     /** Background music toggle (Home screen): off by default. */
     val musicEnabled: StateFlow<Boolean> = settingsManager.musicEnabledFlow
@@ -216,26 +196,13 @@ class WeatherViewModel(
         }
     }
 
-    fun setTomorrowApiKey(key: String) {
-        viewModelScope.launch {
-            settingsManager.setTomorrowApiKey(key.trim())
-            refresh()
-        }
-    }
-
-    fun setAirNowApiKey(key: String) {
-        viewModelScope.launch {
-            settingsManager.setAirNowApiKey(key.trim())
-            refresh()
-        }
-    }
-
     fun setPirateWeatherApiKey(key: String) {
         viewModelScope.launch {
             settingsManager.setPirateWeatherApiKey(key.trim())
             refresh()
         }
     }
+
 
     fun setMusicEnabled(enabled: Boolean) {
         viewModelScope.launch {

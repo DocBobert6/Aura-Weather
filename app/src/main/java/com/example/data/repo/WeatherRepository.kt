@@ -1,8 +1,6 @@
 package com.example.data.repo
 
-import com.example.data.api.AirNowApi
 import com.example.data.api.PirateWeatherApi
-import com.example.data.api.TomorrowApi
 import com.example.data.api.NwsAlertFeature
 import com.example.data.api.NwsApi
 import com.example.data.api.NwsForecastPeriod
@@ -14,9 +12,7 @@ import com.example.data.db.SavedPlaceEntity
 import com.example.data.db.WeatherCacheDao
 import com.example.data.settings.SettingsManager
 import com.example.data.db.WeatherCacheEntity
-import com.example.data.mapper.AirNowReading
 import com.example.data.mapper.PirateWeatherMinutePoint
-import com.example.data.mapper.TomorrowMinutePoint
 import com.example.data.mapper.InstantJsonAdapter
 import com.example.data.mapper.LocalDateJsonAdapter
 import com.example.data.mapper.WeatherMappers
@@ -57,12 +53,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.time.Instant
-import java.time.temporal.ChronoUnit
-import kotlin.math.roundToInt
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * Offline-first weather repository.
@@ -82,9 +77,9 @@ class WeatherRepository(
     private val nwsApi: NwsApi,
     private val openMeteoWeatherApi: OpenMeteoWeatherApi,
     private val openMeteoAirQualityApi: OpenMeteoAirQualityApi,
-    private val airNowApi: AirNowApi,
-    private val tomorrowApi: TomorrowApi,
     private val pirateWeatherApi: PirateWeatherApi,
+    // The settings manager is retained as a constructor dependency:
+    // the Pirate Weather minute-cast (PR #6) reads its key through it.
     private val settingsManager: SettingsManager,
     private val weatherCacheDao: WeatherCacheDao,
     private val savedPlaceDao: SavedPlaceDao
@@ -534,9 +529,9 @@ class WeatherRepository(
             .let { list -> fillDailyPrecipAndExtend(list, omDailyList) }
 
         // --- 60-minute nowcast (Open-Meteo minutely_15, anchored on now).
-        // This is the fallback: when a Tomorrow.io key is set and the
-        // "1m" timeline is available, the Tomorrow.io block below
-        // replaces these with real 1-minute data.
+        // The 15-minute interpolation IS the minute-cast: there is no
+        // 1-minute provider on this branch (Tomorrow.io was removed —
+        // its 1m timestep is Enterprise-only on a free plan).
         val (omMinutely, omMinuteSentence) = WeatherMappers.interpolate15MinTo60Min(
             openMeteoResult?.minutely15?.time,
             openMeteoResult?.minutely15?.precipitation,
@@ -550,44 +545,28 @@ class WeatherRepository(
         val alerts = parseNwsAlerts(alertsResult?.features, now)
 
         // --- Air quality. Null when the provider returned no AQI.
-        // Open-Meteo first (concentrations + fallback AQI); then, when an
-        // AirNow key is set, the headline AQI comes from the nearest EPA
-        // monitoring station instead (AirNow reports AQI only, no
-        // concentrations, so the pollutant values stay Open-Meteo's).
-        // Any AirNow failure (bad key, outside US coverage, network)
-        // falls back to the Open-Meteo AQI — never a blank screen.
+        // Open-Meteo Air Quality is the only AQI source: a modelled
+        // US AQI plus concentrations (PM2.5, PM10, ozone). It is not
+        // a station observation. AirNow was removed (2026-11-10
+        // audit build D): its pill only turned green on >= 1 station
+        // observation, which this area does not return.
         val aqCurrent = aqResult?.current
-        val openMeteoAqi = WeatherMappers.mapAqi(
+        val airQuality = WeatherMappers.mapAqi(
             usAqi = aqCurrent?.usAqi,
             pm25 = aqCurrent?.pm25,
             pm10 = aqCurrent?.pm10,
             ozone = aqCurrent?.ozone
         )
-        val airNowKey = settingsManager.airNowApiKeyFlow.first()
-        var airNowWorked = false
-        if (airNowKey.isNotBlank()) {
-            settingsManager.setAirNowAttempted(true)
-        }
-        val airQuality = runCatching {
-            if (airNowKey.isBlank()) {
-                openMeteoAqi
-            } else {
-                val observations = airNowApi.getCurrentObservations(lat, lon, apiKey = airNowKey)
-                val mapped = WeatherMappers.mapAirNowAqi(
-                    readings = observations.map { AirNowReading(it.parameterName, it.aqi) },
-                    openMeteoAqi = openMeteoAqi
-                )
-                if (mapped?.source == "AirNow") airNowWorked = true
-                mapped
-            }
-        }.getOrNull() ?: openMeteoAqi
-        if (airNowKey.isNotBlank()) {
-            settingsManager.setAirNowWorking(airNowWorked)
-        }
 
+        // --- Pollen: unavailable. There is no free US pollen source
+        // (Tomorrow.io pollen is a Premium feature; Open-Meteo pollen
+        // fields return null here; CAMS pollen is Europe-only), so
+        // the gauges stay empty and the allergy index runs on the
+        // AQI alone. The PollenData stays in the state (and the cache)
+        // so the screen keeps its shape.
         // The minute-cast starts as the Open-Meteo 15-minute
-        // interpolation; Pirate Weather (below) and then Tomorrow.io
-        // replace it when their key delivers real 1-minute data.
+        // interpolation; Pirate Weather (below) replaces it when its
+        // key delivers real 1-minute data.
         var minutely = omMinutely
         var minuteSentence = omMinuteSentence
 
@@ -595,10 +574,10 @@ class WeatherRepository(
         // First-choice minute-cast source when a key is set: one call
         // per refresh, 60 minutes of 1-minute data. Free tier is
         // 10,000 calls/month, no card. A failure or an empty minutely
-        // block falls through to the Tomorrow.io 1m timeline, then
-        // the Open-Meteo interpolation. pirateWeatherWorking records
-        // whether the key actually delivered usable data, so the
-        // Settings "KEY ACTIVE" pill is honest. The key travels as
+        // block falls through to the Open-Meteo interpolation.
+        // pirateWeatherWorking records whether the key actually
+        // delivered usable data, so the Settings "KEY ACTIVE" pill
+        // is honest. The key travels as
         // the `apikey` header (a dummy "key" segment sits in the URL
         // path, which the docs require); units are `si` so
         // precipIntensity is mm/h. Response shape is from the Pirate
@@ -634,83 +613,13 @@ class WeatherRepository(
             }
             settingsManager.setPirateWeatherWorking(pirateWeatherWorked)
         }
-
-        // --- Tomorrow.io: 1-minute precipitation + live pollen.
-        // Two independent Timelines calls, only when a key is set and
-        // only as part of this refresh (no timer) — free tier is
-        // 500 calls/day, and a refresh makes at most two. The "1m"
-        // timestep is Enterprise in Tomorrow.io's docs, so a free key
-        // may return no 1m timeline; that falls back to the 15-minute
-        // Open-Meteo interpolation and the pollen (current index,
-        // available on free keys) still flows. A failure of either
-        // call is a fallback, never a blank screen. tomorrowWorking
-        // records whether the key actually delivered usable data, so
-        // the Settings "KEY ACTIVE" pill is honest.
-        val tomorrowKey = settingsManager.tomorrowApiKeyFlow.first()
-        var pollen = PollenData(
+        val pollen = PollenData(
             treeIndex = null,
             grassIndex = null,
             weedIndex = null,
-            source = "Tomorrow.io",
-            hasKey = tomorrowKey.isNotBlank()
+            source = "Unavailable",
+            hasKey = false
         )
-
-        if (tomorrowKey.isNotBlank()) {
-            settingsManager.setTomorrowAttempted(true)
-            var tomorrowWorked = false
-            // 1-minute precipitation for the next 60 minutes.
-            runCatching {
-                val resp = tomorrowApi.getTimelines(
-                    location = "$lat,$lon",
-                    fields = "precipitationIntensity,precipitationProbability",
-                    timesteps = "1m",
-                    startTime = now.toString(),
-                    endTime = now.plus(65, ChronoUnit.MINUTES).toString(),
-                    apiKey = tomorrowKey
-                )
-                val timeline = resp.data?.timelines?.firstOrNull { it.timestep == "1m" }
-                val points = timeline?.intervals?.mapNotNull { interval ->
-                    val timeStr = interval.time ?: return@mapNotNull null
-                    val t = runCatching { Instant.parse(timeStr) }.getOrNull()
-                        ?: return@mapNotNull null
-                    TomorrowMinutePoint(
-                        time = t,
-                        mmPerHour = interval.values?.precipitationIntensity,
-                        probabilityPct = interval.values?.precipitationProbability?.roundToInt()
-                    )
-                } ?: emptyList()
-                if (points.isNotEmpty() && !minutelyFromPirate) {
-                    val mapped = WeatherMappers.mapTomorrowMinutely(points, now, zoneId)
-                    minutely = mapped.first
-                    minuteSentence = mapped.second
-                    tomorrowWorked = true
-                }
-            }
-            // Live pollen (current index: tree, grass, weed).
-            runCatching {
-                val resp = tomorrowApi.getTimelines(
-                    location = "$lat,$lon",
-                    fields = "treeIndex,grassIndex,weedIndex",
-                    timesteps = "current",
-                    startTime = now.toString(),
-                    endTime = now.plus(5, ChronoUnit.MINUTES).toString(),
-                    apiKey = tomorrowKey
-                )
-                val values = resp.data?.timelines
-                    ?.firstOrNull { it.timestep == "current" }
-                    ?.intervals?.firstOrNull()?.values
-                if (values != null) {
-                    pollen = WeatherMappers.mapTomorrowPollen(
-                        treeIndex = values.treeIndex,
-                        grassIndex = values.grassIndex,
-                        weedIndex = values.weedIndex,
-                        hasKey = true
-                    )
-                    tomorrowWorked = true
-                }
-            }
-            settingsManager.setTomorrowWorking(tomorrowWorked)
-        }
 
         return FullWeatherState(
             place = resolvedPlace,
@@ -956,7 +865,7 @@ class WeatherRepository(
             val airQuality = moshi.adapter(com.example.domain.model.AirQuality::class.java)
                 .fromJson(cache.aqiJson)
             val pollen = moshi.adapter(PollenData::class.java).fromJson(cache.pollenJson)
-                ?: PollenData(null, null, null, "Tomorrow.io", false)
+                ?: PollenData(null, null, null, "Unavailable", false)
 
             FullWeatherState(
                 place = place,

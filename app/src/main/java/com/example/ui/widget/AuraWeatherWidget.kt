@@ -39,13 +39,15 @@ import kotlinx.coroutines.flow.first
 /**
  * The 3.2 home-screen widget (Glance, v1). Current temp + condition
  * icon + place name + high/low + an "updated HH:MM" line; tap opens the
- * app. One responsive layout: a wide 4x1 row and a square 2x2 column.
+ * app. Three responsive layouts by width: a wide 4x1 row, a compact
+ * wide row at the intermediate size, and a square 2x2 column.
  *
  * Data comes from the repository cache (never a network fetch from the
  * widget itself, never invented weather): no selected place or no cache
  * shows the empty prompt. The retro look is kept where Glance allows —
- * solid navy at night, Star4000 type, yellow temp — with a light
- * variant for day mode (white background, navy text, orange temp).
+ * solid navy background, white text, yellow temp at all times (no
+ * light/day variant); system sans font, since Glance takes system
+ * fonts only and Star4000 cannot be used in widgets.
  */
 class AuraWeatherWidget : GlanceAppWidget() {
 
@@ -53,6 +55,7 @@ class AuraWeatherWidget : GlanceAppWidget() {
         SizeMode.Responsive(
             setOf(
                 DpSize(180.dp, 180.dp),
+                DpSize(250.dp, 140.dp),
                 DpSize(320.dp, 110.dp)
             )
         )
@@ -76,7 +79,11 @@ class AuraWeatherWidget : GlanceAppWidget() {
                 if (state == null) {
                     WidgetEmptyContent()
                 } else if (size.width > size.height) {
-                    WidgetWideContent(state)
+                    if (size.width >= 300.dp) {
+                        WidgetWideContent(state)
+                    } else {
+                        WidgetWideContent(state, compact = true)
+                    }
                 } else {
                     WidgetSquareContent(state)
                 }
@@ -86,7 +93,7 @@ class AuraWeatherWidget : GlanceAppWidget() {
 }
 
 @Composable
-private fun WidgetWideContent(state: WidgetState) {
+private fun WidgetWideContent(state: WidgetState, compact: Boolean = false) {
     val display = state.toDisplay()
     val icon = conditionToWidgetIcon(state.condition, state.isDaytime)
     Row(
@@ -96,7 +103,7 @@ private fun WidgetWideContent(state: WidgetState) {
         Image(
             provider = ImageProvider(conditionIconRes(icon)),
             contentDescription = display.conditionText,
-            modifier = GlanceModifier.size(56.dp),
+            modifier = GlanceModifier.size(if (compact) 40.dp else 56.dp),
             colorFilter = ColorFilter.tint(iconTint(icon))
         )
         Spacer(modifier = GlanceModifier.width(12.dp))
@@ -112,7 +119,7 @@ private fun WidgetWideContent(state: WidgetState) {
             Text(
                 text = display.tempText,
                 style = TextStyle(
-                    fontSize = 36.sp,
+                    fontSize = if (compact) 28.sp else 36.sp,
                     color = WidgetColors.temp
                 )
             )
@@ -129,7 +136,7 @@ private fun WidgetWideContent(state: WidgetState) {
             Text(
                 text = display.highLowText,
                 style = TextStyle(
-                    fontSize = 13.sp,
+                    fontSize = if (compact) 12.sp else 13.sp,
                     color = WidgetColors.primary
                 ),
                 maxLines = 1
@@ -138,7 +145,7 @@ private fun WidgetWideContent(state: WidgetState) {
             Text(
                 text = display.updatedText,
                 style = TextStyle(
-                    fontSize = 11.sp,
+                    fontSize = if (compact) 10.sp else 11.sp,
                     color = WidgetColors.primary
                 ),
                 maxLines = 1

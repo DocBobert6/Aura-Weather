@@ -14,7 +14,7 @@ import java.time.Instant
 
 /**
  * Pure tests for the Build C rain-starting decision. The minute-cast can
- * be 1-minute (Tomorrow.io) or 15-minute (Open-Meteo) points —
+ * be 1-minute (Pirate Weather) or 15-minute (Open-Meteo) points —
  * every assertion is on the point's time, never its index.
  */
 class RainStartTest {
