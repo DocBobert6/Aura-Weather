@@ -287,6 +287,10 @@ fun HomeScreen(
                 minutePoints = state?.minutely60m ?: emptyList(),
                 summarySentence = state?.minuteSummary ?: "No precipitation expected for the next 60 minutes."
             )
+            // A little extra breathing room before the 48-hour strip:
+            // the uniform 16dp list spacing leaves the two cards
+            // sitting tight against each other.
+            Spacer(modifier = Modifier.height(8.dp))
         }
 
         // 6. 48-Hour Hourly Forecast Strip
@@ -294,7 +298,8 @@ fun HomeScreen(
             HourlyForecastCard(
                 hourlyPoints = state?.hourly48h ?: emptyList(),
                 unitFormatter = unitFormatter,
-                zoneId = runCatching { ZoneId.of(state?.place?.zoneId ?: "") }.getOrDefault(ZoneId.systemDefault())
+                zoneId = runCatching { ZoneId.of(state?.place?.zoneId ?: "") }.getOrDefault(ZoneId.systemDefault()),
+                currentTempC = state?.current?.tempC
             )
         }
 
@@ -745,12 +750,19 @@ private fun MinuteCastCard(
                     )
                 }
 
-                // Plain text, not a glass pill.
-                Text(
-                    text = "EVERY 15 MIN",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = RetroTokens.TextSecondary
-                )
+                // A subtle secondary badge, not plain text — it sits
+                // closer to the title and reads as a label for the card.
+                Surface(
+                    color = RetroTokens.PanelLight,
+                    shape = AuraShapes.pill
+                ) {
+                    Text(
+                        text = "EVERY 15 MIN",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = RetroTokens.TextSecondary,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -816,7 +828,11 @@ private fun MinuteCastCard(
 private fun HourlyForecastCard(
     hourlyPoints: List<HourlyPoint>,
     unitFormatter: UnitFormatter,
-    zoneId: ZoneId = ZoneId.systemDefault()
+    zoneId: ZoneId = ZoneId.systemDefault(),
+    // The hero card's temperature: the NOW cell must show this exact
+    // value, not the hourly forecast's own temp (which can round a
+    // degree apart — the reported 52 vs 53).
+    currentTempC: Double? = null
 ) {
     val timeFormatter = remember(zoneId) {
         DateTimeFormatter.ofPattern("h a", Locale.US).withZone(zoneId)
@@ -839,7 +855,13 @@ private fun HourlyForecastCard(
             Spacer(modifier = Modifier.height(14.dp))
 
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                // fillMaxWidth constrains the row to the card width so
+                // it is actually scrollable: without it the row can size
+                // to its content and the last item clips off-screen with
+                // no way to reach it. The generous end padding gives the
+                // final item room to draw fully.
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(start = 16.dp, end = 28.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 items(hourlyPoints.take(24).size) { index ->
@@ -847,7 +869,11 @@ private fun HourlyForecastCard(
                     // The first hour is now — label it, so the strip reads
                     // against the present instead of a redundant "9 AM".
                     val hourLabel = if (index == 0) "NOW" else timeFormatter.format(point.time).uppercase()
-                    val temp = unitFormatter.formatTemperature(point.tempC)
+                    // Single source of truth for "now": the hero card
+                    // shows the current observation, so the NOW cell
+                    // shows the same value.
+                    val nowTempC = if (index == 0) currentTempC ?: point.tempC else point.tempC
+                    val temp = unitFormatter.formatTemperature(nowTempC)
                     val pop = point.popPct
 
                     // Plain cell on the navy panel: no glass, no pill
