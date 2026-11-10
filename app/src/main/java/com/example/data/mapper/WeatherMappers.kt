@@ -437,6 +437,23 @@ object WeatherMappers {
         )
     }
 
+    /** Outcome of a location-permission request: whether any location
+     * is usable, and whether the precise (fine) grant allows a
+     * high-accuracy fix. Fine wins; coarse alone still grants a
+     * location, just at balanced accuracy; neither grants nothing. */
+    data class LocationPermissionOutcome(val granted: Boolean, val highAccuracy: Boolean)
+
+    fun resolveLocationPermission(
+        fineGranted: Boolean,
+        coarseGranted: Boolean
+    ): LocationPermissionOutcome {
+        return when {
+            fineGranted -> LocationPermissionOutcome(granted = true, highAccuracy = true)
+            coarseGranted -> LocationPermissionOutcome(granted = true, highAccuracy = false)
+            else -> LocationPermissionOutcome(granted = false, highAccuracy = false)
+        }
+    }
+
     fun mapAlertSeverity(severity: String?): AlertSeverity {
         return when (severity?.lowercase(Locale.ROOT)) {
             "extreme" -> AlertSeverity.Extreme

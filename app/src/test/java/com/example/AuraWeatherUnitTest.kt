@@ -426,6 +426,34 @@ class AuraWeatherUnitTest {
     }
 
     @Test
+    fun testResolveLocationPermission_fineGrantsHighAccuracy() {
+        val outcome = WeatherMappers.resolveLocationPermission(
+            fineGranted = true, coarseGranted = true
+        )
+        assertTrue(outcome.granted)
+        assertTrue(outcome.highAccuracy)
+    }
+
+    @Test
+    fun testResolveLocationPermission_coarseOnlyGrantsBalanced() {
+        // Approximate-only grant: location still works, just not precise.
+        val outcome = WeatherMappers.resolveLocationPermission(
+            fineGranted = false, coarseGranted = true
+        )
+        assertTrue(outcome.granted)
+        assertTrue("Coarse-only must not claim high accuracy", !outcome.highAccuracy)
+    }
+
+    @Test
+    fun testResolveLocationPermission_neitherGrantsNothing() {
+        val outcome = WeatherMappers.resolveLocationPermission(
+            fineGranted = false, coarseGranted = false
+        )
+        assertTrue(!outcome.granted)
+        assertTrue(!outcome.highAccuracy)
+    }
+
+    @Test
     fun testStableAlertId_sameInputsSameId() {
         val effective = Instant.parse("2026-11-09T12:00:00Z")
         val first = stableAlertId("Tornado Warning", "Boone County", effective)

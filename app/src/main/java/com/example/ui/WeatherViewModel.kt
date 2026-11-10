@@ -254,10 +254,22 @@ class WeatherViewModel(
         _isRadarPlaying.value = !_isRadarPlaying.value
     }
 
-    fun useCurrentLocation(onSuccess: (String) -> Unit = {}, onError: (String) -> Unit = {}) {
+    fun useCurrentLocation(
+        highAccuracy: Boolean = true,
+        onSuccess: (String) -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
         val client = fusedLocationClient ?: return
+        // Precise (fine) grant -> high-accuracy GPS fix; coarse-only
+        // grant -> balanced accuracy, so Current Location still works
+        // for users who only grant approximate location.
+        val priority = if (highAccuracy) {
+            Priority.PRIORITY_HIGH_ACCURACY
+        } else {
+            Priority.PRIORITY_BALANCED_POWER_ACCURACY
+        }
         try {
-            client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
+            client.getCurrentLocation(priority, null)
                 .addOnSuccessListener { location ->
                     if (location != null) {
                         viewModelScope.launch {

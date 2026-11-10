@@ -595,7 +595,7 @@ private fun ScreenContent(
             unitFormatter = viewModel.getUnitFormatter(),
             onRefresh = { viewModel.refresh() },
             onSelectPlace = { viewModel.selectPlace(it) },
-            onUseCurrentLocation = { viewModel.useCurrentLocation() },
+            onUseCurrentLocation = { highAccuracy -> viewModel.useCurrentLocation(highAccuracy) },
             onNavigateToAlerts = { onNavigate(ScreenDestination.Alerts) },
             onNavigateToAirPollen = { onNavigate(ScreenDestination.AirSky) },
             onNavigateToSunMoon = { onNavigate(ScreenDestination.AirSky) },
