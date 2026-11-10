@@ -97,6 +97,10 @@ fun WeatherNavDisplay(
     loadError: String?,
     savedPlaces: List<Place>,
     useMetric: Boolean,
+    pirateWeatherApiKey: String,
+    pirateWeatherWorking: Boolean,
+    pirateWeatherAttempted: Boolean,
+
     selectedRadarLayer: RadarLayer,
     selectedRadarRange: RadarRange,
     currentRadarFrameIndex: Int,
@@ -202,6 +206,10 @@ fun WeatherNavDisplay(
                             loadError = loadError,
                             savedPlaces = savedPlaces,
                             useMetric = useMetric,
+                            pirateWeatherApiKey = pirateWeatherApiKey,
+                            pirateWeatherWorking = pirateWeatherWorking,
+                            pirateWeatherAttempted = pirateWeatherAttempted,
+
                             selectedRadarLayer = selectedRadarLayer,
                             selectedRadarRange = selectedRadarRange,
                             currentRadarFrameIndex = currentRadarFrameIndex,
@@ -241,6 +249,10 @@ fun WeatherNavDisplay(
                     loadError = loadError,
                     savedPlaces = savedPlaces,
                     useMetric = useMetric,
+                    pirateWeatherApiKey = pirateWeatherApiKey,
+                    pirateWeatherWorking = pirateWeatherWorking,
+                    pirateWeatherAttempted = pirateWeatherAttempted,
+
                     selectedRadarLayer = selectedRadarLayer,
                     selectedRadarRange = selectedRadarRange,
                     currentRadarFrameIndex = currentRadarFrameIndex,
@@ -574,6 +586,10 @@ private fun ScreenContent(
     loadError: String?,
     savedPlaces: List<Place>,
     useMetric: Boolean,
+    pirateWeatherApiKey: String,
+    pirateWeatherWorking: Boolean,
+    pirateWeatherAttempted: Boolean,
+
     selectedRadarLayer: RadarLayer,
     selectedRadarRange: RadarRange,
     currentRadarFrameIndex: Int,
@@ -642,9 +658,14 @@ private fun ScreenContent(
 
         ScreenDestination.Settings -> SettingsScreen(
             useMetric = useMetric,
+            pirateWeatherApiKey = pirateWeatherApiKey,
+            pirateWeatherWorking = pirateWeatherWorking,
+            pirateWeatherAttempted = pirateWeatherAttempted,
             savedPlaces = savedPlaces,
             selectedPlaceId = selectedPlace?.id,
             onSetUseMetric = { viewModel.setUseMetric(it) },
+            onSavePirateWeatherApiKey = { viewModel.setPirateWeatherApiKey(it) },
+
             onSelectPlace = { viewModel.selectPlace(it) },
             onAddPlace = { name, state, lat, lon -> viewModel.addPlace(name, state, lat, lon) },
             tickerVisible = tickerVisible,

@@ -1,5 +1,6 @@
 package com.example.data.repo
 
+import com.example.data.api.PirateWeatherApi
 import com.example.data.api.NwsAlertFeature
 import com.example.data.api.NwsApi
 import com.example.data.api.NwsForecastPeriod
@@ -11,6 +12,7 @@ import com.example.data.db.SavedPlaceEntity
 import com.example.data.db.WeatherCacheDao
 import com.example.data.settings.SettingsManager
 import com.example.data.db.WeatherCacheEntity
+import com.example.data.mapper.PirateWeatherMinutePoint
 import com.example.data.mapper.InstantJsonAdapter
 import com.example.data.mapper.LocalDateJsonAdapter
 import com.example.data.mapper.WeatherMappers
@@ -47,6 +49,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -54,6 +57,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * Offline-first weather repository.
@@ -73,9 +77,9 @@ class WeatherRepository(
     private val nwsApi: NwsApi,
     private val openMeteoWeatherApi: OpenMeteoWeatherApi,
     private val openMeteoAirQualityApi: OpenMeteoAirQualityApi,
-    // The settings manager is retained as a constructor dependency
-    // even though nothing reads it on this branch: the Pirate
-    // Weather minute-cast (PR #6) reads its key through it.
+    private val pirateWeatherApi: PirateWeatherApi,
+    // The settings manager is retained as a constructor dependency:
+    // the Pirate Weather minute-cast (PR #6) reads its key through it.
     private val settingsManager: SettingsManager,
     private val weatherCacheDao: WeatherCacheDao,
     private val savedPlaceDao: SavedPlaceDao
@@ -560,8 +564,55 @@ class WeatherRepository(
         // the gauges stay empty and the allergy index runs on the
         // AQI alone. The PollenData stays in the state (and the cache)
         // so the screen keeps its shape.
-        val minutely = omMinutely
-        val minuteSentence = omMinuteSentence
+        // The minute-cast starts as the Open-Meteo 15-minute
+        // interpolation; Pirate Weather (below) replaces it when its
+        // key delivers real 1-minute data.
+        var minutely = omMinutely
+        var minuteSentence = omMinuteSentence
+
+        // --- Pirate Weather: true 1-minute precipitation.
+        // First-choice minute-cast source when a key is set: one call
+        // per refresh, 60 minutes of 1-minute data. Free tier is
+        // 10,000 calls/month, no card. A failure or an empty minutely
+        // block falls through to the Open-Meteo interpolation.
+        // pirateWeatherWorking records whether the key actually
+        // delivered usable data, so the Settings "KEY ACTIVE" pill
+        // is honest. The key travels as
+        // the `apikey` header (a dummy "key" segment sits in the URL
+        // path, which the docs require); units are `si` so
+        // precipIntensity is mm/h. Response shape is from the Pirate
+        // Weather API docs (Dark Sky format), NOT live-verified (no
+        // key exists yet) — a shape mismatch parses to an empty list
+        // and falls back, never a crash.
+        val pirateWeatherKey = settingsManager.pirateWeatherApiKeyFlow.first()
+        var minutelyFromPirate = false
+        if (pirateWeatherKey.isNotBlank()) {
+            settingsManager.setPirateWeatherAttempted(true)
+            var pirateWeatherWorked = false
+            runCatching {
+                val resp = pirateWeatherApi.getForecast(
+                    dummy = "key",
+                    latlon = "$lat,$lon",
+                    apiKey = pirateWeatherKey
+                )
+                val points = resp.minutely?.data?.mapNotNull { dp ->
+                    val epoch = dp.time ?: return@mapNotNull null
+                    PirateWeatherMinutePoint(
+                        time = Instant.ofEpochSecond(epoch),
+                        mmPerHour = dp.precipIntensity,
+                        probabilityPct = dp.precipProbability?.times(100.0)?.roundToInt()
+                    )
+                } ?: emptyList()
+                if (points.isNotEmpty()) {
+                    val mapped = WeatherMappers.mapPirateWeatherMinutely(points, now, zoneId)
+                    minutely = mapped.first
+                    minuteSentence = mapped.second
+                    pirateWeatherWorked = true
+                    minutelyFromPirate = true
+                }
+            }
+            settingsManager.setPirateWeatherWorking(pirateWeatherWorked)
+        }
         val pollen = PollenData(
             treeIndex = null,
             grassIndex = null,

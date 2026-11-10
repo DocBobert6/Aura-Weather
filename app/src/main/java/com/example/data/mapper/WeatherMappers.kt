@@ -13,6 +13,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import java.security.MessageDigest
 import kotlin.math.roundToInt
@@ -210,6 +211,21 @@ fun visibilityDescriptor(visibilityM: Double?): String? {
         else -> "POOR"
     }
 }
+
+/** One Pirate Weather minutely data point, stripped to what the
+ * minute-cast mapping needs (time + intensity + probability). The
+ * Retrofit model (PirateWeatherMinuteData, Moshi-annotated) lives in
+ * data.api and cannot be compiled into the pure tests (no Moshi jar
+ * on that classpath), so the repository converts to this plain type
+ * first. Pirate Weather time is a UNIX epoch-seconds value; the
+ * repository converts it to an Instant. Probability is a 0-1
+ * fraction; the repository converts it to a 0-100 percent before
+ * building this. */
+data class PirateWeatherMinutePoint(
+    val time: Instant,
+    val mmPerHour: Double?,
+    val probabilityPct: Int?
+)
 
 object WeatherMappers {
 
@@ -409,6 +425,49 @@ object WeatherMappers {
             source = "Open-Meteo Air Quality",
             healthGuidance = guidance
         )
+    }
+
+    /**
+     * Pirate Weather minutely data -> a 60-minute minute-cast. The
+     * Pirate Weather minutely block runs 60 minutes at 1-minute
+     * resolution, exactly the minute-cast's window. Anchors on the
+     * current minute and builds one MinutePrecip per minute (0..59);
+     * a missing minute carries the last known rate forward, exactly
+     * like the 15-minute interpolation. The sentence is the same
+     * nowcast sentence the interpolated path uses, so the Home
+     * minute-cast reads identically — only the data is real.
+     * An empty point list means the minutely block was unavailable:
+     * the caller keeps the interpolated fallback instead of using this.
+     */
+    fun mapPirateWeatherMinutely(
+        points: List<PirateWeatherMinutePoint>,
+        now: Instant,
+        zoneId: ZoneId
+    ): Pair<List<MinutePrecip>, String> {
+        if (points.isEmpty()) {
+            return Pair(emptyList(), "Minutely precipitation is unavailable right now.")
+        }
+        val anchor = now.truncatedTo(ChronoUnit.MINUTES)
+        val byOffset = points.mapNotNull { p ->
+            val offset = ChronoUnit.MINUTES.between(anchor, p.time).toInt()
+            if (offset in 0..59) offset to p else null
+        }.toMap()
+        val minutePoints = mutableListOf<MinutePrecip>()
+        var lastMm = 0.0
+        var lastProb: Int? = null
+        for (m in 0 until 60) {
+            val p = byOffset[m]
+            if (p != null) {
+                lastMm = p.mmPerHour ?: lastMm
+                lastProb = p.probabilityPct ?: lastProb
+            }
+            minutePoints += MinutePrecip(
+                time = anchor.plus(m.toLong(), ChronoUnit.MINUTES),
+                mmPerHour = lastMm,
+                probabilityPct = lastProb
+            )
+        }
+        return Pair(minutePoints, generateNowcastSentence(minutePoints, now, zoneId))
     }
 
     /** Outcome of a location-permission request: whether any location

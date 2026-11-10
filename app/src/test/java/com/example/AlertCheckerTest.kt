@@ -15,6 +15,8 @@ import com.example.data.api.OpenMeteoAirQualityApi
 import com.example.data.api.OpenMeteoAirQualityResponse
 import com.example.data.api.OpenMeteoWeatherApi
 import com.example.data.api.OpenMeteoWeatherResponse
+import com.example.data.api.PirateWeatherApi
+import com.example.data.api.PirateWeatherForecastResponse
 import com.example.data.db.SavedPlaceEntity
 import com.example.data.db.WeatherDatabase
 import com.example.data.settings.SettingsManager
@@ -118,6 +120,15 @@ class AlertCheckerTest {
         ): OpenMeteoAirQualityResponse = throw NotImplementedError("not used by the checker test")
     }
 
+    // Pirate Weather is not used by the checker test either: the stub
+    // returns no minutely block, so the minute-cast stays the
+    // Open-Meteo interpolation.
+    private val stubPirateWeather = object : PirateWeatherApi {
+        override suspend fun getForecast(
+            dummy: String, latlon: String, apiKey: String, units: String
+        ): PirateWeatherForecastResponse = PirateWeatherForecastResponse(minutely = null)
+    }
+
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -128,6 +139,7 @@ class AlertCheckerTest {
             nwsApi = fakeNwsApi,
             openMeteoWeatherApi = stubOpenMeteo,
             openMeteoAirQualityApi = stubAirQuality,
+            pirateWeatherApi = stubPirateWeather,
             settingsManager = SettingsManager(context),
             weatherCacheDao = db.weatherCacheDao(),
             savedPlaceDao = db.savedPlaceDao()

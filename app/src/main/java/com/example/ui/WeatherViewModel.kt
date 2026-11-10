@@ -58,6 +58,19 @@ class WeatherViewModel(
     val useMetric: StateFlow<Boolean> = settingsManager.useMetricFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    val pirateWeatherApiKey: StateFlow<String> = settingsManager.pirateWeatherApiKeyFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+    /** Pirate Weather "KEY ACTIVE" pill: true only after the client has
+     * actually fetched usable minutely data with the stored key. */
+    val pirateWeatherWorking: StateFlow<Boolean> = settingsManager.pirateWeatherWorkingFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /** "KEY FAILED" pills: true once a fetch was attempted with the key. */
+    val pirateWeatherAttempted: StateFlow<Boolean> = settingsManager.pirateWeatherAttemptedFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+
     /** Background music toggle (Home screen): off by default. */
     val musicEnabled: StateFlow<Boolean> = settingsManager.musicEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -182,6 +195,14 @@ class WeatherViewModel(
             settingsManager.setUseMetric(enabled)
         }
     }
+
+    fun setPirateWeatherApiKey(key: String) {
+        viewModelScope.launch {
+            settingsManager.setPirateWeatherApiKey(key.trim())
+            refresh()
+        }
+    }
+
 
     fun setMusicEnabled(enabled: Boolean) {
         viewModelScope.launch {
