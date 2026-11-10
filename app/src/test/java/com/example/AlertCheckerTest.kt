@@ -17,8 +17,8 @@ import com.example.data.api.OpenMeteoAirQualityApi
 import com.example.data.api.OpenMeteoAirQualityResponse
 import com.example.data.api.OpenMeteoWeatherApi
 import com.example.data.api.OpenMeteoWeatherResponse
-import com.example.data.api.RainbowApi
-import com.example.data.api.RainbowNowcastResponse
+import com.example.data.api.PirateWeatherApi
+import com.example.data.api.PirateWeatherForecastResponse
 import com.example.data.api.TomorrowApi
 import com.example.data.api.TomorrowTimelinesResponse
 import com.example.data.db.SavedPlaceEntity
@@ -138,10 +138,13 @@ class AlertCheckerTest {
         ): TomorrowTimelinesResponse = TomorrowTimelinesResponse(data = null)
     }
 
-    private val stubRainbow = object : RainbowApi {
-        override suspend fun getNowcast(
-            lon: String, lat: String, apiKey: String
-        ): RainbowNowcastResponse = RainbowNowcastResponse(forecasts = null)
+    // Pirate Weather is not used by the checker test either: the stub
+    // returns no minutely block, so the minute-cast stays the
+    // Open-Meteo interpolation.
+    private val stubPirateWeather = object : PirateWeatherApi {
+        override suspend fun getForecast(
+            dummy: String, latlon: String, apiKey: String, units: String
+        ): PirateWeatherForecastResponse = PirateWeatherForecastResponse(minutely = null)
     }
 
     @Before
@@ -156,7 +159,7 @@ class AlertCheckerTest {
             openMeteoAirQualityApi = stubAirQuality,
             airNowApi = stubAirNow,
             tomorrowApi = stubTomorrow,
-            rainbowApi = stubRainbow,
+            pirateWeatherApi = stubPirateWeather,
             settingsManager = SettingsManager(context),
             weatherCacheDao = db.weatherCacheDao(),
             savedPlaceDao = db.savedPlaceDao()

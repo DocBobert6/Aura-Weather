@@ -72,18 +72,18 @@ fun SettingsScreen(
     tomorrowApiKey: String,
     tomorrowWorking: Boolean = false,
     airNowApiKey: String,
-    rainbowApiKey: String,
-    rainbowWorking: Boolean = false,
     airNowWorking: Boolean = false,
     tomorrowAttempted: Boolean = false,
     airNowAttempted: Boolean = false,
-    rainbowAttempted: Boolean = false,
+    pirateWeatherApiKey: String,
+    pirateWeatherWorking: Boolean = false,
+    pirateWeatherAttempted: Boolean = false,
     savedPlaces: List<Place>,
     selectedPlaceId: String?,
     onSetUseMetric: (Boolean) -> Unit,
     onSaveTomorrowApiKey: (String) -> Unit,
     onSaveAirNowApiKey: (String) -> Unit,
-    onSaveRainbowApiKey: (String) -> Unit,
+    onSavePirateWeatherApiKey: (String) -> Unit,
     onSelectPlace: (String) -> Unit,
     onAddPlace: (String, String, Double, Double) -> Unit,
     tickerVisible: Boolean = false,
@@ -531,9 +531,9 @@ fun SettingsScreen(
             }
         }
 
-        // Rainbow Weather Nowcast API Key & 1-Minute Rain
+        // Pirate Weather API Key & 1-Minute Rain
         item {
-            var inputKey by remember(rainbowApiKey) { mutableStateOf(rainbowApiKey) }
+            var inputKey by remember(pirateWeatherApiKey) { mutableStateOf(pirateWeatherApiKey) }
             var isKeyVisible by remember { mutableStateOf(false) }
             var isSavedMessageVisible by remember { mutableStateOf(false) }
 
@@ -547,28 +547,28 @@ fun SettingsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.Key,
-                                contentDescription = "Rainbow Key",
+                                contentDescription = "Pirate Weather Key",
                                 tint = AuraColors.Warning,
                                 modifier = Modifier.size(22.dp)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "RAINBOW API KEY",
+                                text = "PIRATE WEATHER API KEY",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = RetroTokens.TextPrimary
                             )
                         }
 
-                        if (rainbowApiKey.isNotBlank()) {
-                            KeyStatusPill(rainbowWorking, rainbowAttempted)
+                        if (pirateWeatherApiKey.isNotBlank()) {
+                            KeyStatusPill(pirateWeatherWorking, pirateWeatherAttempted)
                         }
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "A Rainbow key turns on true 1-minute precipitation for the minute-cast - minute-by-minute rain nowcasts up to 4 hours ahead. Without a key, the minute-cast uses the Tomorrow.io 1-minute data when your plan provides it, or the 15-minute Open-Meteo interpolation. The \"KEY ACTIVE\" pill appears only once the app has actually fetched with your key. Free tier: 5,000 requests a month. Core weather works keyless.",
+                        text = "A Pirate Weather key turns on true 1-minute precipitation for the minute-cast - minute-by-minute rain for the next 60 minutes. Without a key, the minute-cast uses the Tomorrow.io 1-minute data when your plan provides it, or the 15-minute Open-Meteo interpolation. The \"KEY ACTIVE\" pill appears only once the app has actually fetched with your key. Free tier: 10,000 calls a month, no card required. Pirate Weather is a small community service with no SLA, and a new key can take about 20 minutes to go live. Core weather works keyless.",
                         style = MaterialTheme.typography.bodySmall,
                         color = RetroTokens.TextSecondary
                     )
@@ -581,7 +581,7 @@ fun SettingsScreen(
                             inputKey = it
                             isSavedMessageVisible = false
                         },
-                        label = { Text("Rainbow API Key") },
+                        label = { Text("Pirate Weather API Key") },
                         placeholder = { Text("Paste your API key here...") },
                         singleLine = true,
                         visualTransformation = if (isKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -614,7 +614,7 @@ fun SettingsScreen(
                             TextButton(
                                 onClick = {
                                     inputKey = ""
-                                    onSaveRainbowApiKey("")
+                                    onSavePirateWeatherApiKey("")
                                 }
                             ) {
                                 Text("Clear", color = RetroTokens.HeaderRed)
@@ -624,7 +624,7 @@ fun SettingsScreen(
 
                         Button(
                             onClick = {
-                                onSaveRainbowApiKey(inputKey)
+                                onSavePirateWeatherApiKey(inputKey)
                                 isSavedMessageVisible = true
                             },
                             colors = ButtonDefaults.buttonColors(
@@ -640,7 +640,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
-                        text = "Need a key? Free API keys with 5,000 requests/month are available at developer.rainbow.ai",
+                        text = "Need a key? Free API keys with 10,000 calls/month, no card required, are available at pirate-weather.apiable.io",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                         color = RetroTokens.TextSecondary
                     )
@@ -790,7 +790,7 @@ fun SettingsScreen(
                     AttributionRow("Weather & Alerts", "National Weather Service (NOAA / api.weather.gov)")
                     AttributionRow("Minute-Cast & AQI", "Open-Meteo.com (CC BY 4.0)")
                     AttributionRow("Live AQI (with key)", "AirNow (US EPA)")
-                    AttributionRow("1-Minute Rain (with key)", "Rainbow Weather Nowcast (rainbow.ai)")
+                    AttributionRow("1-Minute Rain (with key)", "Pirate Weather (pirateweather.net)")
                     AttributionRow("Radar Reflectivity", "Iowa Environmental Mesonet (IEM) / NEXRAD")
                     AttributionRow("Radar Basemap", "Esri World Dark Gray Base")
                     AttributionRow("Satellite Imagery", "NASA GIBS (EOSDIS) GOES-East ABI")

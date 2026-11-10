@@ -20,14 +20,14 @@ class SettingsManager(private val context: Context) {
         val KEY_SELECTED_PLACE_ID = stringPreferencesKey("selected_place_id")
         val KEY_TOMORROW_API_KEY = stringPreferencesKey("tomorrow_api_key")
         val KEY_AIRNOW_API_KEY = stringPreferencesKey("airnow_api_key")
-        val KEY_RAINBOW_API_KEY = stringPreferencesKey("rainbow_api_key")
+        val KEY_PIRATE_WEATHER_API_KEY = stringPreferencesKey("pirate_weather_api_key")
         val KEY_MUSIC_ENABLED = booleanPreferencesKey("music_enabled")
         val KEY_TOMORROW_WORKING = booleanPreferencesKey("tomorrow_working")
-        val KEY_RAINBOW_WORKING = booleanPreferencesKey("rainbow_working")
         val KEY_AIRNOW_WORKING = booleanPreferencesKey("airnow_working")
+        val KEY_PIRATE_WEATHER_WORKING = booleanPreferencesKey("pirate_weather_working")
         val KEY_TOMORROW_ATTEMPTED = booleanPreferencesKey("tomorrow_attempted")
         val KEY_AIRNOW_ATTEMPTED = booleanPreferencesKey("airnow_attempted")
-        val KEY_RAINBOW_ATTEMPTED = booleanPreferencesKey("rainbow_attempted")
+        val KEY_PIRATE_WEATHER_ATTEMPTED = booleanPreferencesKey("pirate_weather_attempted")
         val KEY_ALERTS_ENABLED = booleanPreferencesKey("alerts_enabled")
         val KEY_RAIN_ALERTS_ENABLED = booleanPreferencesKey("rain_alerts_enabled")
         val KEY_RAIN_ALERT_ACTIVE_SINCE = longPreferencesKey("rain_alert_active_since")
@@ -60,17 +60,17 @@ class SettingsManager(private val context: Context) {
         preferences[KEY_AIRNOW_API_KEY] ?: ""
     }
 
-    val rainbowApiKeyFlow: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[KEY_RAINBOW_API_KEY] ?: ""
+    val pirateWeatherApiKeyFlow: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[KEY_PIRATE_WEATHER_API_KEY] ?: ""
     }
 
-    // Rainbow "KEY ACTIVE" pill: true only after the client has
-    // actually fetched usable nowcast data with the stored key.
+    // Pirate Weather "KEY ACTIVE" pill: true only after the client has
+    // actually fetched usable minutely data with the stored key.
     // A stored key that has never successfully fetched does not show
     // as active. Reset whenever the key is saved/changed/cleared, so
     // a new key must re-verify before the pill appears.
-    val rainbowWorkingFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[KEY_RAINBOW_WORKING] ?: false
+    val pirateWeatherWorkingFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_PIRATE_WEATHER_WORKING] ?: false
     }
 
     // AirNow "KEY ACTIVE" pill: same honest pattern — true only after
@@ -91,8 +91,8 @@ class SettingsManager(private val context: Context) {
         preferences[KEY_AIRNOW_ATTEMPTED] ?: false
     }
 
-    val rainbowAttemptedFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[KEY_RAINBOW_ATTEMPTED] ?: false
+    val pirateWeatherAttemptedFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_PIRATE_WEATHER_ATTEMPTED] ?: false
     }
 
     // Background music (Home toggle): off by default, remembered across launches.
@@ -163,6 +163,27 @@ class SettingsManager(private val context: Context) {
         }
     }
 
+    suspend fun setPirateWeatherApiKey(key: String) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_PIRATE_WEATHER_API_KEY] = key
+            // A changed key must re-verify before it can show active.
+            preferences[KEY_PIRATE_WEATHER_WORKING] = false
+            preferences[KEY_PIRATE_WEATHER_ATTEMPTED] = false
+        }
+    }
+
+    suspend fun setPirateWeatherWorking(working: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_PIRATE_WEATHER_WORKING] = working
+        }
+    }
+
+    suspend fun setPirateWeatherAttempted(attempted: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_PIRATE_WEATHER_ATTEMPTED] = attempted
+        }
+    }
+
     suspend fun setAirNowWorking(working: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[KEY_AIRNOW_WORKING] = working
@@ -172,27 +193,6 @@ class SettingsManager(private val context: Context) {
     suspend fun setAirNowAttempted(attempted: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[KEY_AIRNOW_ATTEMPTED] = attempted
-        }
-    }
-
-    suspend fun setRainbowApiKey(key: String) {
-        context.dataStore.edit { preferences ->
-            preferences[KEY_RAINBOW_API_KEY] = key
-            // A changed key must re-verify before it can show active.
-            preferences[KEY_RAINBOW_WORKING] = false
-            preferences[KEY_RAINBOW_ATTEMPTED] = false
-        }
-    }
-
-    suspend fun setRainbowAttempted(attempted: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[KEY_RAINBOW_ATTEMPTED] = attempted
-        }
-    }
-
-    suspend fun setRainbowWorking(working: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[KEY_RAINBOW_WORKING] = working
         }
     }
 

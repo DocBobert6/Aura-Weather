@@ -24,15 +24,19 @@ object ProviderEndpoints {
     // AQI + category only, no concentrations.
     const val AIRNOW_BASE_URL = "https://www.airnowapi.org/"
 
-    // Rainbow Weather Nowcast (free API key, 5,000 requests/month):
-    // minute-by-minute precipitation for up to 4 hours ahead at
-    // 1-minute resolution. The minute-cast's first-choice source when
-    // a key is set — Tomorrow.io's 1m timestep is Enterprise, so a
-    // free Tomorrow.io key may not provide it. Auth is the
-    // Ocp-Apim-Subscription-Key header. Endpoint verified live (401
-    // without a key); the response shape is from the Nowcast OpenAPI
-    // spec and is NOT live-verified yet (no key exists to fetch with).
-    const val RAINBOW_BASE_URL = "https://api.rainbow.ai/"
+    // Pirate Weather (free API key, 10,000 calls/month, no card):
+    // true 1-minute precipitation for the next 60 minutes, Dark Sky
+    // format. The minute-cast's first-choice source when a key is set.
+    // Auth is the `apikey` header (the key must NOT travel in the URL
+    // path, where it would appear in logs); the path still needs a
+    // dummy key-shaped segment. Units are requested as `si` so
+    // precipIntensity is mm/h (the default `us` units report inches
+    // per hour). Community project, best-effort, no SLA; a new key
+    // can take ~20 minutes to go live. Endpoint verified live (401
+    // without a key); the response shape is from the Pirate Weather
+    // API docs and is NOT live-verified yet (no key exists to fetch
+    // with).
+    const val PIRATE_WEATHER_BASE_URL = "https://api.pirateweather.net/"
 
     // Iowa Environmental Mesonet (IEM) NEXRAD Radar Tiles (Keyless)
     const val IEM_TILE_BASE = "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/"

@@ -232,14 +232,16 @@ data class TomorrowMinutePoint(
     val probabilityPct: Int?
 )
 
-/** One Rainbow Nowcast forecast minute, stripped to what the
+/** One Pirate Weather minutely data point, stripped to what the
  * minute-cast mapping needs (time + intensity + probability). The
- * Retrofit model (RainbowForecastPoint, Moshi-annotated) lives in
+ * Retrofit model (PirateWeatherMinuteData, Moshi-annotated) lives in
  * data.api and cannot be compiled into the pure tests (no Moshi jar
  * on that classpath), so the repository converts to this plain type
- * first. Rainbow probability is a 0-1 fraction; the repository
- * converts it to a 0-100 percent before building this. */
-data class RainbowMinutePoint(
+ * first. Pirate Weather time is a UNIX epoch-seconds value; the
+ * repository converts it to an Instant. Probability is a 0-1
+ * fraction; the repository converts it to a 0-100 percent before
+ * building this. */
+data class PirateWeatherMinutePoint(
     val time: Instant,
     val mmPerHour: Double?,
     val probabilityPct: Int?
@@ -524,15 +526,14 @@ object WeatherMappers {
     }
 
     /**
-     * Rainbow Nowcast minutes -> a 60-minute minute-cast. The Rainbow
-     * forecast runs up to 4 hours at 1-minute resolution; the
-     * minute-cast takes the first 60 minutes, exactly like the
-     * Tomorrow.io path (missing minutes carry the last known rate
-     * forward). Delegates to mapTomorrowMinutely so the curve and the
-     * sentence are identical — only the source differs.
+     * Pirate Weather minutely data -> a 60-minute minute-cast. The
+     * Pirate Weather minutely block runs 60 minutes at 1-minute
+     * resolution, exactly the minute-cast's window. Delegates to
+     * mapTomorrowMinutely so the curve and the sentence are
+     * identical — only the source differs.
      */
-    fun mapRainbowMinutely(
-        points: List<RainbowMinutePoint>,
+    fun mapPirateWeatherMinutely(
+        points: List<PirateWeatherMinutePoint>,
         now: Instant,
         zoneId: ZoneId
     ): Pair<List<MinutePrecip>, String> {
