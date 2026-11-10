@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.core.UnitFormatter
+import com.example.data.mapper.RadarRange
+import com.example.data.mapper.radarRangeFrames
 import com.example.data.repo.WeatherRepository
 import com.example.data.settings.SettingsManager
 import com.example.data.work.AlertScheduler
@@ -77,6 +79,12 @@ class WeatherViewModel(
 
     private val _selectedRadarLayer = MutableStateFlow(RadarLayer.Reflectivity)
     val selectedRadarLayer = _selectedRadarLayer.asStateFlow()
+
+    /** Radar time range (Build B): Live is the 10-frame 45-min loop; the
+     * others are past 24/48/72h (archived mosaic) and future 24/48h
+     * (HRRR simulated reflectivity, a forecast). */
+    private val _selectedRadarRange = MutableStateFlow(RadarRange.Live)
+    val selectedRadarRange = _selectedRadarRange.asStateFlow()
 
     private val _currentRadarFrameIndex = MutableStateFlow(9) // 0..9 (9 = most recent "now")
     val currentRadarFrameIndex = _currentRadarFrameIndex.asStateFlow()
@@ -242,8 +250,20 @@ class WeatherViewModel(
         _selectedRadarLayer.value = layer
     }
 
+    fun setRadarRange(range: RadarRange) {
+        _selectedRadarRange.value = range
+        // Reset to the frame closest to now: the last (most recent)
+        // frame for past/live, the first (nearest) frame for future.
+        val frames = radarRangeFrames(range, java.time.Instant.now())
+        _currentRadarFrameIndex.value = if (range.isForecast) 0 else (frames.size - 1).coerceAtLeast(0)
+    }
+
     fun setRadarFrameIndex(index: Int) {
-        _currentRadarFrameIndex.value = index.coerceIn(0, 9)
+        // Coerce to the current range's frame count, not the live 0..9:
+        // past ranges have 49/73 frames, future ranges ~75-99.
+        val max = (radarRangeFrames(_selectedRadarRange.value, java.time.Instant.now()).size - 1)
+            .coerceAtLeast(0)
+        _currentRadarFrameIndex.value = index.coerceIn(0, max)
     }
 
     // 3.3: this only flips the play state. The loop itself lives in

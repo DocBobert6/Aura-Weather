@@ -55,6 +55,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,7 +64,10 @@ import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.example.data.mapper.gibsTimestamp
+import com.example.data.mapper.RadarRange
 import com.example.data.mapper.iemLayerNameFor
+import com.example.data.mapper.radarFrameUrls
+import com.example.data.mapper.radarRangeFrames
 import com.example.data.mapper.latToTileY
 import com.example.data.mapper.lonToTileX
 import com.example.data.mapper.radarPrefetchUrls
@@ -89,9 +93,11 @@ import kotlinx.coroutines.delay
 fun RadarScreen(
     state: FullWeatherState?,
     selectedLayer: RadarLayer,
+    selectedRange: RadarRange,
     currentFrameIndex: Int,
     isPlaying: Boolean,
     onSelectLayer: (RadarLayer) -> Unit,
+    onSelectRange: (RadarRange) -> Unit,
     onTogglePlay: () -> Unit,
     onScrubFrame: (Int) -> Unit,
     tickerVisible: Boolean = false,
@@ -124,16 +130,22 @@ fun RadarScreen(
     var panOffsetY by remember { mutableFloatStateOf(0f) }
     var userScale by remember { mutableFloatStateOf(1f) }
 
-    // Frame timestamps (0 = 45m ago, 9 = LIVE)
-    val frameLabels = remember {
-        listOf(
-            "45m ago", "40m ago", "35m ago", "30m ago", "25m ago",
-            "20m ago", "15m ago", "10m ago", "5m ago", "LIVE NOW"
-        )
-    }
-
-    // IEM NEXRAD composite layer names corresponding to 0..9
-    val iemLayerName = remember(currentFrameIndex) { iemLayerNameFor(currentFrameIndex) }
+    // The frames for the selected range (Build B), oldest first.
+    // Live is the existing 10-frame loop; past ranges are the archived
+    // mosaic, future ranges are HRRR. Recomputed when the range changes
+    // (a fresh "now"), not on every frame advance.
+    val frames = remember(selectedRange) { radarRangeFrames(selectedRange, Instant.now()) }
+    val frameCount = frames.size
+    // Defensive clamp: the ViewModel coerces too, but its "now" and the
+    // screen's can straddle a sampling boundary.
+    val safeFrameIndex = currentFrameIndex.coerceIn(0, (frameCount - 1).coerceAtLeast(0))
+    val currentFrame = frames.getOrNull(safeFrameIndex)
+    // The IEM layer for the current frame. For Live this is the same
+    // iemLayerNameFor the old code used; for ranges it is the archived
+    // mosaic / HRRR layer name.
+    val iemLayerName = currentFrame?.layerName ?: iemLayerNameFor(9)
+    // Future ranges are model output, never observed radar.
+    val isForecastRange = selectedRange.isForecast
 
     // Satellite layers have a max zoom in GIBS below the radar zoom range
     // (7..9), so clamp the effective zoom per layer. The stored zoomLevel
@@ -158,13 +170,13 @@ fun RadarScreen(
     // frame index + play state. rememberUpdatedState keeps the frame
     // index fresh inside the loop without restarting the effect on every
     // frame advance (which would reset the 750ms delay each time).
-    val latestFrameIndex by rememberUpdatedState(currentFrameIndex)
+    val latestFrameIndex by rememberUpdatedState(safeFrameIndex)
     val latestOnScrubFrame by rememberUpdatedState(onScrubFrame)
-    LaunchedEffect(isPlaying, isSatellite) {
+    LaunchedEffect(isPlaying, isSatellite, selectedRange) {
         if (!isPlaying || isSatellite) return@LaunchedEffect
         while (true) {
             delay(750)
-            latestOnScrubFrame((latestFrameIndex + 1) % 10)
+            latestOnScrubFrame((latestFrameIndex + 1) % frameCount.coerceAtLeast(1))
         }
     }
 
@@ -220,13 +232,31 @@ fun RadarScreen(
         // prefetched tile is a cache hit for the screen (no network
         // fetch on the second pass).
         val prefetchLoader = context.imageLoader
-        LaunchedEffect(selectedLayer, effectiveZoomLevel, centerLat, centerLon) {
+        LaunchedEffect(selectedLayer, effectiveZoomLevel, centerLat, centerLon, selectedRange) {
             if (selectedLayer == RadarLayer.Reflectivity || selectedLayer == RadarLayer.LocalSite) {
-                val frames = radarPrefetchUrls(centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY)
-                val current = frames.getOrElse(currentFrameIndex) { emptyList() }
-                val ordered = listOf(current) + frames.filterIndexed { index, _ -> index != currentFrameIndex }
-                for (frameUrls in ordered) {
-                    for (url in frameUrls) {
+                if (selectedRange == RadarRange.Live) {
+                    val frames = radarPrefetchUrls(centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY)
+                    val current = frames.getOrElse(safeFrameIndex) { emptyList() }
+                    val ordered = listOf(current) + frames.filterIndexed { index, _ -> index != safeFrameIndex }
+                    for (frameUrls in ordered) {
+                        for (url in frameUrls) {
+                            prefetchLoader.enqueue(
+                                ImageRequest.Builder(context)
+                                    .data(url)
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .build()
+                            )
+                        }
+                    }
+                } else {
+                    // Ranges have 49-99 frames: prefetching them all
+                    // would be thousands of tile requests. Prefetch only
+                    // the current frame's layer; the rest load on demand
+                    // and are cached by Coil as the user plays/scrubs.
+                    val layer = currentFrame?.layerName ?: return@LaunchedEffect
+                    val urls = radarFrameUrls(layer, centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY)
+                    for (url in urls) {
                         prefetchLoader.enqueue(
                             ImageRequest.Builder(context)
                                 .data(url)
@@ -422,10 +452,10 @@ fun RadarScreen(
                         modifier = Modifier.padding(horizontal = 14.dp)
                     ) {
                         Text(
-                            text = frameLabels.getOrElse(currentFrameIndex) { "LIVE NOW" }.uppercase(),
+                            text = (currentFrame?.label ?: "LIVE NOW").uppercase(),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = if (currentFrameIndex == 9) {
+                            color = if (currentFrame?.label == "LIVE NOW" || currentFrame?.label == "NOW") {
                                 RetroTokens.Yellow
                             } else {
                                 RetroTokens.TextPrimary
@@ -450,6 +480,38 @@ fun RadarScreen(
                 onSelect = { onSelectLayer(RadarLayer.entries[it]) },
                 modifier = Modifier.fillMaxWidth()
             )
+
+            // Time-range chooser (Build B): only for radar layers, never
+            // satellite (a single image). The range is never mixed into
+            // the live loop — it replaces the loop's frame list outright.
+            if (!isSatellite) {
+                Spacer(modifier = Modifier.height(10.dp))
+                PillSegmentedControl(
+                    options = RadarRange.entries.map { it.shortTitle },
+                    selectedIndex = selectedRange.ordinal,
+                    onSelect = { onSelectRange(RadarRange.entries[it]) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            // Future ranges are model output: say so plainly and in a
+            // distinct colour, so a forecast is never mistaken for
+            // observed radar.
+            if (isForecastRange) {
+                Spacer(modifier = Modifier.height(10.dp))
+                RetroPanel(shape = RetroShapes.medium) {
+                    Text(
+                        text = "FORECAST - SIMULATED RADAR (HRRR MODEL), NOT OBSERVED",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = RetroTokens.HeaderOrange,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
         }
 
         // Zoom +/- In-Map Controls (48dp solid navy buttons)
@@ -553,9 +615,14 @@ fun RadarScreen(
 
             // Clear-air speckle: the lightest echoes can be insects or
             // ground clutter, not rain. The tiles are pre-rendered, so
-            // labelling (not filtering) is what the app can do.
+            // labelling (not filtering) is what the app can do. Forecast
+            // ranges show simulated reflectivity instead.
             Text(
-                text = "Lightest echoes can be clear-air returns, not rain.",
+                text = if (isForecastRange) {
+                    "Simulated reflectivity from the HRRR model — a forecast, not observed radar."
+                } else {
+                    "Lightest echoes can be clear-air returns, not rain."
+                },
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                 color = RetroTokens.TextSecondary,
                 modifier = Modifier.padding(horizontal = 4.dp)
@@ -590,19 +657,19 @@ fun RadarScreen(
                     // A 28dp thumb: the default thumb is a tiny dot that is
                     // hard to grab precisely. The track keeps the default
                     // 48dp touch height.
-                    // The loop's range, flanking the scrubber so it costs
-                    // no extra row: -45m (first frame) to Now (frame 9).
+                    // The range's extent, flanking the scrubber so it costs
+                    // no extra row: first frame label to last frame label.
                     Text(
-                        text = "-45M",
+                        text = (frames.firstOrNull()?.label ?: "-45M").uppercase(),
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                         color = RetroTokens.Yellow
                     )
 
                     Slider(
-                        value = currentFrameIndex.toFloat(),
+                        value = safeFrameIndex.toFloat(),
                         onValueChange = { onScrubFrame(it.toInt()) },
-                        valueRange = 0f..9f,
-                        steps = 8,
+                        valueRange = 0f..(frameCount - 1).coerceAtLeast(1).toFloat(),
+                        steps = (frameCount - 2).coerceAtLeast(0),
                         colors = SliderDefaults.colors(
                             thumbColor = RetroTokens.Yellow,
                             activeTrackColor = RetroTokens.Yellow,
@@ -622,7 +689,7 @@ fun RadarScreen(
                     )
 
                     Text(
-                        text = "NOW",
+                        text = (frames.lastOrNull()?.label ?: "NOW").uppercase(),
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                         color = RetroTokens.Yellow
                     )

@@ -39,6 +39,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import com.example.data.mapper.visibilityDescriptor
+import com.example.data.mapper.RadarRange
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.Place
 import com.example.domain.model.RegionalPoint
@@ -100,6 +101,7 @@ fun WeatherNavDisplay(
     tomorrowWorking: Boolean,
     airNowApiKey: String,
     selectedRadarLayer: RadarLayer,
+    selectedRadarRange: RadarRange,
     currentRadarFrameIndex: Int,
     isRadarPlaying: Boolean,
     regionalPoints: List<RegionalPoint> = emptyList(),
@@ -205,6 +207,7 @@ fun WeatherNavDisplay(
                             tomorrowWorking = tomorrowWorking,
                             airNowApiKey = airNowApiKey,
                             selectedRadarLayer = selectedRadarLayer,
+                            selectedRadarRange = selectedRadarRange,
                             currentRadarFrameIndex = currentRadarFrameIndex,
                             isRadarPlaying = isRadarPlaying,
                             onNavigate = { currentDestination = it },
@@ -244,6 +247,7 @@ fun WeatherNavDisplay(
                     tomorrowWorking = tomorrowWorking,
                     airNowApiKey = airNowApiKey,
                     selectedRadarLayer = selectedRadarLayer,
+                    selectedRadarRange = selectedRadarRange,
                     currentRadarFrameIndex = currentRadarFrameIndex,
                     isRadarPlaying = isRadarPlaying,
                     onNavigate = { currentDestination = it },
@@ -577,6 +581,7 @@ private fun ScreenContent(
     tomorrowWorking: Boolean,
     airNowApiKey: String,
     selectedRadarLayer: RadarLayer,
+    selectedRadarRange: RadarRange,
     currentRadarFrameIndex: Int,
     isRadarPlaying: Boolean,
     onNavigate: (ScreenDestination) -> Unit,
@@ -608,9 +613,11 @@ private fun ScreenContent(
         ScreenDestination.Radar -> RadarScreen(
             state = weatherState,
             selectedLayer = selectedRadarLayer,
+            selectedRange = selectedRadarRange,
             currentFrameIndex = currentRadarFrameIndex,
             isPlaying = isRadarPlaying,
             onSelectLayer = { viewModel.setRadarLayer(it) },
+            onSelectRange = { viewModel.setRadarRange(it) },
             onTogglePlay = { viewModel.toggleRadarPlay() },
             onScrubFrame = { viewModel.setRadarFrameIndex(it) },
             tickerVisible = tickerVisible
