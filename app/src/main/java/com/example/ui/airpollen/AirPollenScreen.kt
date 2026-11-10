@@ -339,10 +339,6 @@ fun AirPollenScreen(
             }
         }
     }
-}                }
-            }
-        }
-    }
 }
 
 @Composable
