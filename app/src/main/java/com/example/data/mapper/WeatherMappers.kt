@@ -151,6 +151,36 @@ fun fillDailyHighs(
     }
 }
 
+/**
+ * Pressure in hPa -> a short all-caps descriptor, the same pattern the
+ * pressure card already shows ("NEAR AVERAGE"). Bands: >= 1022 hPa
+ * high, >= 1005 near average, below that low. A null reading is
+ * unknown, not a descriptor.
+ */
+fun pressureDescriptor(pressurePa: Double?): String? {
+    val hpa = pressurePa?.div(100.0) ?: return null
+    return when {
+        hpa >= 1022.0 -> "HIGH PRESSURE"
+        hpa >= 1005.0 -> "NEAR AVERAGE"
+        else -> "LOW PRESSURE"
+    }
+}
+
+/**
+ * Visibility in metres -> a short all-caps descriptor. Bands:
+ * >= 10 km excellent, >= 4 km good, >= 1 km moderate, below that
+ * poor. A null reading is unknown, not a descriptor.
+ */
+fun visibilityDescriptor(visibilityM: Double?): String? {
+    val m = visibilityM ?: return null
+    return when {
+        m >= 10000.0 -> "EXCELLENT"
+        m >= 4000.0 -> "GOOD"
+        m >= 1000.0 -> "MODERATE"
+        else -> "POOR"
+    }
+}
+
 /** One AirNow current-observation row, stripped to what the AQI mapping
  * needs (pollutant + AQI). The Retrofit model (AirNowObservation,
  * Moshi-annotated) lives in data.api and cannot be compiled into the

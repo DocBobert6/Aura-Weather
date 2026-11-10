@@ -73,6 +73,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.UnitFormatter
 import com.example.data.mapper.WeatherMappers
+import com.example.data.mapper.pressureDescriptor
+import com.example.data.mapper.visibilityDescriptor
 import com.example.domain.model.AlertSeverity
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
@@ -1052,26 +1054,6 @@ private fun compassPoint(deg: Double): String {
     return points[idx]
 }
 
-/** Pressure in hPa -> a plain descriptor. */
-private fun pressureDesc(pressurePa: Double?): String? {
-    val hpa = pressurePa?.div(100.0) ?: return null
-    return when {
-        hpa >= 1022.0 -> "High pressure"
-        hpa >= 1005.0 -> "Near average"
-        else -> "Low pressure"
-    }
-}
-
-/** Visibility in metres -> a plain descriptor. */
-private fun visibilityDesc(visibilityM: Double?): String? {
-    val m = visibilityM ?: return null
-    return when {
-        m >= 10000.0 -> "Excellent"
-        m >= 4000.0 -> "Good"
-        m >= 1000.0 -> "Moderate"
-        else -> "Poor"
-    }
-}
 
 @Composable
 private fun WeatherDetailsGrid(
@@ -1103,7 +1085,7 @@ private fun WeatherDetailsGrid(
         else -> "--"
     }
     val uvSubValue = when {
-        uvIndex != null -> AuraColors.uvCategory(uvIndex)
+        uvIndex != null -> AuraColors.uvCategory(uvIndex).uppercase()
         isNight -> "NO UV AFTER DARK"
         else -> "--"
     }
@@ -1165,7 +1147,7 @@ private fun WeatherDetailsGrid(
                 title = "PRESSURE",
                 icon = Icons.Default.Compress,
                 mainValue = pressureFormatted,
-                subValue = pressureDesc(state?.current?.pressurePa) ?: "--",
+                subValue = pressureDescriptor(state?.current?.pressurePa) ?: "--",
                 modifier = Modifier.weight(1f).fillMaxHeight()
             )
 
@@ -1174,7 +1156,7 @@ private fun WeatherDetailsGrid(
                 title = "VISIBILITY",
                 icon = Icons.Default.Visibility,
                 mainValue = visibilityFormatted,
-                subValue = visibilityDesc(state?.current?.visibilityM) ?: "--",
+                subValue = visibilityDescriptor(state?.current?.visibilityM) ?: "--",
                 modifier = Modifier.weight(1f).fillMaxHeight()
             )
         }
@@ -1197,7 +1179,7 @@ private fun WeatherDetailsGrid(
                 title = "CLOUD COVER",
                 icon = Icons.Default.Cloud,
                 mainValue = cloudCover?.let { "${it.roundToInt()}%" } ?: "--",
-                subValue = cloudCover?.let { AuraColors.cloudCoverDesc(it) } ?: "--",
+                subValue = cloudCover?.let { AuraColors.cloudCoverDesc(it).uppercase() } ?: "--",
                 modifier = Modifier.weight(1f).fillMaxHeight()
             )
         }

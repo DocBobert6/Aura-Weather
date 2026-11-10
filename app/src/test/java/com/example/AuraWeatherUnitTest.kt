@@ -5,6 +5,8 @@ import com.example.data.mapper.AirNowReading
 import com.example.data.mapper.TomorrowMinutePoint
 import com.example.data.mapper.WeatherMappers
 import com.example.data.mapper.fillDailyHighs
+import com.example.data.mapper.pressureDescriptor
+import com.example.data.mapper.visibilityDescriptor
 import com.example.domain.model.DailyPoint
 import com.example.data.mapper.destinationPoint
 import com.example.data.mapper.distanceMeters
@@ -520,5 +522,28 @@ class AuraWeatherUnitTest {
         val filled = fillDailyHighs(nws, emptyList())
         assertNull(filled[0].highC)
         assertEquals(5.6, filled[0].lowC!!, 0.001)
+    }
+
+    @Test
+    fun testPressureDescriptor_bands() {
+        assertEquals("HIGH PRESSURE", pressureDescriptor(102200.0))
+        assertEquals("HIGH PRESSURE", pressureDescriptor(103000.0))
+        assertEquals("NEAR AVERAGE", pressureDescriptor(101300.0))
+        assertEquals("NEAR AVERAGE", pressureDescriptor(100500.0))
+        assertEquals("LOW PRESSURE", pressureDescriptor(100400.0))
+        assertEquals("LOW PRESSURE", pressureDescriptor(99000.0))
+        assertNull(pressureDescriptor(null))
+    }
+
+    @Test
+    fun testVisibilityDescriptor_bands() {
+        assertEquals("EXCELLENT", visibilityDescriptor(16000.0))
+        assertEquals("EXCELLENT", visibilityDescriptor(10000.0))
+        assertEquals("GOOD", visibilityDescriptor(8000.0))
+        assertEquals("GOOD", visibilityDescriptor(4000.0))
+        assertEquals("MODERATE", visibilityDescriptor(2000.0))
+        assertEquals("MODERATE", visibilityDescriptor(1000.0))
+        assertEquals("POOR", visibilityDescriptor(500.0))
+        assertNull(visibilityDescriptor(null))
     }
 }

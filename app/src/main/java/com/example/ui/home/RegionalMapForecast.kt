@@ -122,7 +122,7 @@ private fun RegionalStaticMap(
     // below run at layout time and cannot read a CompositionLocal.
     val density = LocalDensity.current
     val centreDotPx = with(density) { 12.dp.toPx() }
-    val neighbourDotPx = with(density) { 8.dp.toPx() }
+    val neighbourDotPx = with(density) { 6.dp.toPx() }
     // Tiles are 256 px and positioned in px (offset{} takes pixels), so
     // the tile box must be 256 px wide — NOT 256.dp, which would stretch
     // each tile to ~670 px at phone density and overlap the grid.
@@ -189,9 +189,12 @@ private fun RegionalStaticMap(
                     (lonToWorldPixel(point.point.lon, REGIONAL_MAP_ZOOM) - centerWorldX)
                 val markerY = panelHeightPx / 2f +
                     (latToWorldPixel(point.point.lat, REGIONAL_MAP_ZOOM) - centerWorldY)
-                val dotSize = if (point.isCentre) 12.dp else 8.dp
+                val dotSize = if (point.isCentre) 12.dp else 6.dp
                 val dotPx = if (point.isCentre) centreDotPx else neighbourDotPx
-                val dotColor = if (point.isCentre) RetroTokens.Yellow else RetroTokens.TextPrimary
+                // Neighbours are smaller and dimmer so they do not
+                // compete with the yellow temps at small sizes; the
+                // centre keeps its larger, brighter highlight.
+                val dotColor = if (point.isCentre) RetroTokens.Yellow else RetroTokens.TextPrimary.copy(alpha = 0.55f)
 
                 Surface(
                     color = dotColor,

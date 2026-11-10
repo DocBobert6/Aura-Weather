@@ -38,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.example.data.mapper.visibilityDescriptor
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.Place
 import com.example.domain.model.RegionalPoint
@@ -545,7 +546,8 @@ private fun buildTickerItems(
     val current = state?.current ?: return emptyList()
     val items = mutableListOf<String>()
     current.visibilityM?.let {
-        items.add("VISIB: ${unitFormatter.formatVisibility(it).uppercase()}")
+        val desc = visibilityDescriptor(it)?.let { d -> " ($d)" } ?: ""
+        items.add("VISIB: ${unitFormatter.formatVisibility(it).uppercase()}$desc")
     }
     current.pressurePa?.let {
         items.add("BAROMETRIC PRESSURE: ${unitFormatter.formatPressure(it).uppercase()}")
@@ -553,9 +555,8 @@ private fun buildTickerItems(
     current.windMs?.let {
         items.add("WIND: ${unitFormatter.formatWindSpeed(it).uppercase()}")
     }
-    current.humidityPct?.let {
-        items.add("HUMIDITY: ${it.roundToInt()}%")
-    }
+    // No humidity item: it already lives in the detail grid, and the
+    // ticker repeating it is the duplicate Robert flagged.
     current.dewPointC?.let {
         items.add("DEW POINT: ${unitFormatter.formatTemperature(it).uppercase()}")
     }
