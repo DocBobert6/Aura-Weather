@@ -131,10 +131,21 @@ class RadarTilesTest {
     @Test
     fun testHrrrLayerName_forecastMinutesNotHours() {
         // FXXXX is the forecast MINUTE: 6 hours out is F0360, not F006.
-        val run = java.time.Instant.parse("2026-11-09T22:00:00Z")
-        assertEquals("hrrr::REFD-F0000-202611092200", hrrrLayerName(run, 0))
-        assertEquals("hrrr::REFD-F0360-202611092200", hrrrLayerName(run, 360))
-        assertEquals("hrrr::REFD-F2880-202611092200", hrrrLayerName(run, 2880))
+        // Live form (-0 = latest run): the timestamped archived form
+        // 503s for the latest run, so it must never be built.
+        assertEquals("hrrr::REFD-F0000-0", hrrrLayerName(0))
+        assertEquals("hrrr::REFD-F0360-0", hrrrLayerName(360))
+        assertEquals("hrrr::REFD-F2880-0", hrrrLayerName(2880))
+    }
+
+    @Test
+    fun testHrrrLayerName_neverTimestamped() {
+        // The layer name must not embed a run timestamp: that is the
+        // archived form, which IEM cannot serve for the latest run.
+        val frames = radarRangeFrames(RadarRange.Future24h, java.time.Instant.parse("2026-11-10T01:00:00Z"))
+        assertTrue(frames.isNotEmpty())
+        assertTrue(frames.all { it.layerName.endsWith("-0") })
+        assertTrue(frames.all { it.layerName.startsWith("hrrr::REFD-F") })
     }
 
     @Test

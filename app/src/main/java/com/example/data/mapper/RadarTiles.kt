@@ -131,17 +131,21 @@ fun iemTimestamp(instant: Instant): String = iemTimeFormat.format(instant)
 /**
  * HRRR simulated-reflectivity layer. FXXXX is the FORECAST MINUTE
  * (not hour): F000 is the analysis, F360 is 6 hours out, F2880 is
- * 48 hours out. The run time is the HRRR initialisation (hourly).
+ * 48 hours out.
  *
- * The IEM HRRR backend was down on 2026-11-09 (HTTP 503 for every
- * run/forecast-minute tried), so the future ranges could not be
- * confirmed live then. It has since recovered: probed live on
- * 2026-11-10, the latest run at F000 and F060 both returned HTTP 200
- * with a valid PNG tile, so the future radar works.
+ * The layer uses the LIVE form "hrrr::REFD-FXXXX-0" (-0 = the latest
+ * run). The timestamped form "hrrr::REFD-FXXXX-YYYYMMDDHHMI" is
+ * IEM's ARCHIVED form: the latest run (~1h old) has not been archived
+ * yet (the archive lags ~3h), so IEM answers HTTP 503 for it and the
+ * future radar renders blank. Probed live 2026-11-10: the timestamped
+ * form 503s for runs 1-2h old but works for a 3h-old run, while the
+ * -0 form returns a valid PNG for F0075 and F1440 right now. The
+ * forecast-minute math (computed from the run in futureFrames) is
+ * unchanged; only the layer name drops the timestamp.
  */
-fun hrrrLayerName(runTime: Instant, forecastMinutes: Int): String {
+fun hrrrLayerName(forecastMinutes: Int): String {
     val f = forecastMinutes.toString().padStart(4, '0')
-    return "hrrr::REFD-F$f-${iemTimestamp(runTime)}"
+    return "hrrr::REFD-F$f-0"
 }
 
 /**
@@ -203,7 +207,7 @@ private fun futureFrames(now: Instant, hours: Int): List<RadarFrame> {
     val frames = mutableListOf<RadarFrame>()
     while (!t.isAfter(end)) {
         val forecastMin = Duration.between(run, t).toMinutes().toInt()
-        frames.add(RadarFrame(t, hrrrLayerName(run, forecastMin), radarFrameLabel(t, now)))
+        frames.add(RadarFrame(t, hrrrLayerName(forecastMin), radarFrameLabel(t, now)))
         // 15-min steps while within 18h of the run, then hourly.
         val stepMin = if (Duration.between(run, t).toMinutes() < 18 * 60) 15L else 60L
         t = t.plusSeconds(stepMin * 60)
