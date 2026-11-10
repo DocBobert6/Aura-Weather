@@ -75,6 +75,8 @@ class WeatherViewModel(
 
     /** 3.1 alert notifications toggle (Settings): off by default. */
     val alertsEnabled: StateFlow<Boolean> = settingsManager.alertsEnabledFlow
+    // Build C: rain-starting alerts, off by default (opt-in).
+    val rainAlertsEnabled: StateFlow<Boolean> = settingsManager.rainAlertsEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     private val _selectedRadarLayer = MutableStateFlow(RadarLayer.Reflectivity)
@@ -213,35 +215,43 @@ class WeatherViewModel(
 
     /**
      * 3.1: persist the alerts toggle, then start or stop the periodic
-     * check. Disabling cancels the unique work — that is the acceptance
-     * check, verified by inspection (AlertScheduler.cancel calls
-     * cancelUniqueWork with the same name enqueue used).
+     * check. Disabling cancels the unique work ONLY when the rain
+     * toggle is off too — the same worker serves both (Build C), so the
+     * work must keep running while either toggle is on.
      */
     fun setAlertsEnabled(enabled: Boolean) {
         viewModelScope.launch {
             settingsManager.setAlertsEnabled(enabled)
-            val context = appContext ?: return@launch
-            if (enabled) {
-                syncAlertWork()
-            } else {
-                AlertScheduler.cancel(context)
-            }
+            syncAlertWork()
+        }
+    }
+
+    /** Build C: same shape as setAlertsEnabled, for the rain toggle. */
+    fun setRainAlertsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsManager.setRainAlertsEnabled(enabled)
+            syncAlertWork()
         }
     }
 
     /**
-     * 3.1: (re-)establish the periodic alert check when there is a place
-     * to check and alerts are on. KEEP makes repeated calls harmless.
-     * Reads the persisted flag directly (not the StateFlow value) so a
-     * place change before the flow's first emission still schedules.
+     * 3.1 (Build C: shared by both toggles): (re-)establish the periodic
+     * alert check when there is a place to check and EITHER toggle is on;
+     * cancel it only when both are off. KEEP makes repeated calls
+     * harmless. Reads the persisted flags directly (not the StateFlow
+     * values) so a place change before the flow's first emission still
+     * schedules.
      */
     private fun syncAlertWork() {
         val context = appContext ?: return
         viewModelScope.launch {
-            val enabled = settingsManager.alertsEnabledFlow.first()
+            val alertsOn = settingsManager.alertsEnabledFlow.first()
+            val rainOn = settingsManager.rainAlertsEnabledFlow.first()
             val place = _selectedPlace.value ?: weatherRepository.getSelectedPlace()
-            if (enabled && place != null) {
+            if ((alertsOn || rainOn) && place != null) {
                 AlertScheduler.enqueue(context)
+            } else {
+                AlertScheduler.cancel(context)
             }
         }
     }

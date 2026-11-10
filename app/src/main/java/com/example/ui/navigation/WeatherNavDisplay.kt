@@ -109,6 +109,8 @@ fun WeatherNavDisplay(
     onToggleMusic: () -> Unit = {},
     alertsEnabled: Boolean = false,
     onSetAlertsEnabled: (Boolean) -> Unit = {},
+    rainAlertsEnabled: Boolean = false,
+    onSetRainAlertsEnabled: (Boolean) -> Unit = {},
     pendingDestination: ScreenDestination? = null,
     highlightAlertId: String? = null,
     onPendingDestinationConsumed: () -> Unit = {},
@@ -215,6 +217,8 @@ fun WeatherNavDisplay(
                             regionalPoints = regionalPoints,
                             alertsEnabled = alertsEnabled,
                             onSetAlertsEnabled = onSetAlertsEnabled,
+                            rainAlertsEnabled = rainAlertsEnabled,
+                            onSetRainAlertsEnabled = onSetRainAlertsEnabled,
                             highlightAlertId = highlightAlertId
                         )
                     }
@@ -255,6 +259,8 @@ fun WeatherNavDisplay(
                     regionalPoints = regionalPoints,
                     alertsEnabled = alertsEnabled,
                     onSetAlertsEnabled = onSetAlertsEnabled,
+                    rainAlertsEnabled = rainAlertsEnabled,
+                    onSetRainAlertsEnabled = onSetRainAlertsEnabled,
                     highlightAlertId = highlightAlertId
                 )
             }
@@ -589,6 +595,8 @@ private fun ScreenContent(
     regionalPoints: List<RegionalPoint> = emptyList(),
     alertsEnabled: Boolean = false,
     onSetAlertsEnabled: (Boolean) -> Unit = {},
+    rainAlertsEnabled: Boolean = false,
+    onSetRainAlertsEnabled: (Boolean) -> Unit = {},
     highlightAlertId: String? = null
 ) {
     when (destination) {
@@ -659,7 +667,9 @@ private fun ScreenContent(
             onAddPlace = { name, state, lat, lon -> viewModel.addPlace(name, state, lat, lon) },
             tickerVisible = tickerVisible,
             alertsEnabled = alertsEnabled,
-            onSetAlertsEnabled = onSetAlertsEnabled
+            onSetAlertsEnabled = onSetAlertsEnabled,
+            rainAlertsEnabled = rainAlertsEnabled,
+            onSetRainAlertsEnabled = onSetRainAlertsEnabled
         )
     }
 }

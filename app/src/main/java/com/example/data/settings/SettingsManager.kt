@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -22,6 +23,8 @@ class SettingsManager(private val context: Context) {
         val KEY_MUSIC_ENABLED = booleanPreferencesKey("music_enabled")
         val KEY_TOMORROW_WORKING = booleanPreferencesKey("tomorrow_working")
         val KEY_ALERTS_ENABLED = booleanPreferencesKey("alerts_enabled")
+        val KEY_RAIN_ALERTS_ENABLED = booleanPreferencesKey("rain_alerts_enabled")
+        val KEY_RAIN_ALERT_ACTIVE_SINCE = longPreferencesKey("rain_alert_active_since")
     }
 
     val useMetricFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -61,6 +64,20 @@ class SettingsManager(private val context: Context) {
     // permission is requested (never on first launch).
     val alertsEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[KEY_ALERTS_ENABLED] ?: false
+    }
+
+    // Build C rain-starting alerts: off by default (opt-in, like NWS
+    // alerts). The worker only runs the rain check when this is on.
+    val rainAlertsEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_RAIN_ALERTS_ENABLED] ?: false
+    }
+
+    // Build C dedupe: epoch millis of the last rain notification, or 0
+    // when no rain event is in progress. One notification per rain
+    // event — the flag, not the (drifting) forecast start time, is the
+    // dedupe key. Cleared when a check finds no rain in 60 minutes.
+    val rainAlertActiveSinceFlow: Flow<Long> = context.dataStore.data.map { preferences ->
+        preferences[KEY_RAIN_ALERT_ACTIVE_SINCE] ?: 0L
     }
 
     suspend fun setUseMetric(useMetric: Boolean) {
@@ -104,6 +121,18 @@ class SettingsManager(private val context: Context) {
     suspend fun setAlertsEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[KEY_ALERTS_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setRainAlertsEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_RAIN_ALERTS_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setRainAlertActiveSince(epochMs: Long) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_RAIN_ALERT_ACTIVE_SINCE] = epochMs
         }
     }
 }

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -81,6 +82,8 @@ fun SettingsScreen(
     tickerVisible: Boolean = false,
     alertsEnabled: Boolean = false,
     onSetAlertsEnabled: (Boolean) -> Unit = {},
+    rainAlertsEnabled: Boolean = false,
+    onSetRainAlertsEnabled: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showAddPlaceDialog by remember { mutableStateOf(false) }
@@ -90,12 +93,21 @@ fun SettingsScreen(
     // there is no runtime permission; it is granted at install.
     val context = LocalContext.current
     var showAlertRationale by remember { mutableStateOf(false) }
+    // Build C: which toggle asked for the permission ("alerts" or "rain"),
+    // so the grant turns on the right one.
+    var permissionFor by remember { mutableStateOf<String?>(null) }
     val alertPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) onSetAlertsEnabled(true)
-        // Denied: the toggle stays off — alerts cannot be delivered
+        if (granted) {
+            when (permissionFor) {
+                "alerts" -> onSetAlertsEnabled(true)
+                "rain" -> onSetRainAlertsEnabled(true)
+            }
+        }
+        // Denied: the toggle stays off — notifications cannot be delivered
         // without the permission, so enabling the work would be pointless.
+        permissionFor = null
     }
 
     // Local function, declared before use (Kotlin local functions must be
@@ -113,6 +125,26 @@ fun SettingsScreen(
         ) {
             onSetAlertsEnabled(true)
         } else {
+            permissionFor = "alerts"
+            showAlertRationale = true
+        }
+    }
+
+    // Build C: same permission flow as the alerts toggle, for rain.
+    fun onRainToggleChecked(checked: Boolean) {
+        if (!checked) {
+            onSetRainAlertsEnabled(false)
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            onSetRainAlertsEnabled(true)
+        } else {
+            permissionFor = "rain"
             showAlertRationale = true
         }
     }
@@ -236,6 +268,52 @@ fun SettingsScreen(
                     Switch(
                         checked = alertsEnabled,
                         onCheckedChange = { onAlertsToggleChecked(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = RetroTokens.Yellow,
+                            checkedTrackColor = RetroTokens.PanelLight
+                        )
+                    )
+                }
+            }
+        }
+
+        // Build C: rain-starting alerts. Off by default (opt-in); the
+        // same 15-minute worker pass as NWS alerts, the same channel.
+        item {
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.WaterDrop,
+                            contentDescription = "Rain-starting alerts",
+                            tint = RetroTokens.Border,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column {
+                            Text(
+                                text = "RAIN-STARTING ALERTS",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = RetroTokens.TextPrimary
+                            )
+                            Text(
+                                text = if (rainAlertsEnabled) "Checked every 15 minutes for your selected place" else "Get notified when rain is about to start for your selected place",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = RetroTokens.TextSecondary
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = rainAlertsEnabled,
+                        onCheckedChange = { onRainToggleChecked(it) },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = RetroTokens.Yellow,
                             checkedTrackColor = RetroTokens.PanelLight
@@ -668,7 +746,7 @@ fun SettingsScreen(
             title = { Text("ALLOW NOTIFICATIONS?", color = RetroTokens.TextPrimary) },
             text = {
                 Text(
-                    text = "Aura Weather checks for National Weather Service alerts every 15 minutes and notifies you when a new one is issued for your selected place. To receive those warnings, allow notifications.",
+                    text = if (permissionFor == "rain") "Aura Weather checks the minute-cast every 15 minutes and notifies you when rain is about to start for your selected place. To receive those warnings, allow notifications." else "Aura Weather checks for National Weather Service alerts every 15 minutes and notifies you when a new one is issued for your selected place. To receive those warnings, allow notifications.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = RetroTokens.TextSecondary
                 )

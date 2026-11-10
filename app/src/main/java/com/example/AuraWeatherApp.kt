@@ -33,7 +33,9 @@ class AuraWeatherApp : Application() {
         // alerts are enabled. KEEP makes this idempotent with the
         // ViewModel's enqueue on place change / toggle-on.
         applicationScope.launch {
-            if (container.settingsManager.alertsEnabledFlow.first()) {
+            val alertsOn = container.settingsManager.alertsEnabledFlow.first()
+            val rainOn = container.settingsManager.rainAlertsEnabledFlow.first()
+            if (alertsOn || rainOn) {
                 AlertScheduler.enqueue(this@AuraWeatherApp)
             }
         }
