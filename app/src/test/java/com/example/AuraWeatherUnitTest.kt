@@ -2,6 +2,7 @@ package com.example
 
 import com.example.core.UnitFormatter
 import com.example.data.mapper.AirNowReading
+import com.example.data.mapper.PirateWeatherMinutePoint
 import com.example.data.mapper.TomorrowMinutePoint
 import com.example.data.mapper.WeatherMappers
 import com.example.data.mapper.fillDailyHighs
@@ -408,6 +409,66 @@ class AuraWeatherUnitTest {
         assertEquals(60, minutely.size)
         assertEquals(1.0, minutely[15].mmPerHour, 0.001)
         assertEquals(3.0, minutely[45].mmPerHour, 0.001)
+    }
+
+    @Test
+    fun testMapPirateWeatherMinutely_buildsSixtyPointsFromAnHour() {
+        // Pirate Weather returns 60 minutes of 1-minute points; the
+        // minute-cast takes them as-is (dry, then a rain band).
+        val now = Instant.parse("2026-11-09T12:00:00Z")
+        val zone = ZoneId.of("America/New_York")
+        val points = (0 until 60).map { m ->
+            val mm = if (m >= 20 && m < 40) 2.5 else 0.0
+            val prob = if (m >= 20 && m < 40) 80 else 0
+            PirateWeatherMinutePoint(now.plusSeconds(m.toLong() * 60), mm, prob)
+        }
+        val (minutely, sentence) = WeatherMappers.mapPirateWeatherMinutely(points, now, zone)
+        assertEquals(60, minutely.size)
+        assertEquals(0.0, minutely[0].mmPerHour, 0.001)
+        assertEquals(2.5, minutely[25].mmPerHour, 0.001)
+        assertEquals(80, minutely[25].probabilityPct)
+        assertEquals(0.0, minutely[50].mmPerHour, 0.001)
+        assertTrue("Sentence must describe the rain", sentence.contains("rain", ignoreCase = true))
+    }
+
+    @Test
+    fun testMapPirateWeatherMinutely_emptyListIsUnavailable() {
+        val now = Instant.parse("2026-11-09T12:00:00Z")
+        val (minutely, sentence) = WeatherMappers.mapPirateWeatherMinutely(
+            emptyList(), now, ZoneId.of("America/New_York")
+        )
+        assertTrue(minutely.isEmpty())
+        assertTrue(sentence.contains("unavailable", ignoreCase = true))
+    }
+
+    @Test
+    fun testMapPirateWeatherMinutely_minutesBeyondTheHourAreIgnored() {
+        // A rain point at minute 120 must not leak into the 60-minute window.
+        val now = Instant.parse("2026-11-09T12:00:00Z")
+        val points = listOf(
+            PirateWeatherMinutePoint(now, 0.0, 0),
+            PirateWeatherMinutePoint(now.plusSeconds(120 * 60), 5.0, 100)
+        )
+        val (minutely, _) = WeatherMappers.mapPirateWeatherMinutely(
+            points, now, ZoneId.of("America/New_York")
+        )
+        assertEquals(60, minutely.size)
+        assertEquals(0.0, minutely[59].mmPerHour, 0.001)
+    }
+
+    @Test
+    fun testMapPirateWeatherMinutely_allZeroIsNoRainNotACrash() {
+        // A full hour of zero intensity: a 60-point curve of zeros and a
+        // sentence that says no precipitation, never an invented rate.
+        val now = Instant.parse("2026-11-09T12:00:00Z")
+        val zone = ZoneId.of("America/New_York")
+        val points = (0 until 60).map { m ->
+            PirateWeatherMinutePoint(now.plusSeconds(m.toLong() * 60), 0.0, 0)
+        }
+        val (minutely, sentence) = WeatherMappers.mapPirateWeatherMinutely(points, now, zone)
+        assertEquals(60, minutely.size)
+        assertTrue(minutely.all { it.mmPerHour == 0.0 })
+        assertTrue("Sentence must say no precipitation", sentence.contains("No precipitation", ignoreCase = true))
     }
 
     @Test

@@ -75,11 +75,15 @@ fun SettingsScreen(
     airNowWorking: Boolean = false,
     tomorrowAttempted: Boolean = false,
     airNowAttempted: Boolean = false,
+    pirateWeatherApiKey: String,
+    pirateWeatherWorking: Boolean = false,
+    pirateWeatherAttempted: Boolean = false,
     savedPlaces: List<Place>,
     selectedPlaceId: String?,
     onSetUseMetric: (Boolean) -> Unit,
     onSaveTomorrowApiKey: (String) -> Unit,
     onSaveAirNowApiKey: (String) -> Unit,
+    onSavePirateWeatherApiKey: (String) -> Unit,
     onSelectPlace: (String) -> Unit,
     onAddPlace: (String, String, Double, Double) -> Unit,
     tickerVisible: Boolean = false,
@@ -527,6 +531,123 @@ fun SettingsScreen(
             }
         }
 
+        // Pirate Weather API Key & 1-Minute Rain
+        item {
+            var inputKey by remember(pirateWeatherApiKey) { mutableStateOf(pirateWeatherApiKey) }
+            var isKeyVisible by remember { mutableStateOf(false) }
+            var isSavedMessageVisible by remember { mutableStateOf(false) }
+
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Key,
+                                contentDescription = "Pirate Weather Key",
+                                tint = AuraColors.Warning,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "PIRATE WEATHER API KEY",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = RetroTokens.TextPrimary
+                            )
+                        }
+
+                        if (pirateWeatherApiKey.isNotBlank()) {
+                            KeyStatusPill(pirateWeatherWorking, pirateWeatherAttempted)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "A Pirate Weather key turns on true 1-minute precipitation for the minute-cast - minute-by-minute rain for the next 60 minutes. Without a key, the minute-cast uses the Tomorrow.io 1-minute data when your plan provides it, or the 15-minute Open-Meteo interpolation. The \"KEY ACTIVE\" pill appears only once the app has actually fetched with your key. Free tier: 10,000 calls a month, no card required. Pirate Weather is a small community service with no SLA, and a new key can take about 20 minutes to go live. Core weather works keyless.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = RetroTokens.TextSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    OutlinedTextField(
+                        value = inputKey,
+                        onValueChange = {
+                            inputKey = it
+                            isSavedMessageVisible = false
+                        },
+                        label = { Text("Pirate Weather API Key") },
+                        placeholder = { Text("Paste your API key here...") },
+                        singleLine = true,
+                        visualTransformation = if (isKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { isKeyVisible = !isKeyVisible }) {
+                                Icon(
+                                    imageVector = if (isKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = if (isKeyVisible) "Hide key" else "Show key",
+                                    tint = RetroTokens.TextSecondary
+                                )
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = RetroTokens.TextPrimary,
+                            unfocusedTextColor = RetroTokens.TextPrimary,
+                            focusedBorderColor = RetroTokens.Yellow,
+                            unfocusedBorderColor = RetroTokens.Border
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (inputKey.isNotBlank()) {
+                            TextButton(
+                                onClick = {
+                                    inputKey = ""
+                                    onSavePirateWeatherApiKey("")
+                                }
+                            ) {
+                                Text("Clear", color = RetroTokens.HeaderRed)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+
+                        Button(
+                            onClick = {
+                                onSavePirateWeatherApiKey(inputKey)
+                                isSavedMessageVisible = true
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = RetroTokens.Yellow,
+                                contentColor = RetroTokens.Background
+                            ),
+                            shape = RetroShapes.medium
+                        ) {
+                            Text(if (isSavedMessageVisible) "SAVED!" else "SAVE KEY")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "Need a key? Free API keys with 10,000 calls/month, no card required, are available at pirate-weather.apiable.io",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        color = RetroTokens.TextSecondary
+                    )
+                }
+            }
+        }
+
         // AirNow API Key & Live AQI
         item {
             var inputKey by remember(airNowApiKey) { mutableStateOf(airNowApiKey) }
@@ -669,6 +790,7 @@ fun SettingsScreen(
                     AttributionRow("Weather & Alerts", "National Weather Service (NOAA / api.weather.gov)")
                     AttributionRow("Minute-Cast & AQI", "Open-Meteo.com (CC BY 4.0)")
                     AttributionRow("Live AQI (with key)", "AirNow (US EPA)")
+                    AttributionRow("1-Minute Rain (with key)", "Pirate Weather (pirateweather.net)")
                     AttributionRow("Radar Reflectivity", "Iowa Environmental Mesonet (IEM) / NEXRAD")
                     AttributionRow("Radar Basemap", "Esri World Dark Gray Base")
                     AttributionRow("Satellite Imagery", "NASA GIBS (EOSDIS) GOES-East ABI")

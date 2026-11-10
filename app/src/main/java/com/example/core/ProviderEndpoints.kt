@@ -24,6 +24,20 @@ object ProviderEndpoints {
     // AQI + category only, no concentrations.
     const val AIRNOW_BASE_URL = "https://www.airnowapi.org/"
 
+    // Pirate Weather (free API key, 10,000 calls/month, no card):
+    // true 1-minute precipitation for the next 60 minutes, Dark Sky
+    // format. The minute-cast's first-choice source when a key is set.
+    // Auth is the `apikey` header (the key must NOT travel in the URL
+    // path, where it would appear in logs); the path still needs a
+    // dummy key-shaped segment. Units are requested as `si` so
+    // precipIntensity is mm/h (the default `us` units report inches
+    // per hour). Community project, best-effort, no SLA; a new key
+    // can take ~20 minutes to go live. Endpoint verified live (401
+    // without a key); the response shape is from the Pirate Weather
+    // API docs and is NOT live-verified yet (no key exists to fetch
+    // with).
+    const val PIRATE_WEATHER_BASE_URL = "https://api.pirateweather.net/"
+
     // Iowa Environmental Mesonet (IEM) NEXRAD Radar Tiles (Keyless)
     const val IEM_TILE_BASE = "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/"
     const val IEM_COMPOSITE_LAYER = "nexrad-n0q-900913"

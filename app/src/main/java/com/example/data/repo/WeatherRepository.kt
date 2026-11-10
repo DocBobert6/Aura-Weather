@@ -1,6 +1,7 @@
 package com.example.data.repo
 
 import com.example.data.api.AirNowApi
+import com.example.data.api.PirateWeatherApi
 import com.example.data.api.TomorrowApi
 import com.example.data.api.NwsAlertFeature
 import com.example.data.api.NwsApi
@@ -14,6 +15,7 @@ import com.example.data.db.WeatherCacheDao
 import com.example.data.settings.SettingsManager
 import com.example.data.db.WeatherCacheEntity
 import com.example.data.mapper.AirNowReading
+import com.example.data.mapper.PirateWeatherMinutePoint
 import com.example.data.mapper.TomorrowMinutePoint
 import com.example.data.mapper.InstantJsonAdapter
 import com.example.data.mapper.LocalDateJsonAdapter
@@ -82,6 +84,7 @@ class WeatherRepository(
     private val openMeteoAirQualityApi: OpenMeteoAirQualityApi,
     private val airNowApi: AirNowApi,
     private val tomorrowApi: TomorrowApi,
+    private val pirateWeatherApi: PirateWeatherApi,
     private val settingsManager: SettingsManager,
     private val weatherCacheDao: WeatherCacheDao,
     private val savedPlaceDao: SavedPlaceDao
@@ -564,6 +567,50 @@ class WeatherRepository(
             settingsManager.setAirNowWorking(airNowWorked)
         }
 
+        // --- Pirate Weather: true 1-minute precipitation.
+        // First-choice minute-cast source when a key is set: one call
+        // per refresh, 60 minutes of 1-minute data. Free tier is
+        // 10,000 calls/month, no card. A failure or an empty minutely
+        // block falls through to the Tomorrow.io 1m timeline, then
+        // the Open-Meteo interpolation. pirateWeatherWorking records
+        // whether the key actually delivered usable data, so the
+        // Settings "KEY ACTIVE" pill is honest. The key travels as
+        // the `apikey` header (a dummy "key" segment sits in the URL
+        // path, which the docs require); units are `si` so
+        // precipIntensity is mm/h. Response shape is from the Pirate
+        // Weather API docs (Dark Sky format), NOT live-verified (no
+        // key exists yet) — a shape mismatch parses to an empty list
+        // and falls back, never a crash.
+        val pirateWeatherKey = settingsManager.pirateWeatherApiKeyFlow.first()
+        var minutelyFromPirate = false
+        if (pirateWeatherKey.isNotBlank()) {
+            settingsManager.setPirateWeatherAttempted(true)
+            var pirateWeatherWorked = false
+            runCatching {
+                val resp = pirateWeatherApi.getForecast(
+                    dummy = "key",
+                    latlon = "$lat,$lon",
+                    apiKey = pirateWeatherKey
+                )
+                val points = resp.minutely?.data?.mapNotNull { dp ->
+                    val epoch = dp.time ?: return@mapNotNull null
+                    PirateWeatherMinutePoint(
+                        time = Instant.ofEpochSecond(epoch),
+                        mmPerHour = dp.precipIntensity,
+                        probabilityPct = dp.precipProbability?.times(100.0)?.roundToInt()
+                    )
+                } ?: emptyList()
+                if (points.isNotEmpty()) {
+                    val mapped = WeatherMappers.mapPirateWeatherMinutely(points, now, zoneId)
+                    minutely = mapped.first
+                    minuteSentence = mapped.second
+                    pirateWeatherWorked = true
+                    minutelyFromPirate = true
+                }
+            }
+            settingsManager.setPirateWeatherWorking(pirateWeatherWorked)
+        }
+
         // --- Tomorrow.io: 1-minute precipitation + live pollen.
         // Two independent Timelines calls, only when a key is set and
         // only as part of this refresh (no timer) — free tier is
@@ -610,7 +657,7 @@ class WeatherRepository(
                         probabilityPct = interval.values?.precipitationProbability?.roundToInt()
                     )
                 } ?: emptyList()
-                if (points.isNotEmpty()) {
+                if (points.isNotEmpty() && !minutelyFromPirate) {
                     val mapped = WeatherMappers.mapTomorrowMinutely(points, now, zoneId)
                     minutely = mapped.first
                     minuteSentence = mapped.second

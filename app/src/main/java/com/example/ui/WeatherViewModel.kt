@@ -69,6 +69,14 @@ class WeatherViewModel(
     val airNowApiKey: StateFlow<String> = settingsManager.airNowApiKeyFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
+    val pirateWeatherApiKey: StateFlow<String> = settingsManager.pirateWeatherApiKeyFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+    /** Pirate Weather "KEY ACTIVE" pill: true only after the client has
+     * actually fetched usable minutely data with the stored key. */
+    val pirateWeatherWorking: StateFlow<Boolean> = settingsManager.pirateWeatherWorkingFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     /** AirNow "KEY ACTIVE" pill: true only after a real AirNow fetch. */
     val airNowWorking: StateFlow<Boolean> = settingsManager.airNowWorkingFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -78,6 +86,9 @@ class WeatherViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val airNowAttempted: StateFlow<Boolean> = settingsManager.airNowAttemptedFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val pirateWeatherAttempted: StateFlow<Boolean> = settingsManager.pirateWeatherAttemptedFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     /** Background music toggle (Home screen): off by default. */
@@ -215,6 +226,13 @@ class WeatherViewModel(
     fun setAirNowApiKey(key: String) {
         viewModelScope.launch {
             settingsManager.setAirNowApiKey(key.trim())
+            refresh()
+        }
+    }
+
+    fun setPirateWeatherApiKey(key: String) {
+        viewModelScope.launch {
+            settingsManager.setPirateWeatherApiKey(key.trim())
             refresh()
         }
     }
