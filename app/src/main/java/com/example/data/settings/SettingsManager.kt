@@ -23,6 +23,10 @@ class SettingsManager(private val context: Context) {
         val KEY_MUSIC_ENABLED = booleanPreferencesKey("music_enabled")
         val KEY_TOMORROW_WORKING = booleanPreferencesKey("tomorrow_working")
         val KEY_RAINBOW_WORKING = booleanPreferencesKey("rainbow_working")
+        val KEY_AIRNOW_WORKING = booleanPreferencesKey("airnow_working")
+        val KEY_TOMORROW_ATTEMPTED = booleanPreferencesKey("tomorrow_attempted")
+        val KEY_AIRNOW_ATTEMPTED = booleanPreferencesKey("airnow_attempted")
+        val KEY_RAINBOW_ATTEMPTED = booleanPreferencesKey("rainbow_attempted")
         val KEY_ALERTS_ENABLED = booleanPreferencesKey("alerts_enabled")
     }
 
@@ -66,6 +70,28 @@ class SettingsManager(private val context: Context) {
         preferences[KEY_RAINBOW_WORKING] ?: false
     }
 
+    // AirNow "KEY ACTIVE" pill: same honest pattern — true only after
+    // a real successful AirNow fetch with the stored key.
+    val airNowWorkingFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_AIRNOW_WORKING] ?: false
+    }
+
+    // "KEY FAILED" pills: true once a fetch has been attempted with
+    // the stored key (whether or not it worked). A stored key that
+    // was never tried shows no pill; a tried key that never delivered
+    // shows KEY FAILED instead of a misleading blank.
+    val tomorrowAttemptedFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_TOMORROW_ATTEMPTED] ?: false
+    }
+
+    val airNowAttemptedFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_AIRNOW_ATTEMPTED] ?: false
+    }
+
+    val rainbowAttemptedFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_RAINBOW_ATTEMPTED] ?: false
+    }
+
     // Background music (Home toggle): off by default, remembered across launches.
     val musicEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[KEY_MUSIC_ENABLED] ?: false
@@ -95,6 +121,13 @@ class SettingsManager(private val context: Context) {
             preferences[KEY_TOMORROW_API_KEY] = key
             // A changed key must re-verify before it can show active.
             preferences[KEY_TOMORROW_WORKING] = false
+            preferences[KEY_TOMORROW_ATTEMPTED] = false
+        }
+    }
+
+    suspend fun setTomorrowAttempted(attempted: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_TOMORROW_ATTEMPTED] = attempted
         }
     }
 
@@ -107,6 +140,21 @@ class SettingsManager(private val context: Context) {
     suspend fun setAirNowApiKey(key: String) {
         context.dataStore.edit { preferences ->
             preferences[KEY_AIRNOW_API_KEY] = key
+            // A changed key must re-verify before it can show active.
+            preferences[KEY_AIRNOW_WORKING] = false
+            preferences[KEY_AIRNOW_ATTEMPTED] = false
+        }
+    }
+
+    suspend fun setAirNowWorking(working: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_AIRNOW_WORKING] = working
+        }
+    }
+
+    suspend fun setAirNowAttempted(attempted: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_AIRNOW_ATTEMPTED] = attempted
         }
     }
 
@@ -115,6 +163,13 @@ class SettingsManager(private val context: Context) {
             preferences[KEY_RAINBOW_API_KEY] = key
             // A changed key must re-verify before it can show active.
             preferences[KEY_RAINBOW_WORKING] = false
+            preferences[KEY_RAINBOW_ATTEMPTED] = false
+        }
+    }
+
+    suspend fun setRainbowAttempted(attempted: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_RAINBOW_ATTEMPTED] = attempted
         }
     }
 

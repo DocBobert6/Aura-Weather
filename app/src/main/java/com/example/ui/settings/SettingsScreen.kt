@@ -73,6 +73,10 @@ fun SettingsScreen(
     airNowApiKey: String,
     rainbowApiKey: String,
     rainbowWorking: Boolean = false,
+    airNowWorking: Boolean = false,
+    tomorrowAttempted: Boolean = false,
+    airNowAttempted: Boolean = false,
+    rainbowAttempted: Boolean = false,
     savedPlaces: List<Place>,
     selectedPlaceId: String?,
     onSetUseMetric: (Boolean) -> Unit,
@@ -361,19 +365,8 @@ fun SettingsScreen(
                             )
                         }
 
-                        if (tomorrowApiKey.isNotBlank() && tomorrowWorking) {
-                            Surface(
-                                color = RetroTokens.Yellow,
-                                shape = AuraShapes.pill
-                            ) {
-                                Text(
-                                    text = "KEY ACTIVE",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                    fontWeight = FontWeight.Bold,
-                                    color = RetroTokens.Background,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
+                        if (tomorrowApiKey.isNotBlank()) {
+                            KeyStatusPill(tomorrowWorking, tomorrowAttempted)
                         }
                     }
 
@@ -489,19 +482,8 @@ fun SettingsScreen(
                             )
                         }
 
-                        if (rainbowApiKey.isNotBlank() && rainbowWorking) {
-                            Surface(
-                                color = RetroTokens.Yellow,
-                                shape = AuraShapes.pill
-                            ) {
-                                Text(
-                                    text = "KEY ACTIVE",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                    fontWeight = FontWeight.Bold,
-                                    color = RetroTokens.Background,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
+                        if (rainbowApiKey.isNotBlank()) {
+                            KeyStatusPill(rainbowWorking, rainbowAttempted)
                         }
                     }
 
@@ -618,18 +600,7 @@ fun SettingsScreen(
                         }
 
                         if (airNowApiKey.isNotBlank()) {
-                            Surface(
-                                color = RetroTokens.Yellow,
-                                shape = AuraShapes.pill
-                            ) {
-                                Text(
-                                    text = "KEY ACTIVE",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                    fontWeight = FontWeight.Bold,
-                                    color = RetroTokens.Background,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
+                            KeyStatusPill(airNowWorking, airNowAttempted)
                         }
                     }
 
@@ -827,6 +798,44 @@ fun SettingsScreen(
             },
             containerColor = RetroTokens.PanelLight
         )
+    }
+}
+
+/**
+ * Key status pill for the Settings key sections. Shows yellow
+ * "KEY ACTIVE" once the key has actually delivered data, red "KEY
+ * FAILED" once a fetch was attempted with the key and it never
+ * delivered, and nothing when the key was never tried — so a
+ * stored-but-failing key is visible instead of blank.
+ */
+@Composable
+private fun KeyStatusPill(working: Boolean, attempted: Boolean) {
+    if (working) {
+        Surface(
+            color = RetroTokens.Yellow,
+            shape = AuraShapes.pill
+        ) {
+            Text(
+                text = "KEY ACTIVE",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                fontWeight = FontWeight.Bold,
+                color = RetroTokens.Background,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+            )
+        }
+    } else if (attempted) {
+        Surface(
+            color = RetroTokens.HeaderRed,
+            shape = AuraShapes.pill
+        ) {
+            Text(
+                text = "KEY FAILED",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                fontWeight = FontWeight.Bold,
+                color = RetroTokens.TextPrimary,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+            )
+        }
     }
 }
 

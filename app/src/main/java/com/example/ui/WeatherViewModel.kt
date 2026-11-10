@@ -75,6 +75,20 @@ class WeatherViewModel(
     val rainbowWorking: StateFlow<Boolean> = settingsManager.rainbowWorkingFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    /** AirNow "KEY ACTIVE" pill: true only after a real AirNow fetch. */
+    val airNowWorking: StateFlow<Boolean> = settingsManager.airNowWorkingFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /** "KEY FAILED" pills: true once a fetch was attempted with the key. */
+    val tomorrowAttempted: StateFlow<Boolean> = settingsManager.tomorrowAttemptedFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val airNowAttempted: StateFlow<Boolean> = settingsManager.airNowAttemptedFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val rainbowAttempted: StateFlow<Boolean> = settingsManager.rainbowAttemptedFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     /** Background music toggle (Home screen): off by default. */
     val musicEnabled: StateFlow<Boolean> = settingsManager.musicEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)

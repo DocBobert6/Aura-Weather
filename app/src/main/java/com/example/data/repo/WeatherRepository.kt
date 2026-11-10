@@ -528,18 +528,27 @@ class WeatherRepository(
             pm10 = aqCurrent?.pm10,
             ozone = aqCurrent?.ozone
         )
+        val airNowKey = settingsManager.airNowApiKeyFlow.first()
+        var airNowWorked = false
+        if (airNowKey.isNotBlank()) {
+            settingsManager.setAirNowAttempted(true)
+        }
         val airQuality = runCatching {
-            val airNowKey = settingsManager.airNowApiKeyFlow.first()
             if (airNowKey.isBlank()) {
                 openMeteoAqi
             } else {
                 val observations = airNowApi.getCurrentObservations(lat, lon, apiKey = airNowKey)
-                WeatherMappers.mapAirNowAqi(
+                val mapped = WeatherMappers.mapAirNowAqi(
                     readings = observations.map { AirNowReading(it.parameterName, it.aqi) },
                     openMeteoAqi = openMeteoAqi
                 )
+                if (mapped?.source == "AirNow") airNowWorked = true
+                mapped
             }
         }.getOrNull() ?: openMeteoAqi
+        if (airNowKey.isNotBlank()) {
+            settingsManager.setAirNowWorking(airNowWorked)
+        }
 
         // --- Tomorrow.io: 1-minute precipitation + live pollen.
         // Two independent Timelines calls, only when a key is set and
@@ -576,6 +585,7 @@ class WeatherRepository(
         val rainbowKey = settingsManager.rainbowApiKeyFlow.first()
         var minutelyFromRainbow = false
         if (rainbowKey.isNotBlank()) {
+            settingsManager.setRainbowAttempted(true)
             var rainbowWorked = false
             runCatching {
                 val resp = rainbowApi.getNowcast(
@@ -605,6 +615,7 @@ class WeatherRepository(
         }
 
         if (tomorrowKey.isNotBlank()) {
+            settingsManager.setTomorrowAttempted(true)
             var tomorrowWorked = false
             // 1-minute precipitation for the next 60 minutes.
             runCatching {
