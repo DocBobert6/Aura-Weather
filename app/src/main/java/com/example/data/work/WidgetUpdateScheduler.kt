@@ -1,5 +1,7 @@
 package com.example.data.work
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -7,6 +9,8 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.example.ui.widget.AuraWeatherWidgetReceiver
+import com.example.ui.widget.HourlyStripWidgetReceiver
 import java.util.concurrent.TimeUnit
 
 /**
@@ -46,5 +50,27 @@ object WidgetUpdateScheduler {
 
     fun cancel(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_WORK_NAME)
+    }
+
+    /**
+     * Build E: cancel the shared work only when NO widget of either type
+     * is placed. Both receivers call this from onDisabled (which fires
+     * when the last widget of that receiver's type is removed); checking
+     * the other type's placed ids via the platform AppWidgetManager
+     * stops removing one widget from stranding the other without
+     * updates. The platform call is synchronous, so no coroutine is
+     * needed in the receiver.
+     */
+    fun cancelIfNoWidgetsPlaced(context: Context) {
+        val manager = AppWidgetManager.getInstance(context)
+        val main = manager.getAppWidgetIds(
+            ComponentName(context, AuraWeatherWidgetReceiver::class.java)
+        )
+        val strip = manager.getAppWidgetIds(
+            ComponentName(context, HourlyStripWidgetReceiver::class.java)
+        )
+        if (main.isEmpty() && strip.isEmpty()) {
+            cancel(context)
+        }
     }
 }

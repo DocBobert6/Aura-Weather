@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
             val savedPlaces by viewModel.savedPlaces.collectAsStateWithLifecycle()
             val useMetric by viewModel.useMetric.collectAsStateWithLifecycle()
             val selectedRadarLayer by viewModel.selectedRadarLayer.collectAsStateWithLifecycle()
+            val selectedRadarRange by viewModel.selectedRadarRange.collectAsStateWithLifecycle()
             val currentRadarFrameIndex by viewModel.currentRadarFrameIndex.collectAsStateWithLifecycle()
             val isRadarPlaying by viewModel.isRadarPlaying.collectAsStateWithLifecycle()
             val tomorrowApiKey by viewModel.tomorrowApiKey.collectAsStateWithLifecycle()
@@ -76,6 +77,7 @@ class MainActivity : ComponentActivity() {
             val regionalPoints by viewModel.regionalPoints.collectAsStateWithLifecycle()
             val musicEnabled by viewModel.musicEnabled.collectAsStateWithLifecycle()
             val alertsEnabled by viewModel.alertsEnabled.collectAsStateWithLifecycle()
+            val rainAlertsEnabled by viewModel.rainAlertsEnabled.collectAsStateWithLifecycle()
             val pendingNav by pendingDestination.collectAsStateWithLifecycle()
             val highlightAlert by highlightAlertId.collectAsStateWithLifecycle()
 
@@ -111,6 +113,7 @@ class MainActivity : ComponentActivity() {
                     airNowAttempted = airNowAttempted,
                     rainbowAttempted = rainbowAttempted,
                     selectedRadarLayer = selectedRadarLayer,
+                    selectedRadarRange = selectedRadarRange,
                     currentRadarFrameIndex = currentRadarFrameIndex,
                     isRadarPlaying = isRadarPlaying,
                     regionalPoints = regionalPoints,
@@ -118,6 +121,8 @@ class MainActivity : ComponentActivity() {
                     onToggleMusic = { viewModel.setMusicEnabled(!musicEnabled) },
                     alertsEnabled = alertsEnabled,
                     onSetAlertsEnabled = { viewModel.setAlertsEnabled(it) },
+                    rainAlertsEnabled = rainAlertsEnabled,
+                    onSetRainAlertsEnabled = { viewModel.setRainAlertsEnabled(it) },
                     pendingDestination = pendingNav,
                     highlightAlertId = highlightAlert,
                     onPendingDestinationConsumed = {

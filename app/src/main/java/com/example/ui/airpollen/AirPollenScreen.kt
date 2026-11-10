@@ -40,6 +40,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.mapper.AllergyLevel
+import com.example.data.mapper.allergyIndex
 import com.example.domain.model.AirQuality
 import com.example.domain.model.PollenData
 import com.example.ui.designsystem.AuraBars
@@ -283,6 +285,51 @@ fun AirPollenScreen(
                             icon = Icons.Default.Spa,
                             level = pollen?.weedIndex,
                             hasKey = pollen?.hasKey ?: false
+                        )
+                    }
+
+                    // Build D: a simple allergy index from the pollen
+                    // counts and AQI already on this screen — the worst of
+                    // the two, with the driver named. It is NOT a medical
+                    // forecast; the note under it says so. Hidden when
+                    // there is no data at all (no counts, no AQI).
+                    val allergy = allergyIndex(
+                        treeIndex = pollen?.treeIndex,
+                        grassIndex = pollen?.grassIndex,
+                        weedIndex = pollen?.weedIndex,
+                        aqi = airQuality?.aqi
+                    )
+                    if (allergy != null) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "ALLERGY INDEX",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = RetroTokens.TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = allergy.level.label,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = when (allergy.level) {
+                                AllergyLevel.LOW -> RetroTokens.TextPrimary
+                                AllergyLevel.MODERATE -> RetroTokens.Yellow
+                                AllergyLevel.HIGH -> RetroTokens.HeaderOrange
+                                AllergyLevel.VERY_HIGH -> RetroTokens.HeaderRed
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = allergy.driver,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RetroTokens.TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "A SIMPLE INDEX FROM TODAY'S POLLEN COUNTS AND AIR QUALITY - NOT A MEDICAL FORECAST.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RetroTokens.TextSecondary
                         )
                     }
 

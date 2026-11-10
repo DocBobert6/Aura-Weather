@@ -23,8 +23,43 @@ data class WidgetState(
     val isStale: Boolean,
     val zoneId: String,
     val useMetric: Boolean,
+    val isDaytime: Boolean,
+    // Build E: the next hours for the hourly-strip widget (empty for the
+    // main widget's state — it never reads this). Default empty so
+    // existing construction sites keep working.
+    val hourly: List<WidgetHourlyPoint> = emptyList()
+)
+
+/** One hour in the strip: label, temp, condition, day/night. */
+data class WidgetHourlyPoint(
+    val hourLabel: String,
+    val tempC: Double?,
+    val condition: WeatherCondition,
     val isDaytime: Boolean
 )
+
+/**
+ * Build E: the strip's hours, pure. The first point is the current hour
+ * ("NOW", like the Home hourly strip); the rest are labelled in the
+ * place's zone ("2 PM"). Capped at [count] so a narrow widget takes
+ * fewer hours than a wide one.
+ */
+fun hourlyStripPoints(
+    hourly: List<com.example.domain.model.HourlyPoint>,
+    zoneId: String,
+    count: Int
+): List<WidgetHourlyPoint> {
+    val zone = runCatching { ZoneId.of(zoneId) }.getOrDefault(ZoneId.systemDefault())
+    val formatter = DateTimeFormatter.ofPattern("h a", Locale.US).withZone(zone)
+    return hourly.take(count).mapIndexed { index, point ->
+        WidgetHourlyPoint(
+            hourLabel = if (index == 0) "NOW" else formatter.format(point.time).uppercase(Locale.US),
+            tempC = point.tempC,
+            condition = point.condition,
+            isDaytime = point.isDaytime
+        )
+    }
+}
 
 /** Display strings for one widget render. All text is uppercase (retro). */
 data class WidgetDisplay(

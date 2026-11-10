@@ -38,6 +38,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.example.data.mapper.visibilityDescriptor
+import com.example.data.mapper.RadarRange
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.Place
 import com.example.domain.model.RegionalPoint
@@ -105,6 +107,7 @@ fun WeatherNavDisplay(
     airNowAttempted: Boolean,
     rainbowAttempted: Boolean,
     selectedRadarLayer: RadarLayer,
+    selectedRadarRange: RadarRange,
     currentRadarFrameIndex: Int,
     isRadarPlaying: Boolean,
     regionalPoints: List<RegionalPoint> = emptyList(),
@@ -112,6 +115,8 @@ fun WeatherNavDisplay(
     onToggleMusic: () -> Unit = {},
     alertsEnabled: Boolean = false,
     onSetAlertsEnabled: (Boolean) -> Unit = {},
+    rainAlertsEnabled: Boolean = false,
+    onSetRainAlertsEnabled: (Boolean) -> Unit = {},
     pendingDestination: ScreenDestination? = null,
     highlightAlertId: String? = null,
     onPendingDestinationConsumed: () -> Unit = {},
@@ -216,6 +221,7 @@ fun WeatherNavDisplay(
                             airNowAttempted = airNowAttempted,
                             rainbowAttempted = rainbowAttempted,
                             selectedRadarLayer = selectedRadarLayer,
+                            selectedRadarRange = selectedRadarRange,
                             currentRadarFrameIndex = currentRadarFrameIndex,
                             isRadarPlaying = isRadarPlaying,
                             onNavigate = { currentDestination = it },
@@ -223,6 +229,8 @@ fun WeatherNavDisplay(
                             regionalPoints = regionalPoints,
                             alertsEnabled = alertsEnabled,
                             onSetAlertsEnabled = onSetAlertsEnabled,
+                            rainAlertsEnabled = rainAlertsEnabled,
+                            onSetRainAlertsEnabled = onSetRainAlertsEnabled,
                             highlightAlertId = highlightAlertId
                         )
                     }
@@ -261,6 +269,7 @@ fun WeatherNavDisplay(
                     airNowAttempted = airNowAttempted,
                     rainbowAttempted = rainbowAttempted,
                     selectedRadarLayer = selectedRadarLayer,
+                    selectedRadarRange = selectedRadarRange,
                     currentRadarFrameIndex = currentRadarFrameIndex,
                     isRadarPlaying = isRadarPlaying,
                     onNavigate = { currentDestination = it },
@@ -268,6 +277,8 @@ fun WeatherNavDisplay(
                     regionalPoints = regionalPoints,
                     alertsEnabled = alertsEnabled,
                     onSetAlertsEnabled = onSetAlertsEnabled,
+                    rainAlertsEnabled = rainAlertsEnabled,
+                    onSetRainAlertsEnabled = onSetRainAlertsEnabled,
                     highlightAlertId = highlightAlertId
                 )
             }
@@ -563,7 +574,8 @@ private fun buildTickerItems(
     val current = state?.current ?: return emptyList()
     val items = mutableListOf<String>()
     current.visibilityM?.let {
-        items.add("VISIB: ${unitFormatter.formatVisibility(it).uppercase()}")
+        val desc = visibilityDescriptor(it)?.let { d -> " ($d)" } ?: ""
+        items.add("VISIBILITY: ${unitFormatter.formatVisibility(it).uppercase()}$desc")
     }
     current.pressurePa?.let {
         items.add("BAROMETRIC PRESSURE: ${unitFormatter.formatPressure(it).uppercase()}")
@@ -571,9 +583,8 @@ private fun buildTickerItems(
     current.windMs?.let {
         items.add("WIND: ${unitFormatter.formatWindSpeed(it).uppercase()}")
     }
-    current.humidityPct?.let {
-        items.add("HUMIDITY: ${it.roundToInt()}%")
-    }
+    // No humidity item: it already lives in the detail grid, and the
+    // ticker repeating it is the duplicate Robert flagged.
     current.dewPointC?.let {
         items.add("DEW POINT: ${unitFormatter.formatTemperature(it).uppercase()}")
     }
@@ -600,6 +611,7 @@ private fun ScreenContent(
     airNowAttempted: Boolean,
     rainbowAttempted: Boolean,
     selectedRadarLayer: RadarLayer,
+    selectedRadarRange: RadarRange,
     currentRadarFrameIndex: Int,
     isRadarPlaying: Boolean,
     onNavigate: (ScreenDestination) -> Unit,
@@ -607,6 +619,8 @@ private fun ScreenContent(
     regionalPoints: List<RegionalPoint> = emptyList(),
     alertsEnabled: Boolean = false,
     onSetAlertsEnabled: (Boolean) -> Unit = {},
+    rainAlertsEnabled: Boolean = false,
+    onSetRainAlertsEnabled: (Boolean) -> Unit = {},
     highlightAlertId: String? = null
 ) {
     when (destination) {
@@ -631,9 +645,11 @@ private fun ScreenContent(
         ScreenDestination.Radar -> RadarScreen(
             state = weatherState,
             selectedLayer = selectedRadarLayer,
+            selectedRange = selectedRadarRange,
             currentFrameIndex = currentRadarFrameIndex,
             isPlaying = isRadarPlaying,
             onSelectLayer = { viewModel.setRadarLayer(it) },
+            onSelectRange = { viewModel.setRadarRange(it) },
             onTogglePlay = { viewModel.toggleRadarPlay() },
             onScrubFrame = { viewModel.setRadarFrameIndex(it) },
             tickerVisible = tickerVisible
@@ -682,7 +698,9 @@ private fun ScreenContent(
             onAddPlace = { name, state, lat, lon -> viewModel.addPlace(name, state, lat, lon) },
             tickerVisible = tickerVisible,
             alertsEnabled = alertsEnabled,
-            onSetAlertsEnabled = onSetAlertsEnabled
+            onSetAlertsEnabled = onSetAlertsEnabled,
+            rainAlertsEnabled = rainAlertsEnabled,
+            onSetRainAlertsEnabled = onSetRainAlertsEnabled
         )
     }
 }

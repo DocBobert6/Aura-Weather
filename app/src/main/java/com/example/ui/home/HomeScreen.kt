@@ -73,6 +73,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.UnitFormatter
 import com.example.data.mapper.WeatherMappers
+import com.example.data.mapper.pressureDescriptor
+import com.example.data.mapper.visibilityDescriptor
 import com.example.domain.model.AlertSeverity
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
@@ -287,6 +289,10 @@ fun HomeScreen(
                 minutePoints = state?.minutely60m ?: emptyList(),
                 summarySentence = state?.minuteSummary ?: "No precipitation expected for the next 60 minutes."
             )
+            // A little extra breathing room before the 48-hour strip:
+            // the uniform 16dp list spacing leaves the two cards
+            // sitting tight against each other.
+            Spacer(modifier = Modifier.height(8.dp))
         }
 
         // 6. 48-Hour Hourly Forecast Strip
@@ -294,15 +300,17 @@ fun HomeScreen(
             HourlyForecastCard(
                 hourlyPoints = state?.hourly48h ?: emptyList(),
                 unitFormatter = unitFormatter,
-                zoneId = runCatching { ZoneId.of(state?.place?.zoneId ?: "") }.getOrDefault(ZoneId.systemDefault())
+                zoneId = runCatching { ZoneId.of(state?.place?.zoneId ?: "") }.getOrDefault(ZoneId.systemDefault()),
+                currentTempC = state?.current?.tempC
             )
         }
 
         // 7. 7-Day Forecast Card
         item {
             DailyForecastCard(
-                dailyPoints = state?.daily7d ?: emptyList(),
-                unitFormatter = unitFormatter
+                dailyPoints = state?.daily15d ?: emptyList(),
+                unitFormatter = unitFormatter,
+                isDaytimeNow = state?.solar?.isDaytime ?: true
             )
         }
 
@@ -644,7 +652,7 @@ private fun HeroWeatherCard(
     // rendered as an empty grey circle.
     val description = state?.current?.description?.ifBlank { null } ?: condition.displayName
 
-    val todayDaily = state?.daily7d?.firstOrNull()
+    val todayDaily = state?.daily15d?.firstOrNull()
     val highFormatted = unitFormatter.formatTemperature(todayDaily?.highC ?: state?.current?.tempC)
     // No invented low: when the daily low is missing the UI shows "--".
     val lowFormatted = unitFormatter.formatTemperature(todayDaily?.lowC)
@@ -745,12 +753,19 @@ private fun MinuteCastCard(
                     )
                 }
 
-                // Plain text, not a glass pill.
-                Text(
-                    text = "EVERY 15 MIN",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = RetroTokens.TextSecondary
-                )
+                // A subtle secondary badge, not plain text — it sits
+                // closer to the title and reads as a label for the card.
+                Surface(
+                    color = RetroTokens.PanelLight,
+                    shape = AuraShapes.pill
+                ) {
+                    Text(
+                        text = "EVERY 15 MIN",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = RetroTokens.TextSecondary,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -816,7 +831,11 @@ private fun MinuteCastCard(
 private fun HourlyForecastCard(
     hourlyPoints: List<HourlyPoint>,
     unitFormatter: UnitFormatter,
-    zoneId: ZoneId = ZoneId.systemDefault()
+    zoneId: ZoneId = ZoneId.systemDefault(),
+    // The hero card's temperature: the NOW cell must show this exact
+    // value, not the hourly forecast's own temp (which can round a
+    // degree apart — the reported 52 vs 53).
+    currentTempC: Double? = null
 ) {
     val timeFormatter = remember(zoneId) {
         DateTimeFormatter.ofPattern("h a", Locale.US).withZone(zoneId)
@@ -839,15 +858,25 @@ private fun HourlyForecastCard(
             Spacer(modifier = Modifier.height(14.dp))
 
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                // fillMaxWidth constrains the row to the card width so
+                // it is actually scrollable: without it the row can size
+                // to its content and the last item clips off-screen with
+                // no way to reach it. The generous end padding gives the
+                // final item room to draw fully.
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(start = 16.dp, end = 28.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                items(hourlyPoints.take(24).size) { index ->
+                items(hourlyPoints.size) { index ->
                     val point = hourlyPoints[index]
                     // The first hour is now — label it, so the strip reads
                     // against the present instead of a redundant "9 AM".
                     val hourLabel = if (index == 0) "NOW" else timeFormatter.format(point.time).uppercase()
-                    val temp = unitFormatter.formatTemperature(point.tempC)
+                    // Single source of truth for "now": the hero card
+                    // shows the current observation, so the NOW cell
+                    // shows the same value.
+                    val nowTempC = if (index == 0) currentTempC ?: point.tempC else point.tempC
+                    val temp = unitFormatter.formatTemperature(nowTempC)
                     val pop = point.popPct
 
                     // Plain cell on the navy panel: no glass, no pill
@@ -891,13 +920,13 @@ private fun HourlyForecastCard(
                                 )
                                 Text(
                                     text = "$pop%",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                                     fontWeight = FontWeight.Bold,
-                                    color = AuraColors.PopBlue
+                                    color = RetroTokens.TextPrimary
                                 )
                             }
                         } else {
-                            Text(text = " ", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp))
+                            Text(text = " ", style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp))
                         }
                     }
                 }
@@ -909,7 +938,11 @@ private fun HourlyForecastCard(
 @Composable
 private fun DailyForecastCard(
     dailyPoints: List<DailyPoint>,
-    unitFormatter: UnitFormatter
+    unitFormatter: UnitFormatter,
+    // The current day/night, from the solar position: the TODAY row
+    // must show the moon at night, matching the hero and hourly strip.
+    // Future days keep day icons.
+    isDaytimeNow: Boolean = true
 ) {
     val dayFormatter = remember { DateTimeFormatter.ofPattern("EEE", Locale.US) }
 
@@ -920,7 +953,7 @@ private fun DailyForecastCard(
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Text(
-                text = "7-DAY OUTLOOK",
+                text = "15-DAY OUTLOOK",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = RetroTokens.Yellow
@@ -933,6 +966,17 @@ private fun DailyForecastCard(
                 val hi = unitFormatter.formatTemperature(point.highC)
                 val lo = unitFormatter.formatTemperature(point.lowC)
                 val pop = point.popPct ?: 0
+                // Precip / snow amount for the day: snow first (it is
+                // the headline when it falls), else rain. Only above a
+                // trace (snow >= 0.1 cm, rain >= 0.25 mm) — a "0.00 in"
+                // in every row is noise, and dry days stay blank.
+                val amountText = when {
+                    (point.snowfallSumCm ?: 0.0) >= 0.1 ->
+                        unitFormatter.formatSnowfall(point.snowfallSumCm)
+                    (point.precipSumMm ?: 0.0) >= 0.25 ->
+                        unitFormatter.formatPrecipitation(point.precipSumMm)
+                    else -> ""
+                }
 
                 Row(
                     modifier = Modifier
@@ -963,7 +1007,7 @@ private fun DailyForecastCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = getWeatherIcon(displayCondition, isDaytime = true),
+                            imageVector = getWeatherIcon(displayCondition, isDaytime = if (index == 0) isDaytimeNow else true),
                             contentDescription = displayCondition.displayName,
                             tint = RetroTokens.TextPrimary,
                             modifier = Modifier.size(24.dp)
@@ -972,8 +1016,8 @@ private fun DailyForecastCard(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "$pop%",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = AuraColors.PopBlue
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = RetroTokens.TextPrimary
                             )
                         }
                     }
@@ -989,6 +1033,14 @@ private fun DailyForecastCard(
                         modifier = Modifier
                             .weight(1f)
                             .padding(end = 8.dp)
+                    )
+
+                    Text(
+                        text = amountText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = RetroTokens.TextSecondary,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.width(56.dp)
                     )
 
                     Text(
@@ -1026,26 +1078,6 @@ private fun compassPoint(deg: Double): String {
     return points[idx]
 }
 
-/** Pressure in hPa -> a plain descriptor. */
-private fun pressureDesc(pressurePa: Double?): String? {
-    val hpa = pressurePa?.div(100.0) ?: return null
-    return when {
-        hpa >= 1022.0 -> "High pressure"
-        hpa >= 1005.0 -> "Near average"
-        else -> "Low pressure"
-    }
-}
-
-/** Visibility in metres -> a plain descriptor. */
-private fun visibilityDesc(visibilityM: Double?): String? {
-    val m = visibilityM ?: return null
-    return when {
-        m >= 10000.0 -> "Excellent"
-        m >= 4000.0 -> "Good"
-        m >= 1000.0 -> "Moderate"
-        else -> "Poor"
-    }
-}
 
 @Composable
 private fun WeatherDetailsGrid(
@@ -1055,6 +1087,10 @@ private fun WeatherDetailsGrid(
     val windFormatted = unitFormatter.formatWindSpeed(state?.current?.windMs)
     val windDir = state?.current?.windDirDeg?.roundToInt()
     val gustFormatted = unitFormatter.formatWindSpeed(state?.current?.windGustMs)
+    // Calm check: below 0.5 m/s (~1 mph) the wind has no meaningful
+    // direction — a bright arrow pointing "up" at true calm is noise.
+    // A null speed is unknown, not calm, so it does not count.
+    val isCalm = (state?.current?.windMs ?: Double.MAX_VALUE) < 0.5
 
     // Missing readings render as "--", never as invented 55% / 8 C / 180 deg.
     val humidity = state?.current?.humidityPct?.let { "${it.roundToInt()}%" } ?: "--"
@@ -1062,7 +1098,22 @@ private fun WeatherDetailsGrid(
 
     val pressureFormatted = unitFormatter.formatPressure(state?.current?.pressurePa)
     val visibilityFormatted = unitFormatter.formatVisibility(state?.current?.visibilityM)
-    val uvIndex = state?.daily7d?.firstOrNull()?.uvIndexMax
+    val uvIndex = state?.daily15d?.firstOrNull()?.uvIndexMax
+    // Nighttime (not missing data): the UV card should say so
+    // intentionally instead of showing bare dashes. A null isDaytime
+    // (no sun data) is unknown, not night, so it keeps "--".
+    val isNight = state?.solar?.isDaytime == false
+    val uvMainValue = when {
+        uvIndex != null -> "${uvIndex.roundToInt()}"
+        isNight -> "NIGHT"
+        else -> "--"
+    }
+    val uvSubValue = when {
+        uvIndex != null -> AuraColors.uvCategory(uvIndex).uppercase()
+        isNight -> "NO UV AFTER DARK"
+        else -> "--"
+    }
+    val uvIcon = if (uvIndex == null && isNight) Icons.Default.NightsStay else Icons.Default.WbSunny
     val cloudCover = state?.current?.cloudCoverPct
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1078,7 +1129,7 @@ private fun WeatherDetailsGrid(
                 title = "WIND",
                 icon = Icons.Default.Air,
                 mainValue = windFormatted,
-                subValue = buildString {
+                subValue = if (isCalm) "CALM" else buildString {
                     windDir?.let { append(compassPoint(it.toDouble())) }
                     if (state?.current?.windGustMs != null) {
                         if (isNotEmpty()) append(" - ")
@@ -1086,7 +1137,7 @@ private fun WeatherDetailsGrid(
                     }
                     if (isEmpty()) append("--")
                 },
-                trailing = if (windDir != null) {
+                trailing = if (isCalm) null else if (windDir != null) {
                     {
                         Icon(
                             imageVector = Icons.Default.ArrowUpward,
@@ -1120,7 +1171,7 @@ private fun WeatherDetailsGrid(
                 title = "PRESSURE",
                 icon = Icons.Default.Compress,
                 mainValue = pressureFormatted,
-                subValue = pressureDesc(state?.current?.pressurePa) ?: "--",
+                subValue = pressureDescriptor(state?.current?.pressurePa) ?: "--",
                 modifier = Modifier.weight(1f).fillMaxHeight()
             )
 
@@ -1129,7 +1180,7 @@ private fun WeatherDetailsGrid(
                 title = "VISIBILITY",
                 icon = Icons.Default.Visibility,
                 mainValue = visibilityFormatted,
-                subValue = visibilityDesc(state?.current?.visibilityM) ?: "--",
+                subValue = visibilityDescriptor(state?.current?.visibilityM) ?: "--",
                 modifier = Modifier.weight(1f).fillMaxHeight()
             )
         }
@@ -1141,9 +1192,9 @@ private fun WeatherDetailsGrid(
             // UV Index Card (today's max; the data was fetched, never shown)
             DetailMiniCard(
                 title = "UV INDEX",
-                icon = Icons.Default.WbSunny,
-                mainValue = uvIndex?.let { "${it.roundToInt()}" } ?: "--",
-                subValue = uvIndex?.let { AuraColors.uvCategory(it) } ?: "--",
+                icon = uvIcon,
+                mainValue = uvMainValue,
+                subValue = uvSubValue,
                 modifier = Modifier.weight(1f).fillMaxHeight()
             )
 
@@ -1152,7 +1203,7 @@ private fun WeatherDetailsGrid(
                 title = "CLOUD COVER",
                 icon = Icons.Default.Cloud,
                 mainValue = cloudCover?.let { "${it.roundToInt()}%" } ?: "--",
-                subValue = cloudCover?.let { AuraColors.cloudCoverDesc(it) } ?: "--",
+                subValue = cloudCover?.let { AuraColors.cloudCoverDesc(it).uppercase() } ?: "--",
                 modifier = Modifier.weight(1f).fillMaxHeight()
             )
         }
@@ -1376,9 +1427,9 @@ private fun SunAndMoonSummaryCard(
 
 fun getWeatherIcon(condition: WeatherCondition, isDaytime: Boolean = true): ImageVector {
     return when (condition) {
-        WeatherCondition.ClearDay -> Icons.Default.WbSunny
+        WeatherCondition.ClearDay -> if (isDaytime) Icons.Default.WbSunny else Icons.Default.DarkMode
         WeatherCondition.ClearNight -> Icons.Default.DarkMode
-        WeatherCondition.PartlyCloudyDay -> Icons.Default.WbSunny
+        WeatherCondition.PartlyCloudyDay -> if (isDaytime) Icons.Default.WbSunny else Icons.Default.NightsStay
         WeatherCondition.PartlyCloudyNight -> Icons.Default.NightsStay
         WeatherCondition.Cloudy -> Icons.Default.Cloud
         WeatherCondition.Fog, WeatherCondition.Haze -> Icons.Default.Cloud

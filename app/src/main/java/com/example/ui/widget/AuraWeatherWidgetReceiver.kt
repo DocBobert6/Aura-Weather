@@ -22,6 +22,9 @@ class AuraWeatherWidgetReceiver : GlanceAppWidgetReceiver() {
 
     override fun onDisabled(context: Context) {
         super.onDisabled(context)
-        WidgetUpdateScheduler.cancel(context)
+        // Build E: only stop the shared work when no widget of either
+        // type is placed — removing the last main widget must not strand
+        // a placed hourly strip (and vice versa).
+        WidgetUpdateScheduler.cancelIfNoWidgetsPlaced(context)
     }
 }

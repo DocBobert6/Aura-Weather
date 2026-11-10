@@ -1,7 +1,13 @@
 package com.example
 
 import com.example.data.mapper.iemLayerNameFor
+import com.example.data.mapper.RadarRange
+import com.example.data.mapper.hrrrLayerName
 import com.example.data.mapper.iemTileUrl
+import com.example.data.mapper.pastMosaicLayerName
+import com.example.data.mapper.radarFrameLabel
+import com.example.data.mapper.radarFrameUrls
+import com.example.data.mapper.radarRangeFrames
 import com.example.data.mapper.latToTileY
 import com.example.data.mapper.lonToTileX
 import com.example.data.mapper.radarPrefetchUrls
@@ -121,5 +127,105 @@ class RadarTilesTest {
                 assertTrue(url, url.contains("/$zoom/"))
             }
         }
+    }
+
+    @Test
+    fun testPastMosaicLayerName_format() {
+        val t = java.time.Instant.parse("2026-11-10T00:40:00Z")
+        assertEquals("ridge::USCOMP-N0Q-202611100040", pastMosaicLayerName(t))
+    }
+
+    @Test
+    fun testHrrrLayerName_forecastMinutesNotHours() {
+        // FXXXX is the forecast MINUTE: 6 hours out is F0360, not F006.
+        val run = java.time.Instant.parse("2026-11-09T22:00:00Z")
+        assertEquals("hrrr::REFD-F0000-202611092200", hrrrLayerName(run, 0))
+        assertEquals("hrrr::REFD-F0360-202611092200", hrrrLayerName(run, 360))
+        assertEquals("hrrr::REFD-F2880-202611092200", hrrrLayerName(run, 2880))
+    }
+
+    @Test
+    fun testRadarFrameLabel_relative() {
+        val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
+        assertEquals("NOW", radarFrameLabel(now, now))
+        assertEquals("45M AGO", radarFrameLabel(now.minusSeconds(45 * 60), now))
+        assertEquals("24H AGO", radarFrameLabel(now.minusSeconds(24 * 3600), now))
+        assertEquals("IN 15M", radarFrameLabel(now.plusSeconds(15 * 60), now))
+        assertEquals("IN 6H", radarFrameLabel(now.plusSeconds(6 * 3600), now))
+        assertEquals("IN 48H", radarFrameLabel(now.plusSeconds(48 * 3600), now))
+    }
+
+    @Test
+    fun testRadarRangeFrames_liveIsTenFrames() {
+        val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
+        val frames = radarRangeFrames(RadarRange.Live, now)
+        assertEquals(10, frames.size)
+        assertEquals("LIVE NOW", frames[9].label)
+        assertEquals("45M AGO", frames[0].label)
+        assertEquals(iemLayerNameFor(9), frames[9].layerName)
+    }
+
+    @Test
+    fun testRadarRangeFrames_past24hIs49FramesEvery30Min() {
+        val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
+        val frames = radarRangeFrames(RadarRange.Past24h, now)
+        assertEquals(49, frames.size)
+        assertEquals("NOW", frames[48].label)
+        assertEquals("24H AGO", frames[0].label)
+        // Every frame is on a 5-minute mosaic boundary and 30 min apart.
+        assertTrue(frames.all { it.layerName.startsWith("ridge::USCOMP-N0Q-") })
+        val step = java.time.Duration.between(frames[0].validTime, frames[1].validTime).toMinutes()
+        assertEquals(30L, step)
+        val lastMinute = frames[48].validTime.atZone(java.time.ZoneOffset.UTC).minute
+        assertEquals(0, lastMinute % 5)
+    }
+
+    @Test
+    fun testRadarRangeFrames_past48hAnd72hCounts() {
+        val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
+        assertEquals(49, radarRangeFrames(RadarRange.Past48h, now).size)
+        assertEquals(73, radarRangeFrames(RadarRange.Past72h, now).size)
+        assertEquals("48H AGO", radarRangeFrames(RadarRange.Past48h, now)[0].label)
+        assertEquals("72H AGO", radarRangeFrames(RadarRange.Past72h, now)[0].label)
+    }
+
+    @Test
+    fun testRadarRangeFrames_future24hStepsAndCap() {
+        val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
+        val frames = radarRangeFrames(RadarRange.Future24h, now)
+        // Starts in the future, ends at or before now+24h.
+        assertTrue(frames.isNotEmpty())
+        assertTrue(frames[0].validTime.isAfter(now))
+        assertTrue(!frames.last().validTime.isAfter(now.plusSeconds(24 * 3600)))
+        // First steps are 15 min (HRRR cadence for the first 18h).
+        val step0 = java.time.Duration.between(frames[0].validTime, frames[1].validTime).toMinutes()
+        assertEquals(15L, step0)
+        // All layers are HRRR REFD with a 4-digit forecast minute.
+        assertTrue(frames.all { it.layerName.startsWith("hrrr::REFD-F") })
+        assertTrue(frames.all { it.label.startsWith("IN ") })
+        // No frame exceeds 48h from its run (the HRRR cap).
+        val run = java.time.Instant.parse("2026-11-10T00:00:00Z")
+        assertTrue(frames.all { !it.validTime.isAfter(run.plusSeconds(48 * 3600)) })
+    }
+
+    @Test
+    fun testRadarRangeFrames_future48hEndsWithin48hOfRun() {
+        val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
+        val frames = radarRangeFrames(RadarRange.Future48h, now)
+        assertTrue(frames.isNotEmpty())
+        // The run is ~1h before now, so the last frame is ~47h out,
+        // capped at 48h from the run — never beyond it.
+        val run = java.time.Instant.parse("2026-11-10T00:00:00Z")
+        assertTrue(!frames.last().validTime.isAfter(run.plusSeconds(48 * 3600)))
+        assertTrue(frames.last().validTime.isAfter(now.plusSeconds(46 * 3600)))
+    }
+
+    @Test
+    fun testRadarFrameUrls_singleLayerGrid() {
+        val urls = radarFrameUrls("ridge::USCOMP-N0Q-202611100040", 38.78, -84.61, 8, 3, 3)
+        // 3x3 grid -> (2*1+1)^2 = 9 tiles, all for the one layer.
+        assertEquals(9, urls.size)
+        assertTrue(urls.all { it.contains("ridge::USCOMP-N0Q-202611100040") })
+        assertTrue(urls.all { it.startsWith("https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/") })
     }
 }

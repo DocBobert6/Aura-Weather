@@ -161,7 +161,9 @@ fun NavPillItem(
                     tint = if (selected) {
                         RetroTokens.Background
                     } else {
-                        RetroTokens.TextSecondary
+                        // Near-full white: the 0.7-alpha secondary made
+                        // unselected icons read washed-out against navy.
+                        RetroTokens.TextPrimary.copy(alpha = 0.9f)
                     }
                 )
             }
@@ -186,7 +188,7 @@ fun NavPillItem(
             color = if (selected) {
                 RetroTokens.Yellow
             } else {
-                RetroTokens.TextSecondary
+                RetroTokens.TextPrimary.copy(alpha = 0.9f)
             }
         )
     }

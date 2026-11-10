@@ -1,6 +1,7 @@
 package com.example.data.mapper
 
 import com.example.domain.model.AirQuality
+import com.example.domain.model.DailyPoint
 import com.example.domain.model.PollenData
 import com.example.domain.model.AlertSeverity
 import com.example.domain.model.GeoPoint
@@ -119,6 +120,97 @@ fun stableAlertId(event: String?, areaDesc: String?, effective: Instant): String
         .digest(input.toByteArray(Charsets.UTF_8))
     val hex = digest.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     return "alert_$hex"
+}
+
+/**
+ * Fills null daily highs/lows from Open-Meteo's daily max/min, by date.
+ *
+ * The NWS daily path builds each day's high from that day's DAYTIME
+ * forecast period and its low from the NIGHTTIME period. Once the
+ * daytime period ends (an evening refresh), today's bucket only gets a
+ * nighttime period, so highC is null and the outlook shows "HI --"
+ * for today even though the day's high is known. Open-Meteo's
+ * temperature_2m_max/min is the day's true high/low, so it fills the
+ * gap. Days that already have both values, and dates Open-Meteo does
+ * not cover, are returned untouched.
+ *
+ * The hourly list cannot do this: it starts at the current hour, so
+ * its max would be the overnight temperature, not the daytime high.
+ */
+fun fillDailyHighs(
+    daily: List<DailyPoint>,
+    openMeteoDaily: List<DailyPoint>
+): List<DailyPoint> {
+    if (daily.isEmpty() || openMeteoDaily.isEmpty()) return daily
+    if (daily.all { it.highC != null && it.lowC != null }) return daily
+    val byDate = openMeteoDaily.associateBy { it.date }
+    return daily.map { pt ->
+        val om = byDate[pt.date]
+        if (om == null) pt
+        else pt.copy(highC = pt.highC ?: om.highC, lowC = pt.lowC ?: om.lowC)
+    }
+}
+
+/**
+ * Fills null daily precip/snow sums from Open-Meteo by date, and
+ * extends the list with Open-Meteo-only dates up to [maxDays].
+ *
+ * NWS forecast periods cover ~7 days, so an NWS-first daily list
+ * stops there. Open-Meteo provides up to 16 days: its rows for dates
+ * the NWS list does not cover (days 8-15) are appended, and the NWS
+ * rows get their precipitation_sum / snowfall_sum from the matching
+ * Open-Meteo row. Rows already carrying sums, and dates Open-Meteo
+ * does not cover, are untouched. The result is sorted by date.
+ */
+fun fillDailyPrecipAndExtend(
+    daily: List<DailyPoint>,
+    openMeteoDaily: List<DailyPoint>,
+    maxDays: Int = 15
+): List<DailyPoint> {
+    if (daily.isEmpty()) return openMeteoDaily.take(maxDays)
+    if (openMeteoDaily.isEmpty()) return daily.take(maxDays)
+    val byDate = openMeteoDaily.associateBy { it.date }
+    val filled = daily.map { pt ->
+        val om = byDate[pt.date]
+        if (om == null) pt
+        else pt.copy(
+            precipSumMm = pt.precipSumMm ?: om.precipSumMm,
+            snowfallSumCm = pt.snowfallSumCm ?: om.snowfallSumCm
+        )
+    }
+    val existingDates = filled.map { it.date }.toSet()
+    val extra = openMeteoDaily.filter { it.date !in existingDates }
+    return (filled + extra).sortedBy { it.date }.take(maxDays)
+}
+
+/**
+ * Pressure in hPa -> a short all-caps descriptor, the same pattern the
+ * pressure card already shows ("NEAR AVERAGE"). Bands: >= 1022 hPa
+ * high, >= 1005 near average, below that low. A null reading is
+ * unknown, not a descriptor.
+ */
+fun pressureDescriptor(pressurePa: Double?): String? {
+    val hpa = pressurePa?.div(100.0) ?: return null
+    return when {
+        hpa >= 1022.0 -> "HIGH PRESSURE"
+        hpa >= 1005.0 -> "NEAR AVERAGE"
+        else -> "LOW PRESSURE"
+    }
+}
+
+/**
+ * Visibility in metres -> a short all-caps descriptor. Bands:
+ * >= 10 km excellent, >= 4 km good, >= 1 km moderate, below that
+ * poor. A null reading is unknown, not a descriptor.
+ */
+fun visibilityDescriptor(visibilityM: Double?): String? {
+    val m = visibilityM ?: return null
+    return when {
+        m >= 10000.0 -> "EXCELLENT"
+        m >= 4000.0 -> "GOOD"
+        m >= 1000.0 -> "MODERATE"
+        else -> "POOR"
+    }
 }
 
 /** One AirNow current-observation row, stripped to what the AQI mapping

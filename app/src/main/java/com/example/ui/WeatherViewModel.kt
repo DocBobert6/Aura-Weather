@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.core.UnitFormatter
+import com.example.data.mapper.RadarRange
+import com.example.data.mapper.radarRangeFrames
 import com.example.data.repo.WeatherRepository
 import com.example.data.settings.SettingsManager
 import com.example.data.work.AlertScheduler
@@ -96,9 +98,18 @@ class WeatherViewModel(
     /** 3.1 alert notifications toggle (Settings): off by default. */
     val alertsEnabled: StateFlow<Boolean> = settingsManager.alertsEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    // Build C: rain-starting alerts, off by default (opt-in).
+    val rainAlertsEnabled: StateFlow<Boolean> = settingsManager.rainAlertsEnabledFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     private val _selectedRadarLayer = MutableStateFlow(RadarLayer.Reflectivity)
     val selectedRadarLayer = _selectedRadarLayer.asStateFlow()
+
+    /** Radar time range (Build B): Live is the 10-frame 45-min loop; the
+     * others are past 24/48/72h (archived mosaic) and future 24/48h
+     * (HRRR simulated reflectivity, a forecast). */
+    private val _selectedRadarRange = MutableStateFlow(RadarRange.Live)
+    val selectedRadarRange = _selectedRadarRange.asStateFlow()
 
     private val _currentRadarFrameIndex = MutableStateFlow(9) // 0..9 (9 = most recent "now")
     val currentRadarFrameIndex = _currentRadarFrameIndex.asStateFlow()
@@ -234,35 +245,43 @@ class WeatherViewModel(
 
     /**
      * 3.1: persist the alerts toggle, then start or stop the periodic
-     * check. Disabling cancels the unique work — that is the acceptance
-     * check, verified by inspection (AlertScheduler.cancel calls
-     * cancelUniqueWork with the same name enqueue used).
+     * check. Disabling cancels the unique work ONLY when the rain
+     * toggle is off too — the same worker serves both (Build C), so the
+     * work must keep running while either toggle is on.
      */
     fun setAlertsEnabled(enabled: Boolean) {
         viewModelScope.launch {
             settingsManager.setAlertsEnabled(enabled)
-            val context = appContext ?: return@launch
-            if (enabled) {
-                syncAlertWork()
-            } else {
-                AlertScheduler.cancel(context)
-            }
+            syncAlertWork()
+        }
+    }
+
+    /** Build C: same shape as setAlertsEnabled, for the rain toggle. */
+    fun setRainAlertsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsManager.setRainAlertsEnabled(enabled)
+            syncAlertWork()
         }
     }
 
     /**
-     * 3.1: (re-)establish the periodic alert check when there is a place
-     * to check and alerts are on. KEEP makes repeated calls harmless.
-     * Reads the persisted flag directly (not the StateFlow value) so a
-     * place change before the flow's first emission still schedules.
+     * 3.1 (Build C: shared by both toggles): (re-)establish the periodic
+     * alert check when there is a place to check and EITHER toggle is on;
+     * cancel it only when both are off. KEEP makes repeated calls
+     * harmless. Reads the persisted flags directly (not the StateFlow
+     * values) so a place change before the flow's first emission still
+     * schedules.
      */
     private fun syncAlertWork() {
         val context = appContext ?: return
         viewModelScope.launch {
-            val enabled = settingsManager.alertsEnabledFlow.first()
+            val alertsOn = settingsManager.alertsEnabledFlow.first()
+            val rainOn = settingsManager.rainAlertsEnabledFlow.first()
             val place = _selectedPlace.value ?: weatherRepository.getSelectedPlace()
-            if (enabled && place != null) {
+            if ((alertsOn || rainOn) && place != null) {
                 AlertScheduler.enqueue(context)
+            } else {
+                AlertScheduler.cancel(context)
             }
         }
     }
@@ -271,8 +290,20 @@ class WeatherViewModel(
         _selectedRadarLayer.value = layer
     }
 
+    fun setRadarRange(range: RadarRange) {
+        _selectedRadarRange.value = range
+        // Reset to the frame closest to now: the last (most recent)
+        // frame for past/live, the first (nearest) frame for future.
+        val frames = radarRangeFrames(range, java.time.Instant.now())
+        _currentRadarFrameIndex.value = if (range.isForecast) 0 else (frames.size - 1).coerceAtLeast(0)
+    }
+
     fun setRadarFrameIndex(index: Int) {
-        _currentRadarFrameIndex.value = index.coerceIn(0, 9)
+        // Coerce to the current range's frame count, not the live 0..9:
+        // past ranges have 49/73 frames, future ranges ~75-99.
+        val max = (radarRangeFrames(_selectedRadarRange.value, java.time.Instant.now()).size - 1)
+            .coerceAtLeast(0)
+        _currentRadarFrameIndex.value = index.coerceIn(0, max)
     }
 
     // 3.3: this only flips the play state. The loop itself lives in

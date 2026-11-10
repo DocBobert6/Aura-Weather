@@ -79,7 +79,10 @@ data class HourlyPoint(
     val windMs: Double?,
     // Day/night for this exact hour (from NWS isDaytime, or solar position).
     // Never assume daytime: a 2 AM entry must render a night icon.
-    val isDaytime: Boolean = true
+    val isDaytime: Boolean = true,
+    // Snowfall for this hour, in cm (Open-Meteo's snowfall unit).
+    // Null when the source has no snowfall (e.g. NWS hourly).
+    val snowfallCm: Double? = null
 )
 
 data class DailyPoint(
@@ -89,7 +92,11 @@ data class DailyPoint(
     val popPct: Int?,
     val condition: WeatherCondition,
     val summary: String,
-    val uvIndexMax: Double? = null
+    val uvIndexMax: Double? = null,
+    // Precipitation sum for the day, in mm (Open-Meteo precipitation_sum).
+    val precipSumMm: Double? = null,
+    // Snowfall sum for the day, in cm (Open-Meteo snowfall_sum unit).
+    val snowfallSumCm: Double? = null
 )
 
 data class MinutePrecip(
@@ -174,7 +181,7 @@ data class FullWeatherState(
     val place: Place,
     val current: CurrentConditions,
     val hourly48h: List<HourlyPoint>,
-    val daily7d: List<DailyPoint>,
+    val daily15d: List<DailyPoint>,
     val minutely60m: List<MinutePrecip>,
     val minuteSummary: String,
     val activeAlerts: List<WeatherAlert>,

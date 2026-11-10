@@ -1,9 +1,11 @@
 package com.example
 
+import com.example.domain.model.HourlyPoint
 import com.example.domain.model.WeatherCondition
 import com.example.ui.widget.WidgetConditionIcon
 import com.example.ui.widget.WidgetState
 import com.example.ui.widget.conditionToWidgetIcon
+import com.example.ui.widget.hourlyStripPoints
 import com.example.ui.widget.toDisplay
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -156,5 +158,64 @@ class WidgetStateTest {
             WidgetConditionIcon.Moon,
             conditionToWidgetIcon(WeatherCondition.Unknown, false)
         )
+    }
+
+    // Build E: hourly-strip points.
+    private fun hourlyPoints(): List<HourlyPoint> {
+        // 6 hours from noon UTC (= 7 AM New York — November is EST,
+        // UTC-5, after DST ends on Nov 1).
+        val base = Instant.parse("2026-11-10T12:00:00Z")
+        return (0..5).map { h ->
+            HourlyPoint(
+                time = base.plusSeconds(h * 3600L),
+                tempC = 10.0 + h,
+                popPct = null,
+                precipMm = null,
+                condition = if (h < 3) WeatherCondition.ClearDay else WeatherCondition.Rain,
+                windMs = null,
+                isDaytime = h < 5
+            )
+        }
+    }
+
+    @Test
+    fun testHourlyStrip_firstIsNow_restAreHours() {
+        val points = hourlyStripPoints(hourlyPoints(), "America/New_York", 6)
+        assertEquals(6, points.size)
+        assertEquals("NOW", points[0].hourLabel)
+        assertEquals("8 AM", points[1].hourLabel)
+        assertEquals("9 AM", points[2].hourLabel)
+        assertEquals("12 PM", points[5].hourLabel)
+    }
+
+    @Test
+    fun testHourlyStrip_countCapsHours() {
+        val points = hourlyStripPoints(hourlyPoints(), "America/New_York", 4)
+        assertEquals(4, points.size)
+        assertEquals("NOW", points[0].hourLabel)
+        assertEquals("10 AM", points[3].hourLabel)
+    }
+
+    @Test
+    fun testHourlyStrip_tempsAndConditionsCarried() {
+        val points = hourlyStripPoints(hourlyPoints(), "America/New_York", 6)
+        assertEquals(10.0, points[0].tempC)
+        assertEquals(WeatherCondition.ClearDay, points[0].condition)
+        assertEquals(WeatherCondition.Rain, points[4].condition)
+        assertEquals(15.0, points[5].tempC)
+    }
+
+    @Test
+    fun testHourlyStrip_dayNightCarriedForIcons() {
+        // Hour 5 is night (isDaytime false) — the strip must render a
+        // night icon for it, not a sun.
+        val points = hourlyStripPoints(hourlyPoints(), "America/New_York", 6)
+        assertEquals(true, points[0].isDaytime)
+        assertEquals(false, points[5].isDaytime)
+    }
+
+    @Test
+    fun testHourlyStrip_emptyHourly_returnsEmpty() {
+        assertEquals(0, hourlyStripPoints(emptyList(), "America/New_York", 6).size)
     }
 }
