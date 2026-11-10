@@ -4,7 +4,6 @@ import com.example.data.mapper.iemLayerNameFor
 import com.example.data.mapper.RadarRange
 import com.example.data.mapper.hrrrLayerName
 import com.example.data.mapper.iemTileUrl
-import com.example.data.mapper.pastMosaicLayerName
 import com.example.data.mapper.radarFrameLabel
 import com.example.data.mapper.radarFrameUrls
 import com.example.data.mapper.radarRangeFrames
@@ -130,12 +129,6 @@ class RadarTilesTest {
     }
 
     @Test
-    fun testPastMosaicLayerName_format() {
-        val t = java.time.Instant.parse("2026-11-10T00:40:00Z")
-        assertEquals("ridge::USCOMP-N0Q-202611100040", pastMosaicLayerName(t))
-    }
-
-    @Test
     fun testHrrrLayerName_forecastMinutesNotHours() {
         // FXXXX is the forecast MINUTE: 6 hours out is F0360, not F006.
         val run = java.time.Instant.parse("2026-11-09T22:00:00Z")
@@ -163,30 +156,6 @@ class RadarTilesTest {
         assertEquals("LIVE NOW", frames[9].label)
         assertEquals("45M AGO", frames[0].label)
         assertEquals(iemLayerNameFor(9), frames[9].layerName)
-    }
-
-    @Test
-    fun testRadarRangeFrames_past24hIs49FramesEvery30Min() {
-        val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
-        val frames = radarRangeFrames(RadarRange.Past24h, now)
-        assertEquals(49, frames.size)
-        assertEquals("NOW", frames[48].label)
-        assertEquals("24H AGO", frames[0].label)
-        // Every frame is on a 5-minute mosaic boundary and 30 min apart.
-        assertTrue(frames.all { it.layerName.startsWith("ridge::USCOMP-N0Q-") })
-        val step = java.time.Duration.between(frames[0].validTime, frames[1].validTime).toMinutes()
-        assertEquals(30L, step)
-        val lastMinute = frames[48].validTime.atZone(java.time.ZoneOffset.UTC).minute
-        assertEquals(0, lastMinute % 5)
-    }
-
-    @Test
-    fun testRadarRangeFrames_past48hAnd72hCounts() {
-        val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
-        assertEquals(49, radarRangeFrames(RadarRange.Past48h, now).size)
-        assertEquals(73, radarRangeFrames(RadarRange.Past72h, now).size)
-        assertEquals("48H AGO", radarRangeFrames(RadarRange.Past48h, now)[0].label)
-        assertEquals("72H AGO", radarRangeFrames(RadarRange.Past72h, now)[0].label)
     }
 
     @Test

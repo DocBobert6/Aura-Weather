@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -163,6 +164,15 @@ fun RadarScreen(
     // (audit fix E).
     val isSatellite = selectedLayer == RadarLayer.SatelliteVis || selectedLayer == RadarLayer.SatelliteIr
 
+    // Satellite loading overlay (audit findings 1+2): counts GIBS tiles
+    // that have finished (loaded or errored). Resets when the layer or
+    // zoom changes, since that is a new tile set. The overlay shows until
+    // every tile has settled, so the map never reads as a blank navy void
+    // (finding 1) or a broken gray rectangle (finding 2) while satellite
+    // imagery is still arriving. The Esri basemap stays visible
+    // underneath as the placeholder for unloaded regions.
+    var satSettled by remember(selectedLayer, effectiveZoomLevel) { mutableIntStateOf(0) }
+
     // The radar loop lives here now (3.3), not in the ViewModel: it runs
     // only while this screen is composed and playing, and only for radar
     // layers. Leaving the screen cancels the effect, so no radar job runs
@@ -216,6 +226,15 @@ fun RadarScreen(
         val tilesY = ((screenHeightPx / tileSizePx).toInt() + 2).coerceIn(3, 11)
         val halfTilesX = tilesX / 2
         val halfTilesY = tilesY / 2
+        // Tiles actually rendered: the loop runs -half..half on each axis.
+        val totalSatTiles = (2 * halfTilesX + 1) * (2 * halfTilesY + 1)
+
+        // Safety: never leave the satellite loading overlay up forever.
+        // If the tiles have not all settled in 12s, hide it anyway.
+        LaunchedEffect(selectedLayer, effectiveZoomLevel) {
+            delay(12000)
+            satSettled = totalSatTiles
+        }
 
         // Prefetch all 10 loop frames for the visible tile grid (3.3), so
         // a scrub 0->9 is a cache hit instead of a per-frame network
@@ -330,6 +349,10 @@ fun RadarScreen(
                         )
 
                         // 2. Real IEM NEXRAD Composite Radar Tile (Transparent PNG when no rain!)
+                        // Satellite layers report each tile as it settles
+                        // (loaded or errored) so the loading overlay knows
+                        // when the imagery has arrived; radar layers do not
+                        // need it (prefetched, and the loop shows progress).
                         AsyncImage(
                             model = ImageRequest.Builder(context)
                                 .data(radarUrl)
@@ -337,6 +360,8 @@ fun RadarScreen(
                                 .build(),
                             contentDescription = "Radar tile",
                             contentScale = ContentScale.FillBounds,
+                            onSuccess = { if (isSatellite) satSettled++ },
+                            onError = { if (isSatellite) satSettled++ },
                             modifier = Modifier
                                 .fillMaxSize()
                                 .alpha(0.85f)
@@ -344,16 +369,22 @@ fun RadarScreen(
 
                         // 3. Esri reference layer (city labels + boundaries,
                         // keyless) on top, so the map names places instead
-                        // of showing bare terrain under the radar.
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/$effectiveZoomLevel/$tileY/$tileX")
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "Place labels",
-                            contentScale = ContentScale.FillBounds,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        // of showing bare terrain under the radar. Radar
+                        // layers only: the GIBS satellite imagery carries
+                        // its own embedded labels, so the reference layer
+                        // draws every city twice on satellite ("Sault Ste.
+                        // Marie" stacked over the same dot).
+                        if (!isSatellite) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/$effectiveZoomLevel/$tileY/$tileX")
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "Place labels",
+                                contentScale = ContentScale.FillBounds,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
                 }
             }
@@ -385,6 +416,39 @@ fun RadarScreen(
                     shape = CircleShape,
                     modifier = Modifier.size(4.dp)
                 ) {}
+            }
+        }
+
+        // Satellite loading overlay (audit findings 1+2): while the GIBS
+        // tiles are still arriving, the map is a blank navy void with no
+        // feedback, and unloaded regions read as broken gray rectangles.
+        // A spinner + "LOADING SATELLITE..." over the map says it is
+        // loading, not broken. The Esri basemap stays visible underneath
+        // as the placeholder for unloaded regions.
+        if (isSatellite && satSettled < totalSatTiles) {
+            Box(
+                modifier = Modifier.align(Alignment.Center),
+                contentAlignment = Alignment.Center
+            ) {
+                RetroPanel(shape = RetroShapes.medium) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            color = RetroTokens.Yellow,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Text(
+                            text = "LOADING SATELLITE...",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = RetroTokens.TextPrimary
+                        )
+                    }
+                }
             }
         }
 
@@ -613,20 +677,42 @@ fun RadarScreen(
                 }
             }
 
-            // Clear-air speckle: the lightest echoes can be insects or
-            // ground clutter, not rain. The tiles are pre-rendered, so
-            // labelling (not filtering) is what the app can do. Forecast
-            // ranges show simulated reflectivity instead.
-            Text(
-                text = if (isForecastRange) {
-                    "Simulated reflectivity from the HRRR model — a forecast, not observed radar."
-                } else {
-                    "Lightest echoes can be clear-air returns, not rain."
-                },
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = RetroTokens.TextSecondary,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
+            // Forecast ranges are model output: a short one-line caption
+            // on a solid panel (like the dBZ legend bar), so it never
+            // wraps with an orphaned word or collides with map labels.
+            // The live clear-air caption stays a plain line.
+            if (isForecastRange) {
+                RetroPanel(shape = RetroShapes.medium) {
+                    Text(
+                        text = "SIMULATED RADAR - HRRR FORECAST, NOT OBSERVED",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = RetroTokens.HeaderOrange,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                // Clear-air speckle: the lightest echoes can be insects or
+                // ground clutter, not rain. The tiles are pre-rendered, so
+                // labelling (not filtering) is what the app can do. On a
+                // solid panel like the dBZ legend bar, so the caption never
+                // sits bare on the map competing with city labels.
+                RetroPanel(shape = RetroShapes.medium) {
+                    Text(
+                        text = "LIGHTEST ECHOES CAN BE CLEAR-AIR RETURNS, NOT RAIN.",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = RetroTokens.TextSecondary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
 
             // Classic transport pill: play/pause + frame scrubber inside
             // the pill. The frame label lives in the top pill now.

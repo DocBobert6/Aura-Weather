@@ -112,6 +112,10 @@ class AlertCheckerTest {
         override suspend fun getCurrentMulti(
             latitudes: String, longitudes: String, current: String, timezone: String
         ): List<OpenMeteoWeatherResponse> = throw NotImplementedError("not used by the checker test")
+
+        override suspend fun getDailyLocal(
+            lat: Double, lon: Double, daily: String, forecastDays: Int, timezone: String
+        ): OpenMeteoWeatherResponse = throw NotImplementedError("not used by the checker test")
     }
 
     private val stubAirQuality = object : OpenMeteoAirQualityApi {

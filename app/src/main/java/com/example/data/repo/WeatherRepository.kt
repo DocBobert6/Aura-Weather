@@ -144,7 +144,7 @@ class WeatherRepository(
                 val isStale = (Instant.now().toEpochMilli() - cached.cachedAt) > 15 * 60 * 1000
                 parseCacheToState(place, cached, isStale) ?: return@withContext null
             }
-        val today = state.daily15d.firstOrNull()
+        val today = state.daily14d.firstOrNull()
         WidgetState(
             placeName = state.place.name,
             tempC = state.current.tempC,
@@ -487,8 +487,26 @@ class WeatherRepository(
                 } else list
             }
 
-        // --- Daily (15d). Same split as hourly.
-        val omDailyList = parseOpenMeteoDaily(openMeteoResult, zoneId)
+        // --- Daily (14d). Same split as hourly.
+        // The date-matched daily fills (UV merge, fillDailyHighs,
+        // fillDailyPrecipAndExtend) and the NWS-unavailable fallback all
+        // read the Open-Meteo daily list by LOCAL date. The main forecast
+        // call requests timezone=UTC, so its daily array starts at the UTC
+        // date — in the evening, once UTC has rolled past the local date,
+        // the local today is missing from it and TODAY's high cannot be
+        // filled ("HI --"). Fetch the daily section in the place's local
+        // timezone instead, so the array starts at the local today. A
+        // fixed-offset zone has no IANA name for the API, so "auto" (the
+        // coordinates' own timezone) is used there. Any failure falls back
+        // to the UTC daily list (the old behaviour) — never a crash, never
+        // a blank screen.
+        val omDailyList = runCatching {
+            val tz = if (zoneId is ZoneOffset) "auto" else zoneId.id
+            openMeteoWeatherApi.getDailyLocal(lat, lon, timezone = tz)
+        }.getOrNull().let { localResult ->
+            parseOpenMeteoDaily(localResult, zoneId)
+                .ifEmpty { parseOpenMeteoDaily(openMeteoResult, zoneId) }
+        }
         val dailyList = parseNwsDaily(nwsForecastResult?.properties?.periods, zoneId)
             .ifEmpty { omDailyList }
             // NWS daily has no UV index (parseNwsDaily leaves uvIndexMax
@@ -510,7 +528,7 @@ class WeatherRepository(
             // it starts at the current hour, so its max would be the
             // overnight temp, not the daytime high.
             .let { list -> fillDailyHighs(list, omDailyList) }
-            // NWS only covers ~7 days, so days 8-15 come from
+            // NWS only covers ~7 days, so days 8-14 come from
             // Open-Meteo, and the NWS rows get their precip/snow sums
             // from Open-Meteo by date (audit Build A).
             .let { list -> fillDailyPrecipAndExtend(list, omDailyList) }
@@ -698,7 +716,7 @@ class WeatherRepository(
             place = resolvedPlace,
             current = current,
             hourly48h = hourlyList,
-            daily15d = dailyList,
+            daily14d = dailyList,
             minutely60m = minutely,
             minuteSummary = minuteSentence,
             activeAlerts = alerts,
@@ -814,7 +832,7 @@ class WeatherRepository(
                 bucket.lowC = tempC
             }
         }
-        return buckets.entries.take(15).map { (date, b) ->
+        return buckets.entries.take(14).map { (date, b) ->
             val cond = b.dayCond ?: WeatherCondition.ClearDay
             val summary = b.dayShort?.let { short ->
                 val hi = b.highC?.let { "${it.toInt()}°" } ?: "--"
@@ -906,7 +924,7 @@ class WeatherRepository(
             cachedAt = state.fetchedAt.toEpochMilli(),
             currentJson = moshi.adapter(CurrentConditions::class.java).toJson(state.current),
             hourlyJson = listAdapter(HourlyPoint::class.java).toJson(state.hourly48h),
-            dailyJson = listAdapter(DailyPoint::class.java).toJson(state.daily15d),
+            dailyJson = listAdapter(DailyPoint::class.java).toJson(state.daily14d),
             minutelyJson = listAdapter(MinutePrecip::class.java).toJson(state.minutely60m),
             alertsJson = listAdapter(WeatherAlert::class.java).toJson(state.activeAlerts),
             aqiJson = moshi.adapter(com.example.domain.model.AirQuality::class.java).toJson(state.airQuality),
@@ -944,7 +962,7 @@ class WeatherRepository(
                 place = place,
                 current = current,
                 hourly48h = hourly,
-                daily15d = daily,
+                daily14d = daily,
                 minutely60m = minutely,
                 minuteSummary = cache.minuteSummary,
                 activeAlerts = alerts,
