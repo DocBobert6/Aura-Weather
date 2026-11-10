@@ -1,6 +1,7 @@
 package com.example.data.repo
 
 import com.example.data.api.AirNowApi
+import com.example.data.api.RainbowApi
 import com.example.data.api.TomorrowApi
 import com.example.data.api.NwsAlertFeature
 import com.example.data.api.NwsApi
@@ -14,6 +15,7 @@ import com.example.data.db.WeatherCacheDao
 import com.example.data.settings.SettingsManager
 import com.example.data.db.WeatherCacheEntity
 import com.example.data.mapper.AirNowReading
+import com.example.data.mapper.RainbowMinutePoint
 import com.example.data.mapper.TomorrowMinutePoint
 import com.example.data.mapper.InstantJsonAdapter
 import com.example.data.mapper.LocalDateJsonAdapter
@@ -79,6 +81,7 @@ class WeatherRepository(
     private val openMeteoAirQualityApi: OpenMeteoAirQualityApi,
     private val airNowApi: AirNowApi,
     private val tomorrowApi: TomorrowApi,
+    private val rainbowApi: RainbowApi,
     private val settingsManager: SettingsManager,
     private val weatherCacheDao: WeatherCacheDao,
     private val savedPlaceDao: SavedPlaceDao
@@ -525,18 +528,27 @@ class WeatherRepository(
             pm10 = aqCurrent?.pm10,
             ozone = aqCurrent?.ozone
         )
+        val airNowKey = settingsManager.airNowApiKeyFlow.first()
+        var airNowWorked = false
+        if (airNowKey.isNotBlank()) {
+            settingsManager.setAirNowAttempted(true)
+        }
         val airQuality = runCatching {
-            val airNowKey = settingsManager.airNowApiKeyFlow.first()
             if (airNowKey.isBlank()) {
                 openMeteoAqi
             } else {
                 val observations = airNowApi.getCurrentObservations(lat, lon, apiKey = airNowKey)
-                WeatherMappers.mapAirNowAqi(
+                val mapped = WeatherMappers.mapAirNowAqi(
                     readings = observations.map { AirNowReading(it.parameterName, it.aqi) },
                     openMeteoAqi = openMeteoAqi
                 )
+                if (mapped?.source == "AirNow") airNowWorked = true
+                mapped
             }
         }.getOrNull() ?: openMeteoAqi
+        if (airNowKey.isNotBlank()) {
+            settingsManager.setAirNowWorking(airNowWorked)
+        }
 
         // --- Tomorrow.io: 1-minute precipitation + live pollen.
         // Two independent Timelines calls, only when a key is set and
@@ -559,7 +571,51 @@ class WeatherRepository(
             source = "Tomorrow.io",
             hasKey = tomorrowKey.isNotBlank()
         )
+        // --- Rainbow Weather Nowcast: true 1-minute precipitation.
+        // First-choice minute-cast source when a key is set: one call
+        // per refresh, up to 4 hours of 1-minute data (the minute-cast
+        // takes the first 60). Free tier is 5,000 requests/month. A
+        // failure or an empty forecast list falls through to the
+        // Tomorrow.io 1m timeline, then the Open-Meteo interpolation.
+        // rainbowWorking records whether the key actually delivered
+        // usable data, so the Settings "KEY ACTIVE" pill is honest.
+        // Response shape is from the Nowcast OpenAPI spec, NOT
+        // live-verified (no key exists yet) — a shape mismatch parses
+        // to an empty list and falls back, never a crash.
+        val rainbowKey = settingsManager.rainbowApiKeyFlow.first()
+        var minutelyFromRainbow = false
+        if (rainbowKey.isNotBlank()) {
+            settingsManager.setRainbowAttempted(true)
+            var rainbowWorked = false
+            runCatching {
+                val resp = rainbowApi.getNowcast(
+                    lon = lon.toString(),
+                    lat = lat.toString(),
+                    apiKey = rainbowKey
+                )
+                val points = resp.forecasts?.mapNotNull { fp ->
+                    val timeStr = fp.timestamp ?: return@mapNotNull null
+                    val t = runCatching { Instant.parse(timeStr) }.getOrNull()
+                        ?: return@mapNotNull null
+                    RainbowMinutePoint(
+                        time = t,
+                        mmPerHour = fp.precipitationIntensity,
+                        probabilityPct = fp.probability?.times(100.0)?.roundToInt()
+                    )
+                } ?: emptyList()
+                if (points.isNotEmpty()) {
+                    val mapped = WeatherMappers.mapRainbowMinutely(points, now, zoneId)
+                    minutely = mapped.first
+                    minuteSentence = mapped.second
+                    rainbowWorked = true
+                    minutelyFromRainbow = true
+                }
+            }
+            settingsManager.setRainbowWorking(rainbowWorked)
+        }
+
         if (tomorrowKey.isNotBlank()) {
+            settingsManager.setTomorrowAttempted(true)
             var tomorrowWorked = false
             // 1-minute precipitation for the next 60 minutes.
             runCatching {
@@ -582,7 +638,7 @@ class WeatherRepository(
                         probabilityPct = interval.values?.precipitationProbability?.roundToInt()
                     )
                 } ?: emptyList()
-                if (points.isNotEmpty()) {
+                if (points.isNotEmpty() && !minutelyFromRainbow) {
                     val mapped = WeatherMappers.mapTomorrowMinutely(points, now, zoneId)
                     minutely = mapped.first
                     minuteSentence = mapped.second

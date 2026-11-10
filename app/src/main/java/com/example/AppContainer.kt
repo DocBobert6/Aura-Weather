@@ -4,6 +4,7 @@ import android.content.Context
 import com.example.core.HttpClients
 import com.example.core.ProviderEndpoints
 import com.example.data.api.AirNowApi
+import com.example.data.api.RainbowApi
 import com.example.data.api.TomorrowApi
 import com.example.data.api.NwsApi
 import com.example.data.api.OpenMeteoAirQualityApi
@@ -102,6 +103,21 @@ class AppContainer(private val context: Context) {
         tomorrowRetrofit.create(TomorrowApi::class.java)
     }
 
+    // Rainbow gets the plain client (no NWS headers — it is not an NWS
+    // endpoint). Its key travels as the Ocp-Apim-Subscription-Key
+    // header, passed per call on the Retrofit interface.
+    private val rainbowRetrofit: Retrofit by lazy {
+        Retrofit.Builder()
+            .baseUrl(ProviderEndpoints.RAINBOW_BASE_URL)
+            .client(plainOkHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+    }
+
+    val rainbowApi: RainbowApi by lazy {
+        rainbowRetrofit.create(RainbowApi::class.java)
+    }
+
     val database: WeatherDatabase by lazy {
         WeatherDatabase.getInstance(context)
     }
@@ -121,6 +137,7 @@ class AppContainer(private val context: Context) {
             openMeteoAirQualityApi = openMeteoAirQualityApi,
             airNowApi = airNowApi,
             tomorrowApi = tomorrowApi,
+            rainbowApi = rainbowApi,
             settingsManager = settingsManager,
             weatherCacheDao = database.weatherCacheDao(),
             savedPlaceDao = database.savedPlaceDao()

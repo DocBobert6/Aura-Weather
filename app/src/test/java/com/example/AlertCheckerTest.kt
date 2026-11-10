@@ -17,6 +17,8 @@ import com.example.data.api.OpenMeteoAirQualityApi
 import com.example.data.api.OpenMeteoAirQualityResponse
 import com.example.data.api.OpenMeteoWeatherApi
 import com.example.data.api.OpenMeteoWeatherResponse
+import com.example.data.api.RainbowApi
+import com.example.data.api.RainbowNowcastResponse
 import com.example.data.api.TomorrowApi
 import com.example.data.api.TomorrowTimelinesResponse
 import com.example.data.db.SavedPlaceEntity
@@ -136,6 +138,12 @@ class AlertCheckerTest {
         ): TomorrowTimelinesResponse = TomorrowTimelinesResponse(data = null)
     }
 
+    private val stubRainbow = object : RainbowApi {
+        override suspend fun getNowcast(
+            lon: String, lat: String, apiKey: String
+        ): RainbowNowcastResponse = RainbowNowcastResponse(forecasts = null)
+    }
+
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -148,6 +156,7 @@ class AlertCheckerTest {
             openMeteoAirQualityApi = stubAirQuality,
             airNowApi = stubAirNow,
             tomorrowApi = stubTomorrow,
+            rainbowApi = stubRainbow,
             settingsManager = SettingsManager(context),
             weatherCacheDao = db.weatherCacheDao(),
             savedPlaceDao = db.savedPlaceDao()

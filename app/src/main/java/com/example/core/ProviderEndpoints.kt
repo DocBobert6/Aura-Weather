@@ -24,6 +24,16 @@ object ProviderEndpoints {
     // AQI + category only, no concentrations.
     const val AIRNOW_BASE_URL = "https://www.airnowapi.org/"
 
+    // Rainbow Weather Nowcast (free API key, 5,000 requests/month):
+    // minute-by-minute precipitation for up to 4 hours ahead at
+    // 1-minute resolution. The minute-cast's first-choice source when
+    // a key is set — Tomorrow.io's 1m timestep is Enterprise, so a
+    // free Tomorrow.io key may not provide it. Auth is the
+    // Ocp-Apim-Subscription-Key header. Endpoint verified live (401
+    // without a key); the response shape is from the Nowcast OpenAPI
+    // spec and is NOT live-verified yet (no key exists to fetch with).
+    const val RAINBOW_BASE_URL = "https://api.rainbow.ai/"
+
     // Iowa Environmental Mesonet (IEM) NEXRAD Radar Tiles (Keyless)
     const val IEM_TILE_BASE = "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/"
     const val IEM_COMPOSITE_LAYER = "nexrad-n0q-900913"

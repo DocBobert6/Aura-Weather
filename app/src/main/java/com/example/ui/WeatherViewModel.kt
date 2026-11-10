@@ -67,6 +67,28 @@ class WeatherViewModel(
     val airNowApiKey: StateFlow<String> = settingsManager.airNowApiKeyFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
+    val rainbowApiKey: StateFlow<String> = settingsManager.rainbowApiKeyFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+    /** Rainbow "KEY ACTIVE" pill: true only after the client has
+     * actually fetched usable data with the stored key. */
+    val rainbowWorking: StateFlow<Boolean> = settingsManager.rainbowWorkingFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /** AirNow "KEY ACTIVE" pill: true only after a real AirNow fetch. */
+    val airNowWorking: StateFlow<Boolean> = settingsManager.airNowWorkingFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /** "KEY FAILED" pills: true once a fetch was attempted with the key. */
+    val tomorrowAttempted: StateFlow<Boolean> = settingsManager.tomorrowAttemptedFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val airNowAttempted: StateFlow<Boolean> = settingsManager.airNowAttemptedFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val rainbowAttempted: StateFlow<Boolean> = settingsManager.rainbowAttemptedFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     /** Background music toggle (Home screen): off by default. */
     val musicEnabled: StateFlow<Boolean> = settingsManager.musicEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -193,6 +215,13 @@ class WeatherViewModel(
     fun setAirNowApiKey(key: String) {
         viewModelScope.launch {
             settingsManager.setAirNowApiKey(key.trim())
+            refresh()
+        }
+    }
+
+    fun setRainbowApiKey(key: String) {
+        viewModelScope.launch {
+            settingsManager.setRainbowApiKey(key.trim())
             refresh()
         }
     }
