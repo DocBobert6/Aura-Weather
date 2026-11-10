@@ -311,7 +311,7 @@ fun AirPollenScreen(
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "No pollen data yet - the pollen feed isn't connected. A Tomorrow.io key in Settings doesn't turn it on in this version.",
+                                    text = "No pollen data yet - add a Tomorrow.io key in Settings to turn on live pollen (tree, grass, weed).",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = RetroTokens.TextSecondary
                                 )

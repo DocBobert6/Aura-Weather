@@ -59,6 +59,14 @@ class WeatherViewModel(
     val tomorrowApiKey: StateFlow<String> = settingsManager.tomorrowApiKeyFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
+    /** Tomorrow.io "KEY ACTIVE" pill: true only after the client has
+     * actually fetched usable data with the stored key. */
+    val tomorrowWorking: StateFlow<Boolean> = settingsManager.tomorrowWorkingFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val airNowApiKey: StateFlow<String> = settingsManager.airNowApiKeyFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
     /** Background music toggle (Home screen): off by default. */
     val musicEnabled: StateFlow<Boolean> = settingsManager.musicEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -182,6 +190,13 @@ class WeatherViewModel(
         }
     }
 
+    fun setAirNowApiKey(key: String) {
+        viewModelScope.launch {
+            settingsManager.setAirNowApiKey(key.trim())
+            refresh()
+        }
+    }
+
     fun setMusicEnabled(enabled: Boolean) {
         viewModelScope.launch {
             settingsManager.setMusicEnabled(enabled)
@@ -239,10 +254,22 @@ class WeatherViewModel(
         _isRadarPlaying.value = !_isRadarPlaying.value
     }
 
-    fun useCurrentLocation(onSuccess: (String) -> Unit = {}, onError: (String) -> Unit = {}) {
+    fun useCurrentLocation(
+        highAccuracy: Boolean = true,
+        onSuccess: (String) -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
         val client = fusedLocationClient ?: return
+        // Precise (fine) grant -> high-accuracy GPS fix; coarse-only
+        // grant -> balanced accuracy, so Current Location still works
+        // for users who only grant approximate location.
+        val priority = if (highAccuracy) {
+            Priority.PRIORITY_HIGH_ACCURACY
+        } else {
+            Priority.PRIORITY_BALANCED_POWER_ACCURACY
+        }
         try {
-            client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
+            client.getCurrentLocation(priority, null)
                 .addOnSuccessListener { location ->
                     if (location != null) {
                         viewModelScope.launch {

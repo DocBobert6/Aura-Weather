@@ -1,10 +1,7 @@
 package com.example
 
-import android.app.PictureInPictureParams
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
-import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -68,6 +65,8 @@ class MainActivity : ComponentActivity() {
             val currentRadarFrameIndex by viewModel.currentRadarFrameIndex.collectAsStateWithLifecycle()
             val isRadarPlaying by viewModel.isRadarPlaying.collectAsStateWithLifecycle()
             val tomorrowApiKey by viewModel.tomorrowApiKey.collectAsStateWithLifecycle()
+            val tomorrowWorking by viewModel.tomorrowWorking.collectAsStateWithLifecycle()
+            val airNowApiKey by viewModel.airNowApiKey.collectAsStateWithLifecycle()
             val regionalPoints by viewModel.regionalPoints.collectAsStateWithLifecycle()
             val musicEnabled by viewModel.musicEnabled.collectAsStateWithLifecycle()
             val alertsEnabled by viewModel.alertsEnabled.collectAsStateWithLifecycle()
@@ -97,10 +96,11 @@ class MainActivity : ComponentActivity() {
                     savedPlaces = savedPlaces,
                     useMetric = useMetric,
                     tomorrowApiKey = tomorrowApiKey,
+                    tomorrowWorking = tomorrowWorking,
+                    airNowApiKey = airNowApiKey,
                     selectedRadarLayer = selectedRadarLayer,
                     currentRadarFrameIndex = currentRadarFrameIndex,
                     isRadarPlaying = isRadarPlaying,
-                    onEnterPiP = { enterRadarPictureInPicture() },
                     regionalPoints = regionalPoints,
                     musicEnabled = musicEnabled,
                     onToggleMusic = { viewModel.setMusicEnabled(!musicEnabled) },
@@ -136,15 +136,5 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         musicPlayer.release()
         super.onDestroy()
-    }
-
-    private fun enterRadarPictureInPicture() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val aspectRatio = Rational(16, 9)
-            val params = PictureInPictureParams.Builder()
-                .setAspectRatio(aspectRatio)
-                .build()
-            enterPictureInPictureMode(params)
-        }
     }
 }

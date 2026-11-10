@@ -11,7 +11,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * Version 2 changes (Phase 1):
  * - saved_places gains zoneId (the place's resolved IANA timezone).
  * - weather_cache gains pollenJson / radarStation / forecastZone columns.
- * - All v1 cache rows are deleted: v1 stored pipe/comma-delimited strings
+ * - All v1 cache rows are deleted: v1 stored bar/comma-delimited strings
  *   that the v2 JSON parser cannot read, and restoring them would silently
  *   re-invent the dropped/hardcoded fields.
  * - All seeded preset places are deleted: the app no longer ships default

@@ -72,6 +72,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.UnitFormatter
+import com.example.data.mapper.WeatherMappers
 import com.example.domain.model.AlertSeverity
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
@@ -104,7 +105,7 @@ fun HomeScreen(
     unitFormatter: UnitFormatter,
     onRefresh: () -> Unit,
     onSelectPlace: (String) -> Unit,
-    onUseCurrentLocation: () -> Unit,
+    onUseCurrentLocation: (Boolean) -> Unit,
     onNavigateToAlerts: () -> Unit,
     onNavigateToAirPollen: () -> Unit,
     onNavigateToSunMoon: () -> Unit,
@@ -115,11 +116,20 @@ fun HomeScreen(
 ) {
     var locationMenuExpanded by remember { mutableStateOf(false) }
 
+    // Precise first, coarse fallback: requesting both together shows
+    // Android's single precise/approximate chooser. Precise grants a
+    // high-accuracy (GPS) fix; approximate grants only coarse, and the
+    // fix falls back to balanced accuracy — Current Location keeps
+    // working for users who only grant coarse.
     val locationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            onUseCurrentLocation()
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val outcome = WeatherMappers.resolveLocationPermission(
+            fineGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true,
+            coarseGranted = grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        )
+        if (outcome.granted) {
+            onUseCurrentLocation(outcome.highAccuracy)
         }
     }
 
@@ -179,7 +189,7 @@ fun HomeScreen(
                     onSelectPlace(it)
                 },
                 onLocationClick = {
-                    locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                    locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                 },
                 onRefresh = onRefresh
             )
@@ -222,7 +232,7 @@ fun HomeScreen(
                 } else {
                     NoPlaceCard(
                         onUseCurrentLocation = {
-                            locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                            locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                         },
                         onAddPlace = onNavigateToSettings
                     )

@@ -1,6 +1,7 @@
 package com.example.data.mapper
 
 import com.example.domain.model.AirQuality
+import com.example.domain.model.PollenData
 import com.example.domain.model.AlertSeverity
 import com.example.domain.model.GeoPoint
 import com.example.domain.model.MinutePrecip
@@ -12,6 +13,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import java.security.MessageDigest
 import kotlin.math.roundToInt
@@ -84,14 +86,20 @@ fun shortMapLabel(label: String): String {
     return first.ifEmpty { city }
 }
 
-/** GIBS satellite timestamp (audit fix E): the full UTC time of the
- * latest 10-minute GOES scan, as ISO-8601 ("2026-11-09T12:40:00Z").
+/** GIBS satellite timestamp (audit fix E, backoff added in the
+ * post-Phase-3 batch): the full UTC time of a GOES scan GIBS has
+ * actually published, as ISO-8601 ("2026-11-09T11:40:00Z").
  * GIBS resolves a date-only time to 00:00 UTC (7 PM EST the prior
  * evening), so a date-only value shows a nighttime city-lights image
- * at noon. Rounding down to the latest 10-minute boundary lands on a
- * real GOES scan. */
+ * at noon. Rounding down to the latest 10-minute boundary is not
+ * enough on its own: GIBS publishes GOES scans behind real time
+ * (measured 2026-11-09, GeoColor lags ~41-51 min and Band13
+ * ~21-31 min), so the latest boundary 404s. Back off 60 minutes
+ * first, then round down, so the timestamp lands on a scan GIBS
+ * has actually published. A ~1-hour-old image beats a blank map. */
 fun gibsTimestamp(now: java.time.Instant): String {
-    val rounded = now.epochSecond - (now.epochSecond % 600)
+    val backedOff = now.epochSecond - 3600
+    val rounded = backedOff - (backedOff % 600)
     return java.time.Instant.ofEpochSecond(rounded).toString()
 }
 
@@ -112,6 +120,25 @@ fun stableAlertId(event: String?, areaDesc: String?, effective: Instant): String
     val hex = digest.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     return "alert_$hex"
 }
+
+/** One AirNow current-observation row, stripped to what the AQI mapping
+ * needs (pollutant + AQI). The Retrofit model (AirNowObservation,
+ * Moshi-annotated) lives in data.api and cannot be compiled into the
+ * pure tests (no Moshi jar on that classpath), so the repository
+ * converts to this plain type first. Keeping the mapping pure and
+ * Moshi-free is what lets the unit tests cover it. */
+data class AirNowReading(val parameterName: String?, val aqi: Int?)
+
+/** One Tomorrow.io Timelines "1m" interval, stripped to what the
+ * minute-cast mapping needs (time + intensity + probability). The
+ * Retrofit model (TomorrowInterval, Moshi-annotated) lives in data.api
+ * and cannot be compiled into the pure tests (no Moshi jar on that
+ * classpath), so the repository converts to this plain type first. */
+data class TomorrowMinutePoint(
+    val time: Instant,
+    val mmPerHour: Double?,
+    val probabilityPct: Int?
+)
 
 object WeatherMappers {
 
@@ -270,16 +297,21 @@ object WeatherMappers {
      * Returns null when the provider returned no AQI at all. A missing AQI is
      * "unavailable", not a made-up 28 with made-up PM2.5/PM10/ozone defaults.
      */
+    /** EPA AQI bands (category + health guidance). Shared by the
+     * Open-Meteo and AirNow paths so the two never disagree about what
+     * an AQI number means. */
+    fun aqiCategoryAndGuidance(aqi: Int): Pair<String, String> = when {
+        aqi <= 50 -> "Good" to "Air quality is satisfactory and poses little or no health risk."
+        aqi <= 100 -> "Moderate" to "Air quality is acceptable. Unusually sensitive individuals should limit prolonged outdoor exertion."
+        aqi <= 150 -> "Unhealthy for Sensitive Groups" to "Active children, older adults, and individuals with respiratory issues should reduce outdoor exertion."
+        aqi <= 200 -> "Unhealthy" to "Everyone may begin to experience health effects. Limit prolonged outdoor exertion."
+        aqi <= 300 -> "Very Unhealthy" to "Health alert: The risk of health effects is increased for everyone. Avoid strenuous outdoor activities."
+        else -> "Hazardous" to "Emergency warning: Entire population is likely to be affected. Remain indoors."
+    }
+
     fun mapAqi(usAqi: Int?, pm25: Double?, pm10: Double?, ozone: Double?): AirQuality? {
         val aqi = usAqi ?: return null
-        val (category, guidance) = when {
-            aqi <= 50 -> "Good" to "Air quality is satisfactory and poses little or no health risk."
-            aqi <= 100 -> "Moderate" to "Air quality is acceptable. Unusually sensitive individuals should limit prolonged outdoor exertion."
-            aqi <= 150 -> "Unhealthy for Sensitive Groups" to "Active children, older adults, and individuals with respiratory issues should reduce outdoor exertion."
-            aqi <= 200 -> "Unhealthy" to "Everyone may begin to experience health effects. Limit prolonged outdoor exertion."
-            aqi <= 300 -> "Very Unhealthy" to "Health alert: The risk of health effects is increased for everyone. Avoid strenuous outdoor activities."
-            else -> "Hazardous" to "Emergency warning: Entire population is likely to be affected. Remain indoors."
-        }
+        val (category, guidance) = aqiCategoryAndGuidance(aqi)
 
         // Open-Meteo reports ozone in µg/m³; the UI labels it ppb, so convert
         // (µg/m³ × 24.45 / 48.00 ≈ ×0.509). The 54 ppb cutoff is the EPA
@@ -307,6 +339,119 @@ object WeatherMappers {
             source = "Open-Meteo Air Quality",
             healthGuidance = guidance
         )
+    }
+
+    /**
+     * AirNow AQI (post-Phase-3 batch, item 2): when an AirNow key is set,
+     * the headline AQI comes from the nearest EPA monitoring station
+     * instead of the Open-Meteo model. AirNow reports AQI + category per
+     * pollutant but no concentrations, so the pollutant concentrations
+     * (PM2.5 / PM10 / ozone) stay Open-Meteo's — only the headline AQI,
+     * its category, and the dominant pollutant are replaced, and the
+     * source becomes "AirNow". Returns the Open-Meteo value unchanged
+     * when AirNow returned no usable observation (empty list, or outside
+     * US coverage), and null only when neither source has an AQI.
+     */
+    fun mapAirNowAqi(readings: List<AirNowReading>, openMeteoAqi: AirQuality?): AirQuality? {
+        val withAqi = readings.filter { it.aqi != null }
+        if (withAqi.isEmpty()) return openMeteoAqi
+        val worst = withAqi.maxByOrNull { it.aqi!! }!!
+        val aqi = worst.aqi!!
+        val (category, guidance) = aqiCategoryAndGuidance(aqi)
+        val dominant = when (worst.parameterName) {
+            "PM2.5" -> "PM2.5"
+            "PM10" -> "PM10"
+            "O3" -> "Ozone (O₃)"
+            else -> openMeteoAqi?.dominant
+        }
+        return AirQuality(
+            aqi = aqi,
+            category = category,
+            pm25 = openMeteoAqi?.pm25,
+            pm10 = openMeteoAqi?.pm10,
+            ozonePpb = openMeteoAqi?.ozonePpb,
+            dominant = dominant,
+            source = "AirNow",
+            healthGuidance = guidance
+        )
+    }
+
+    /**
+     * Tomorrow.io "1m" timeline intervals -> a 60-minute minute-cast.
+     * Anchors on the current minute and builds one MinutePrecip per
+     * minute (0..59); a missing interval carries the last known rate
+     * forward, exactly like the 15-minute interpolation. The sentence
+     * is the same nowcast sentence the interpolated path uses, so the
+     * Home minute-cast reads identically — only the data is real.
+     * An empty interval list means the "1m" timeline was unavailable
+     * (Enterprise on a free key): the caller keeps the interpolated
+     * fallback instead of using this.
+     */
+    fun mapTomorrowMinutely(
+        points: List<TomorrowMinutePoint>,
+        now: Instant,
+        zoneId: ZoneId
+    ): Pair<List<MinutePrecip>, String> {
+        if (points.isEmpty()) {
+            return Pair(emptyList(), "Minutely precipitation is unavailable right now.")
+        }
+        val anchor = now.truncatedTo(ChronoUnit.MINUTES)
+        val byOffset = points.mapNotNull { p ->
+            val offset = ChronoUnit.MINUTES.between(anchor, p.time).toInt()
+            if (offset in 0..59) offset to p else null
+        }.toMap()
+        val minutePoints = mutableListOf<MinutePrecip>()
+        var lastMm = 0.0
+        var lastProb: Int? = null
+        for (m in 0 until 60) {
+            val p = byOffset[m]
+            if (p != null) {
+                lastMm = p.mmPerHour ?: lastMm
+                lastProb = p.probabilityPct ?: lastProb
+            }
+            minutePoints += MinutePrecip(
+                time = anchor.plus(m.toLong(), ChronoUnit.MINUTES),
+                mmPerHour = lastMm,
+                probabilityPct = lastProb
+            )
+        }
+        return Pair(minutePoints, generateNowcastSentence(minutePoints, now, zoneId))
+    }
+
+    /** Tomorrow.io pollen indices -> PollenData. hasKey is true when a
+     * Tomorrow.io key is configured (the repository passes it), so the
+     * Air & Pollen screen shows the gauges; a missing index stays null
+     * and renders "--" rather than an invented value. */
+    fun mapTomorrowPollen(
+        treeIndex: Int?,
+        grassIndex: Int?,
+        weedIndex: Int?,
+        hasKey: Boolean
+    ): PollenData {
+        return PollenData(
+            treeIndex = treeIndex,
+            grassIndex = grassIndex,
+            weedIndex = weedIndex,
+            source = "Tomorrow.io",
+            hasKey = hasKey
+        )
+    }
+
+    /** Outcome of a location-permission request: whether any location
+     * is usable, and whether the precise (fine) grant allows a
+     * high-accuracy fix. Fine wins; coarse alone still grants a
+     * location, just at balanced accuracy; neither grants nothing. */
+    data class LocationPermissionOutcome(val granted: Boolean, val highAccuracy: Boolean)
+
+    fun resolveLocationPermission(
+        fineGranted: Boolean,
+        coarseGranted: Boolean
+    ): LocationPermissionOutcome {
+        return when {
+            fineGranted -> LocationPermissionOutcome(granted = true, highAccuracy = true)
+            coarseGranted -> LocationPermissionOutcome(granted = true, highAccuracy = false)
+            else -> LocationPermissionOutcome(granted = false, highAccuracy = false)
+        }
     }
 
     fun mapAlertSeverity(severity: String?): AlertSeverity {

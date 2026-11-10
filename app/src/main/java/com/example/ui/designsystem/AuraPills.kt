@@ -194,7 +194,7 @@ fun NavPillItem(
 
 /**
  * A circular solid button with a 48dp touch target and a spring press
- * squash: refresh, location, PiP, zoom, recenter. The Radar play button
+ * squash: refresh, location, zoom, recenter. The Radar play button
  * passes a filled [containerColor] (primary) instead of the panel colour.
  * The icon itself comes from [content] so callers can show a progress
  * indicator instead (refresh while loading).

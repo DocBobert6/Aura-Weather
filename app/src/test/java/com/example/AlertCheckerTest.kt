@@ -3,6 +3,8 @@ package com.example
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.api.AirNowApi
+import com.example.data.api.AirNowObservation
 import com.example.data.api.NwsAlertFeature
 import com.example.data.api.NwsAlertProperties
 import com.example.data.api.NwsAlertsResponse
@@ -15,8 +17,11 @@ import com.example.data.api.OpenMeteoAirQualityApi
 import com.example.data.api.OpenMeteoAirQualityResponse
 import com.example.data.api.OpenMeteoWeatherApi
 import com.example.data.api.OpenMeteoWeatherResponse
+import com.example.data.api.TomorrowApi
+import com.example.data.api.TomorrowTimelinesResponse
 import com.example.data.db.SavedPlaceEntity
 import com.example.data.db.WeatherDatabase
+import com.example.data.settings.SettingsManager
 import com.example.data.repo.WeatherRepository
 import com.example.data.work.AlertChecker
 import kotlinx.coroutines.runBlocking
@@ -113,6 +118,24 @@ class AlertCheckerTest {
         ): OpenMeteoAirQualityResponse = throw NotImplementedError("not used by the checker test")
     }
 
+    // AirNow is not used by the checker test (alerts only): the stub
+    // returns no observations, so the AQI falls back to Open-Meteo.
+    private val stubAirNow = object : AirNowApi {
+        override suspend fun getCurrentObservations(
+            lat: Double, lon: Double, distance: Int, format: String, apiKey: String
+        ): List<AirNowObservation> = emptyList()
+    }
+
+    // Tomorrow.io is not used by the checker test (alerts only): the
+    // stub returns no timelines, so the minute-cast stays the
+    // Open-Meteo interpolation and pollen stays empty.
+    private val stubTomorrow = object : TomorrowApi {
+        override suspend fun getTimelines(
+            location: String, fields: String, timesteps: String, units: String,
+            startTime: String, endTime: String, apiKey: String
+        ): TomorrowTimelinesResponse = TomorrowTimelinesResponse(data = null)
+    }
+
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -123,6 +146,9 @@ class AlertCheckerTest {
             nwsApi = fakeNwsApi,
             openMeteoWeatherApi = stubOpenMeteo,
             openMeteoAirQualityApi = stubAirQuality,
+            airNowApi = stubAirNow,
+            tomorrowApi = stubTomorrow,
+            settingsManager = SettingsManager(context),
             weatherCacheDao = db.weatherCacheDao(),
             savedPlaceDao = db.savedPlaceDao()
         )

@@ -42,6 +42,18 @@ fun latToTileY(lat: Double, zoom: Int): Int {
     return y.toInt()
 }
 
+/**
+ * Effective zoom for a GIBS satellite layer. The matrix-set names count
+ * levels, not the max matrix: GoogleMapsCompatible_Level7 holds
+ * matrices 0..6 (visible/GeoColor) and Level6 holds 0..5 (infrared/
+ * Band13). The radar zoom runs 7..9, so clamping to the set's level
+ * count (7 / 6) requests a matrix that does not exist - GeoColor 404s,
+ * Band13 400s - and both layers render blank. [isVisible] selects the
+ * visible (GeoColor) layer; false is IR.
+ */
+fun satelliteZoomLevel(isVisible: Boolean, zoom: Int): Int =
+    minOf(zoom, if (isVisible) 6 else 5)
+
 // One IEM NEXRAD composite tile URL. This is the exact URL the radar
 // screen's AsyncImage loads, so a prefetched tile is a cache hit for it.
 fun iemTileUrl(layerName: String, zoom: Int, tileX: Int, tileY: Int): String =
