@@ -1081,6 +1081,10 @@ private fun WeatherDetailsGrid(
     val windFormatted = unitFormatter.formatWindSpeed(state?.current?.windMs)
     val windDir = state?.current?.windDirDeg?.roundToInt()
     val gustFormatted = unitFormatter.formatWindSpeed(state?.current?.windGustMs)
+    // Calm check: below 0.5 m/s (~1 mph) the wind has no meaningful
+    // direction — a bright arrow pointing "up" at true calm is noise.
+    // A null speed is unknown, not calm, so it does not count.
+    val isCalm = (state?.current?.windMs ?: Double.MAX_VALUE) < 0.5
 
     // Missing readings render as "--", never as invented 55% / 8 C / 180 deg.
     val humidity = state?.current?.humidityPct?.let { "${it.roundToInt()}%" } ?: "--"
@@ -1089,6 +1093,21 @@ private fun WeatherDetailsGrid(
     val pressureFormatted = unitFormatter.formatPressure(state?.current?.pressurePa)
     val visibilityFormatted = unitFormatter.formatVisibility(state?.current?.visibilityM)
     val uvIndex = state?.daily7d?.firstOrNull()?.uvIndexMax
+    // Nighttime (not missing data): the UV card should say so
+    // intentionally instead of showing bare dashes. A null isDaytime
+    // (no sun data) is unknown, not night, so it keeps "--".
+    val isNight = state?.solar?.isDaytime == false
+    val uvMainValue = when {
+        uvIndex != null -> "${uvIndex.roundToInt()}"
+        isNight -> "NIGHT"
+        else -> "--"
+    }
+    val uvSubValue = when {
+        uvIndex != null -> AuraColors.uvCategory(uvIndex)
+        isNight -> "NO UV AFTER DARK"
+        else -> "--"
+    }
+    val uvIcon = if (uvIndex == null && isNight) Icons.Default.NightsStay else Icons.Default.WbSunny
     val cloudCover = state?.current?.cloudCoverPct
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1104,7 +1123,7 @@ private fun WeatherDetailsGrid(
                 title = "WIND",
                 icon = Icons.Default.Air,
                 mainValue = windFormatted,
-                subValue = buildString {
+                subValue = if (isCalm) "CALM" else buildString {
                     windDir?.let { append(compassPoint(it.toDouble())) }
                     if (state?.current?.windGustMs != null) {
                         if (isNotEmpty()) append(" - ")
@@ -1112,7 +1131,7 @@ private fun WeatherDetailsGrid(
                     }
                     if (isEmpty()) append("--")
                 },
-                trailing = if (windDir != null) {
+                trailing = if (isCalm) null else if (windDir != null) {
                     {
                         Icon(
                             imageVector = Icons.Default.ArrowUpward,
@@ -1167,9 +1186,9 @@ private fun WeatherDetailsGrid(
             // UV Index Card (today's max; the data was fetched, never shown)
             DetailMiniCard(
                 title = "UV INDEX",
-                icon = Icons.Default.WbSunny,
-                mainValue = uvIndex?.let { "${it.roundToInt()}" } ?: "--",
-                subValue = uvIndex?.let { AuraColors.uvCategory(it) } ?: "--",
+                icon = uvIcon,
+                mainValue = uvMainValue,
+                subValue = uvSubValue,
                 modifier = Modifier.weight(1f).fillMaxHeight()
             )
 

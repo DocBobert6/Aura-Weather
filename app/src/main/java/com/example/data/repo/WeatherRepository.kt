@@ -23,6 +23,7 @@ import com.example.data.mapper.distanceMeters
 import com.example.data.mapper.isDaytimeAt
 import com.example.data.mapper.parseOpenMeteoUtcInstant
 import com.example.data.mapper.regionalCompassLabel
+import com.example.data.mapper.fillDailyHighs
 import com.example.data.mapper.stableAlertId
 import com.example.domain.astro.LunarCalculator
 import com.example.domain.astro.SolarCalculator
@@ -494,6 +495,14 @@ class WeatherRepository(
                     list.map { pt -> pt.copy(uvIndexMax = omUv[pt.date]) }
                 }
             }
+            // Today's high is null once the daytime period ends: at
+            // 8 PM today's bucket only got a nighttime period, so
+            // highC is null and the outlook shows "HI --". Fill null
+            // highs/lows from Open-Meteo's daily max/min by date
+            // (audit fix, item 3). The hourly list cannot do this:
+            // it starts at the current hour, so its max would be the
+            // overnight temp, not the daytime high.
+            .let { list -> fillDailyHighs(list, omDailyList) }
 
         // --- 60-minute nowcast (Open-Meteo minutely_15, anchored on now).
         // This is the fallback: when a Tomorrow.io key is set and the

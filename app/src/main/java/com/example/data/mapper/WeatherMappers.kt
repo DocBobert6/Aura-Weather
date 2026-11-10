@@ -1,6 +1,7 @@
 package com.example.data.mapper
 
 import com.example.domain.model.AirQuality
+import com.example.domain.model.DailyPoint
 import com.example.domain.model.PollenData
 import com.example.domain.model.AlertSeverity
 import com.example.domain.model.GeoPoint
@@ -119,6 +120,35 @@ fun stableAlertId(event: String?, areaDesc: String?, effective: Instant): String
         .digest(input.toByteArray(Charsets.UTF_8))
     val hex = digest.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     return "alert_$hex"
+}
+
+/**
+ * Fills null daily highs/lows from Open-Meteo's daily max/min, by date.
+ *
+ * The NWS daily path builds each day's high from that day's DAYTIME
+ * forecast period and its low from the NIGHTTIME period. Once the
+ * daytime period ends (an evening refresh), today's bucket only gets a
+ * nighttime period, so highC is null and the outlook shows "HI --"
+ * for today even though the day's high is known. Open-Meteo's
+ * temperature_2m_max/min is the day's true high/low, so it fills the
+ * gap. Days that already have both values, and dates Open-Meteo does
+ * not cover, are returned untouched.
+ *
+ * The hourly list cannot do this: it starts at the current hour, so
+ * its max would be the overnight temperature, not the daytime high.
+ */
+fun fillDailyHighs(
+    daily: List<DailyPoint>,
+    openMeteoDaily: List<DailyPoint>
+): List<DailyPoint> {
+    if (daily.isEmpty() || openMeteoDaily.isEmpty()) return daily
+    if (daily.all { it.highC != null && it.lowC != null }) return daily
+    val byDate = openMeteoDaily.associateBy { it.date }
+    return daily.map { pt ->
+        val om = byDate[pt.date]
+        if (om == null) pt
+        else pt.copy(highC = pt.highC ?: om.highC, lowC = pt.lowC ?: om.lowC)
+    }
 }
 
 /** One AirNow current-observation row, stripped to what the AQI mapping
