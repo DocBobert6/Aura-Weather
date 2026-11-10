@@ -152,6 +152,38 @@ fun fillDailyHighs(
 }
 
 /**
+ * Fills null daily precip/snow sums from Open-Meteo by date, and
+ * extends the list with Open-Meteo-only dates up to [maxDays].
+ *
+ * NWS forecast periods cover ~7 days, so an NWS-first daily list
+ * stops there. Open-Meteo provides up to 16 days: its rows for dates
+ * the NWS list does not cover (days 8-15) are appended, and the NWS
+ * rows get their precipitation_sum / snowfall_sum from the matching
+ * Open-Meteo row. Rows already carrying sums, and dates Open-Meteo
+ * does not cover, are untouched. The result is sorted by date.
+ */
+fun fillDailyPrecipAndExtend(
+    daily: List<DailyPoint>,
+    openMeteoDaily: List<DailyPoint>,
+    maxDays: Int = 15
+): List<DailyPoint> {
+    if (daily.isEmpty()) return openMeteoDaily.take(maxDays)
+    if (openMeteoDaily.isEmpty()) return daily.take(maxDays)
+    val byDate = openMeteoDaily.associateBy { it.date }
+    val filled = daily.map { pt ->
+        val om = byDate[pt.date]
+        if (om == null) pt
+        else pt.copy(
+            precipSumMm = pt.precipSumMm ?: om.precipSumMm,
+            snowfallSumCm = pt.snowfallSumCm ?: om.snowfallSumCm
+        )
+    }
+    val existingDates = filled.map { it.date }.toSet()
+    val extra = openMeteoDaily.filter { it.date !in existingDates }
+    return (filled + extra).sortedBy { it.date }.take(maxDays)
+}
+
+/**
  * Pressure in hPa -> a short all-caps descriptor, the same pattern the
  * pressure card already shows ("NEAR AVERAGE"). Bands: >= 1022 hPa
  * high, >= 1005 near average, below that low. A null reading is

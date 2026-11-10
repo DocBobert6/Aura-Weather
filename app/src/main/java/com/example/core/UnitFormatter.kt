@@ -59,6 +59,21 @@ class UnitFormatter(private val useMetric: Boolean = false) {
         }
     }
 
+    /**
+     * Snowfall in cm (Open-Meteo's snowfall unit). Metric shows cm;
+     * imperial shows inches. Null or zero is "0" — the daily row hides
+     * the amount entirely on dry days, so this is only the fallback.
+     */
+    fun formatSnowfall(snowCm: Double?): String {
+        if (snowCm == null || snowCm <= 0.0) return if (useMetric) "0 cm" else "0 in"
+        return if (useMetric) {
+            String.format(Locale.US, "%.1f cm", snowCm)
+        } else {
+            val inches = snowCm * 0.393701
+            String.format(Locale.US, "%.2f in", inches)
+        }
+    }
+
     fun formatVisibility(visMeters: Double?): String {
         if (visMeters == null) return "--"
         return if (useMetric) {

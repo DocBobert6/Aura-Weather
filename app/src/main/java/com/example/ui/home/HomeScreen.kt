@@ -308,7 +308,7 @@ fun HomeScreen(
         // 7. 7-Day Forecast Card
         item {
             DailyForecastCard(
-                dailyPoints = state?.daily7d ?: emptyList(),
+                dailyPoints = state?.daily15d ?: emptyList(),
                 unitFormatter = unitFormatter
             )
         }
@@ -651,7 +651,7 @@ private fun HeroWeatherCard(
     // rendered as an empty grey circle.
     val description = state?.current?.description?.ifBlank { null } ?: condition.displayName
 
-    val todayDaily = state?.daily7d?.firstOrNull()
+    val todayDaily = state?.daily15d?.firstOrNull()
     val highFormatted = unitFormatter.formatTemperature(todayDaily?.highC ?: state?.current?.tempC)
     // No invented low: when the daily low is missing the UI shows "--".
     val lowFormatted = unitFormatter.formatTemperature(todayDaily?.lowC)
@@ -866,7 +866,7 @@ private fun HourlyForecastCard(
                 contentPadding = PaddingValues(start = 16.dp, end = 28.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                items(hourlyPoints.take(24).size) { index ->
+                items(hourlyPoints.size) { index ->
                     val point = hourlyPoints[index]
                     // The first hour is now — label it, so the strip reads
                     // against the present instead of a redundant "9 AM".
@@ -948,7 +948,7 @@ private fun DailyForecastCard(
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Text(
-                text = "7-DAY OUTLOOK",
+                text = "15-DAY OUTLOOK",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = RetroTokens.Yellow
@@ -961,6 +961,17 @@ private fun DailyForecastCard(
                 val hi = unitFormatter.formatTemperature(point.highC)
                 val lo = unitFormatter.formatTemperature(point.lowC)
                 val pop = point.popPct ?: 0
+                // Precip / snow amount for the day: snow first (it is
+                // the headline when it falls), else rain. Only above a
+                // trace (snow >= 0.1 cm, rain >= 0.25 mm) — a "0.00 in"
+                // in every row is noise, and dry days stay blank.
+                val amountText = when {
+                    (point.snowfallSumCm ?: 0.0) >= 0.1 ->
+                        unitFormatter.formatSnowfall(point.snowfallSumCm)
+                    (point.precipSumMm ?: 0.0) >= 0.25 ->
+                        unitFormatter.formatPrecipitation(point.precipSumMm)
+                    else -> ""
+                }
 
                 Row(
                     modifier = Modifier
@@ -1020,6 +1031,14 @@ private fun DailyForecastCard(
                     )
 
                     Text(
+                        text = amountText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = RetroTokens.TextSecondary,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.width(56.dp)
+                    )
+
+                    Text(
                         text = "LO $lo",
                         style = MaterialTheme.typography.bodyMedium,
                         color = RetroTokens.TextSecondary,
@@ -1074,7 +1093,7 @@ private fun WeatherDetailsGrid(
 
     val pressureFormatted = unitFormatter.formatPressure(state?.current?.pressurePa)
     val visibilityFormatted = unitFormatter.formatVisibility(state?.current?.visibilityM)
-    val uvIndex = state?.daily7d?.firstOrNull()?.uvIndexMax
+    val uvIndex = state?.daily15d?.firstOrNull()?.uvIndexMax
     // Nighttime (not missing data): the UV card should say so
     // intentionally instead of showing bare dashes. A null isDaytime
     // (no sun data) is unknown, not night, so it keeps "--".

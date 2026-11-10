@@ -5,6 +5,7 @@ import com.example.data.mapper.AirNowReading
 import com.example.data.mapper.TomorrowMinutePoint
 import com.example.data.mapper.WeatherMappers
 import com.example.data.mapper.fillDailyHighs
+import com.example.data.mapper.fillDailyPrecipAndExtend
 import com.example.data.mapper.pressureDescriptor
 import com.example.data.mapper.visibilityDescriptor
 import com.example.domain.model.DailyPoint
@@ -545,5 +546,52 @@ class AuraWeatherUnitTest {
         assertEquals("MODERATE", visibilityDescriptor(1000.0))
         assertEquals("POOR", visibilityDescriptor(500.0))
         assertNull(visibilityDescriptor(null))
+    }
+
+    @Test
+    fun testFillDailyPrecipAndExtend_fillsSumsAndExtendsTo15() {
+        // NWS covers 7 days (no sums); Open-Meteo covers 15 (with sums).
+        // The NWS rows must gain their sums, and days 8-15 must appear.
+        val base = LocalDate.of(2026, 11, 9)
+        val nws = (0 until 7).map { d ->
+            DailyPoint(base.plusDays(d.toLong()), 10.0, 2.0, 10, WeatherCondition.ClearDay, "Clear", null)
+        }
+        val om = (0 until 15).map { d ->
+            DailyPoint(
+                base.plusDays(d.toLong()), 10.0, 2.0, 10, WeatherCondition.ClearDay, "Clear", 2.0,
+                precipSumMm = 1.5 + d, snowfallSumCm = if (d == 3) 2.5 else null
+            )
+        }
+        val merged = fillDailyPrecipAndExtend(nws, om)
+        assertEquals(15, merged.size)
+        // First 7 rows kept their NWS highs but gained OM sums.
+        assertEquals(1.5, merged[0].precipSumMm!!, 0.001)
+        assertEquals(2.5, merged[3].snowfallSumCm!!, 0.001)
+        // Days 8-15 came from Open-Meteo whole.
+        assertEquals(base.plusDays(10), merged[10].date)
+        assertEquals(11.5, merged[10].precipSumMm!!, 0.001)
+    }
+
+    @Test
+    fun testFillDailyPrecipAndExtend_emptyNwsReturnsOpenMeteo() {
+        val base = LocalDate.of(2026, 11, 9)
+        val om = (0 until 15).map { d ->
+            DailyPoint(base.plusDays(d.toLong()), 10.0, 2.0, 10, WeatherCondition.ClearDay, "Clear", 2.0, 1.0, null)
+        }
+        val merged = fillDailyPrecipAndExtend(emptyList(), om)
+        assertEquals(15, merged.size)
+        assertEquals(1.0, merged[0].precipSumMm!!, 0.001)
+    }
+
+    @Test
+    fun testFormatSnowfall_metricAndImperial() {
+        val metric = UnitFormatter(useMetric = true)
+        assertEquals("2.5 cm", metric.formatSnowfall(2.5))
+        assertEquals("0 cm", metric.formatSnowfall(null))
+        assertEquals("0 cm", metric.formatSnowfall(0.0))
+        val imperial = UnitFormatter(useMetric = false)
+        // 2.5 cm = 0.98 in.
+        assertEquals("0.98 in", imperial.formatSnowfall(2.5))
+        assertEquals("0 in", imperial.formatSnowfall(null))
     }
 }

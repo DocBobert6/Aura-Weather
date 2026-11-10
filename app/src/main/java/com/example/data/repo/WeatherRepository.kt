@@ -24,6 +24,7 @@ import com.example.data.mapper.isDaytimeAt
 import com.example.data.mapper.parseOpenMeteoUtcInstant
 import com.example.data.mapper.regionalCompassLabel
 import com.example.data.mapper.fillDailyHighs
+import com.example.data.mapper.fillDailyPrecipAndExtend
 import com.example.data.mapper.stableAlertId
 import com.example.domain.astro.LunarCalculator
 import com.example.domain.astro.SolarCalculator
@@ -139,7 +140,7 @@ class WeatherRepository(
                 val isStale = (Instant.now().toEpochMilli() - cached.cachedAt) > 15 * 60 * 1000
                 parseCacheToState(place, cached, isStale) ?: return@withContext null
             }
-        val today = state.daily7d.firstOrNull()
+        val today = state.daily15d.firstOrNull()
         WidgetState(
             placeName = state.place.name,
             tempC = state.current.tempC,
@@ -480,7 +481,7 @@ class WeatherRepository(
                 } else list
             }
 
-        // --- Daily (7d). Same split as hourly.
+        // --- Daily (15d). Same split as hourly.
         val omDailyList = parseOpenMeteoDaily(openMeteoResult, zoneId)
         val dailyList = parseNwsDaily(nwsForecastResult?.properties?.periods, zoneId)
             .ifEmpty { omDailyList }
@@ -503,6 +504,10 @@ class WeatherRepository(
             // it starts at the current hour, so its max would be the
             // overnight temp, not the daytime high.
             .let { list -> fillDailyHighs(list, omDailyList) }
+            // NWS only covers ~7 days, so days 8-15 come from
+            // Open-Meteo, and the NWS rows get their precip/snow sums
+            // from Open-Meteo by date (audit Build A).
+            .let { list -> fillDailyPrecipAndExtend(list, omDailyList) }
 
         // --- 60-minute nowcast (Open-Meteo minutely_15, anchored on now).
         // This is the fallback: when a Tomorrow.io key is set and the
@@ -628,7 +633,7 @@ class WeatherRepository(
             place = resolvedPlace,
             current = current,
             hourly48h = hourlyList,
-            daily7d = dailyList,
+            daily15d = dailyList,
             minutely60m = minutely,
             minuteSummary = minuteSentence,
             activeAlerts = alerts,
@@ -744,7 +749,7 @@ class WeatherRepository(
                 bucket.lowC = tempC
             }
         }
-        return buckets.entries.take(7).map { (date, b) ->
+        return buckets.entries.take(15).map { (date, b) ->
             val cond = b.dayCond ?: WeatherCondition.ClearDay
             val summary = b.dayShort?.let { short ->
                 val hi = b.highC?.let { "${it.toInt()}°" } ?: "--"
@@ -783,6 +788,7 @@ class WeatherRepository(
                     popPct = omHourly.precipitationProbability?.getOrNull(i),
                     precipMm = omHourly.precipitation?.getOrNull(i),
                     condition = WeatherMappers.mapWmoCodeToCondition(code, daytime),
+                    snowfallCm = omHourly.snowfall?.getOrNull(i),
                     windMs = omHourly.windSpeed10m?.getOrNull(i)?.let { it * 1000.0 / 3600.0 },
                     isDaytime = daytime
                 )
@@ -814,10 +820,12 @@ class WeatherRepository(
                     popPct = omDaily.precipitationProbabilityMax?.getOrNull(i),
                     condition = cond,
                     summary = summary,
-                    uvIndexMax = omDaily.uvIndexMax?.getOrNull(i)
+                    uvIndexMax = omDaily.uvIndexMax?.getOrNull(i),
+                    precipSumMm = omDaily.precipitationSum?.getOrNull(i),
+                    snowfallSumCm = omDaily.snowfallSum?.getOrNull(i)
                 )
             )
-            if (points.size >= 7) break
+            if (points.size >= 15) break
         }
         return points
     }
@@ -833,7 +841,7 @@ class WeatherRepository(
             cachedAt = state.fetchedAt.toEpochMilli(),
             currentJson = moshi.adapter(CurrentConditions::class.java).toJson(state.current),
             hourlyJson = listAdapter(HourlyPoint::class.java).toJson(state.hourly48h),
-            dailyJson = listAdapter(DailyPoint::class.java).toJson(state.daily7d),
+            dailyJson = listAdapter(DailyPoint::class.java).toJson(state.daily15d),
             minutelyJson = listAdapter(MinutePrecip::class.java).toJson(state.minutely60m),
             alertsJson = listAdapter(WeatherAlert::class.java).toJson(state.activeAlerts),
             aqiJson = moshi.adapter(com.example.domain.model.AirQuality::class.java).toJson(state.airQuality),
@@ -871,7 +879,7 @@ class WeatherRepository(
                 place = place,
                 current = current,
                 hourly48h = hourly,
-                daily7d = daily,
+                daily15d = daily,
                 minutely60m = minutely,
                 minuteSummary = cache.minuteSummary,
                 activeAlerts = alerts,

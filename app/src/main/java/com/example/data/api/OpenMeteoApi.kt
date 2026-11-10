@@ -36,6 +36,7 @@ data class OpenMeteoHourly(
     @Json(name = "temperature_2m") val temperature2m: List<Double>?,
     @Json(name = "precipitation_probability") val precipitationProbability: List<Int>?,
     @Json(name = "precipitation") val precipitation: List<Double>?,
+    @Json(name = "snowfall") val snowfall: List<Double>?,
     @Json(name = "weather_code") val weatherCode: List<Int>?,
     @Json(name = "wind_speed_10m") val windSpeed10m: List<Double>?
 )
@@ -53,6 +54,8 @@ data class OpenMeteoDaily(
     @Json(name = "temperature_2m_max") val temperature2mMax: List<Double>?,
     @Json(name = "temperature_2m_min") val temperature2mMin: List<Double>?,
     @Json(name = "precipitation_probability_max") val precipitationProbabilityMax: List<Int>?,
+    @Json(name = "precipitation_sum") val precipitationSum: List<Double>?,
+    @Json(name = "snowfall_sum") val snowfallSum: List<Double>?,
     @Json(name = "uv_index_max") val uvIndexMax: List<Double>?
 )
 
@@ -75,9 +78,13 @@ interface OpenMeteoWeatherApi {
         @Query("latitude") lat: Double,
         @Query("longitude") lon: Double,
         @Query("current") current: String = "temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,cloud_cover",
-        @Query("hourly") hourly: String = "temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m",
+        @Query("hourly") hourly: String = "temperature_2m,precipitation_probability,precipitation,snowfall,weather_code,wind_speed_10m",
         @Query("minutely_15") minutely15: String = "precipitation",
-        @Query("daily") daily: String = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,uv_index_max",
+        @Query("daily") daily: String = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,snowfall_sum,uv_index_max",
+        // Open-Meteo defaults to 7 days; request 16 (its max) so the
+        // outlook can show 15. NWS only covers ~7 days, so days 8-15
+        // come from Open-Meteo (see fillDailyPrecipAndExtend).
+        @Query("forecast_days") forecastDays: Int = 16,
         // Request UTC explicitly. The old "auto" value returned local wall
         // times, which the repository then parsed as UTC ("${t}:00Z") and
         // shifted every hour 4-5 hours. All parsing goes through
