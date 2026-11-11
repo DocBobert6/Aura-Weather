@@ -662,7 +662,7 @@ fun RadarScreen(
                 Spacer(modifier = Modifier.height(10.dp))
                 RetroPanel(shape = RetroShapes.medium) {
                     Text(
-                        text = "FORECAST - SIMULATED RADAR (HRRR MODEL), NOT OBSERVED",
+                        text = "FORECAST",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = RetroTokens.HeaderOrange,
@@ -781,7 +781,7 @@ fun RadarScreen(
             if (isForecastRange) {
                 RetroPanel(shape = RetroShapes.medium) {
                     Text(
-                        text = "SIMULATED RADAR - HRRR FORECAST, NOT OBSERVED",
+                        text = "FORECAST",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = RetroTokens.HeaderOrange,
