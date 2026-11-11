@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Straighten
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
@@ -58,6 +59,7 @@ import androidx.core.content.ContextCompat
 import java.util.Locale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.BuildConfig
 import com.example.domain.model.Place
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
@@ -65,6 +67,8 @@ import com.example.ui.designsystem.AuraShapes
 import com.example.ui.designsystem.RetroPanel
 import com.example.ui.designsystem.RetroShapes
 import com.example.ui.designsystem.RetroTokens
+import com.example.update.CheckOutcome
+import com.example.update.UpdateChecker
 
 @Composable
 fun SettingsScreen(
@@ -555,6 +559,138 @@ fun SettingsScreen(
                     AttributionRow("Satellite Imagery", "NASA GIBS (EOSDIS) GOES-East ABI")
                     AttributionRow("Display Font", "Star4000 Large/Small by Nick Smith (twcclassics.com), via the MIT-licensed ws4kp project")
                     AttributionRow("Background Music", "WeatherStar-inspired tracks from the ws4kp project (netbymatt/ws4kp), AI-generated and unencumbered by copyright")
+                }
+            }
+        }
+
+        // In-app updater: manual check from Settings only — no
+        // automatic check on launch, no background check. The
+        // check reads the GitHub releases list; a newer stable
+        // release offers a download, which is verified (SHA-256
+        // + signer) before it reaches the installer.
+        item {
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.SystemUpdate,
+                            contentDescription = "App updates",
+                            tint = RetroTokens.Yellow,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "APP UPDATES",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = RetroTokens.TextPrimary
+                            )
+                            Text(
+                                text = "Installed version ${BuildConfig.VERSION_NAME}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = RetroTokens.TextSecondary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = { UpdateChecker.checkForUpdate(BuildConfig.VERSION_NAME) },
+                            enabled = !UpdateChecker.checking,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = RetroTokens.Yellow,
+                                contentColor = RetroTokens.Background
+                            ),
+                            shape = RetroShapes.medium
+                        ) {
+                            Text("CHECK FOR UPDATES")
+                        }
+
+                        val available = UpdateChecker.availableVersion
+                        if (available != null &&
+                            UpdateChecker.downloadUrl != null &&
+                            UpdateChecker.downloadProgress !in 0..100
+                        ) {
+                            Button(
+                                onClick = { UpdateChecker.downloadAndInstall(context) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = RetroTokens.Yellow,
+                                    contentColor = RetroTokens.Background
+                                ),
+                                shape = RetroShapes.medium
+                            ) {
+                                Text("DOWNLOAD v$available")
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    when {
+                        UpdateChecker.checking -> Text(
+                            text = "Checking for updates...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RetroTokens.TextSecondary
+                        )
+                        UpdateChecker.downloadProgress in 0..100 -> Text(
+                            text = "Downloading version ${UpdateChecker.availableVersion}... ${UpdateChecker.downloadProgress}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RetroTokens.TextSecondary
+                        )
+                        UpdateChecker.availableVersion != null -> {
+                            Text(
+                                text = "Version ${UpdateChecker.availableVersion} is available.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = RetroTokens.TextSecondary
+                            )
+                            if (UpdateChecker.downloadUrl == null) {
+                                Text(
+                                    text = "It has no APK attached yet - check back later.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = RetroTokens.TextSecondary
+                                )
+                            }
+                            UpdateChecker.releaseNotes?.let { notes ->
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = notes.take(1000),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = RetroTokens.TextSecondary
+                                )
+                            }
+                            if (UpdateChecker.downloadProgress == -2) {
+                                Text(
+                                    text = "The download failed - check your connection and try again.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = RetroTokens.HeaderRed
+                                )
+                            }
+                            if (UpdateChecker.downloadProgress == -3) {
+                                Text(
+                                    text = "That download failed its check and was deleted - try again.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = RetroTokens.HeaderRed
+                                )
+                            }
+                        }
+                        UpdateChecker.lastCheckOutcome == CheckOutcome.UP_TO_DATE -> Text(
+                            text = "You are up to date.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RetroTokens.TextSecondary
+                        )
+                        UpdateChecker.lastCheckOutcome == CheckOutcome.FAILED -> Text(
+                            text = "The check failed - check your connection and try again.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RetroTokens.HeaderRed
+                        )
+                    }
                 }
             }
         }
