@@ -320,6 +320,33 @@ fun RadarScreen(
             }
         }
 
+        // Rolling look-ahead prefetch for future ranges (loop smoothing):
+        // the range effect above prefetches only the current frame, so
+        // every loop advance used to download the next frame's tiles on
+        // demand and stutter. This keeps the next 3 frames ahead of the
+        // playhead cached, re-running as the frame index advances (and
+        // when the user scrubs). Bounded: 3 frames x the visible grid.
+        // Live needs none of this — all 10 of its frames are prefetched
+        // by the range effect. Coil deduplicates URLs already cached or
+        // in flight, so re-enqueueing a frame is a cheap cache hit.
+        LaunchedEffect(selectedRange, selectedLayer, effectiveZoomLevel, centerLat, centerLon, safeFrameIndex) {
+            if (selectedRange == RadarRange.Live) return@LaunchedEffect
+            if (selectedLayer != RadarLayer.Reflectivity && selectedLayer != RadarLayer.LocalSite) return@LaunchedEffect
+            for (k in 1..3) {
+                val layer = frames.getOrNull(safeFrameIndex + k)?.layerName ?: continue
+                val urls = radarFrameUrls(layer, centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY)
+                for (url in urls) {
+                    prefetchLoader.enqueue(
+                        ImageRequest.Builder(context)
+                            .data(url)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .build()
+                    )
+                }
+            }
+        }
+
         // Pixel center of the central tile
         val centerWorldX = lonToWorldPixel(centerLon, effectiveZoomLevel) * userScale
         val centerWorldY = latToWorldPixel(centerLat, effectiveZoomLevel) * userScale
@@ -396,7 +423,7 @@ fun RadarScreen(
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
                                     .data(radarUrl)
-                                    .crossfade(false)
+                                    .crossfade(true)
                                     .memoryCachePolicy(CachePolicy.ENABLED)
                                     .diskCachePolicy(CachePolicy.ENABLED)
                                     .build(),
