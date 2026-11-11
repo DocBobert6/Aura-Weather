@@ -119,6 +119,13 @@ fun WeatherNavDisplay(
 ) {
     var currentDestination by rememberSaveable { mutableStateOf(ScreenDestination.Home) }
 
+    // Remembered, not recreated per recomposition: the 6-second ticker
+    // rotation recomposes this shell, and a fresh lambda here would
+    // force every screen below it to recompose along with it. The state
+    // holder behind currentDestination never changes identity, so this
+    // stays valid for the shell's lifetime.
+    val onNavigate = remember { { destination: ScreenDestination -> currentDestination = destination } }
+
     // 3.1 notification deep link: a tap switches the shell to Alerts
     // (and highlights the notified alert) exactly once.
     LaunchedEffect(pendingDestination) {
@@ -214,7 +221,7 @@ fun WeatherNavDisplay(
                             selectedRadarRange = selectedRadarRange,
                             currentRadarFrameIndex = currentRadarFrameIndex,
                             isRadarPlaying = isRadarPlaying,
-                            onNavigate = { currentDestination = it },
+                            onNavigate = onNavigate,
                             tickerVisible = tickerVisible,
                             regionalPoints = regionalPoints,
                             alertsEnabled = alertsEnabled,
@@ -257,7 +264,7 @@ fun WeatherNavDisplay(
                     selectedRadarRange = selectedRadarRange,
                     currentRadarFrameIndex = currentRadarFrameIndex,
                     isRadarPlaying = isRadarPlaying,
-                    onNavigate = { currentDestination = it },
+                    onNavigate = onNavigate,
                     tickerVisible = tickerVisible,
                     regionalPoints = regionalPoints,
                     alertsEnabled = alertsEnabled,
@@ -603,6 +610,28 @@ private fun ScreenContent(
     onSetRainAlertsEnabled: (Boolean) -> Unit = {},
     highlightAlertId: String? = null
 ) {
+    // Callbacks are remembered, not recreated per recomposition: the
+    // 6-second ticker rotation recomposes the shell above this, and
+    // fresh lambdas would make every screen unskippable - the whole Home
+    // list (hero, 48-hour strip, 14-day outlook, regional map) would
+    // recompose every 6 seconds and stutter any scroll in flight. The
+    // ViewModel instance never changes, so these stay valid.
+    val onRefresh = remember(viewModel) { { viewModel.refresh() } }
+    val onSelectPlace = remember(viewModel) { { id: String -> viewModel.selectPlace(id) } }
+    val onUseCurrentLocation = remember(viewModel) { { highAccuracy: Boolean -> viewModel.useCurrentLocation(highAccuracy) } }
+    val onSelectRadarLayer = remember(viewModel) { { layer: RadarLayer -> viewModel.setRadarLayer(layer) } }
+    val onSelectRadarRange = remember(viewModel) { { range: RadarRange -> viewModel.setRadarRange(range) } }
+    val onToggleRadarPlay = remember(viewModel) { { viewModel.toggleRadarPlay() } }
+    val onScrubRadarFrame = remember(viewModel) { { index: Int -> viewModel.setRadarFrameIndex(index) } }
+    val onSetUseMetric = remember(viewModel) { { metric: Boolean -> viewModel.setUseMetric(metric) } }
+    val onSavePirateWeatherApiKey = remember(viewModel) { { key: String -> viewModel.setPirateWeatherApiKey(key) } }
+    val onAddPlace = remember(viewModel) { { name: String, state: String, lat: Double, lon: Double -> viewModel.addPlace(name, state, lat, lon) } }
+    val onNavigateToAlerts = remember(onNavigate) { { onNavigate(ScreenDestination.Alerts) } }
+    val onNavigateToAirPollen = remember(onNavigate) { { onNavigate(ScreenDestination.AirSky) } }
+    val onNavigateToSunMoon = remember(onNavigate) { { onNavigate(ScreenDestination.AirSky) } }
+    val onNavigateToSettings = remember(onNavigate) { { onNavigate(ScreenDestination.Settings) } }
+    val onViewOnRadar = remember(onNavigate) { { onNavigate(ScreenDestination.Radar) } }
+
     when (destination) {
         ScreenDestination.Home -> HomeScreen(
             state = weatherState,
@@ -611,13 +640,13 @@ private fun ScreenContent(
             loadError = loadError,
             savedPlaces = savedPlaces,
             unitFormatter = viewModel.getUnitFormatter(),
-            onRefresh = { viewModel.refresh() },
-            onSelectPlace = { viewModel.selectPlace(it) },
-            onUseCurrentLocation = { highAccuracy -> viewModel.useCurrentLocation(highAccuracy) },
-            onNavigateToAlerts = { onNavigate(ScreenDestination.Alerts) },
-            onNavigateToAirPollen = { onNavigate(ScreenDestination.AirSky) },
-            onNavigateToSunMoon = { onNavigate(ScreenDestination.AirSky) },
-            onNavigateToSettings = { onNavigate(ScreenDestination.Settings) },
+            onRefresh = onRefresh,
+            onSelectPlace = onSelectPlace,
+            onUseCurrentLocation = onUseCurrentLocation,
+            onNavigateToAlerts = onNavigateToAlerts,
+            onNavigateToAirPollen = onNavigateToAirPollen,
+            onNavigateToSunMoon = onNavigateToSunMoon,
+            onNavigateToSettings = onNavigateToSettings,
             tickerVisible = tickerVisible,
             regionalPoints = regionalPoints
         )
@@ -628,10 +657,10 @@ private fun ScreenContent(
             selectedRange = selectedRadarRange,
             currentFrameIndex = currentRadarFrameIndex,
             isPlaying = isRadarPlaying,
-            onSelectLayer = { viewModel.setRadarLayer(it) },
-            onSelectRange = { viewModel.setRadarRange(it) },
-            onTogglePlay = { viewModel.toggleRadarPlay() },
-            onScrubFrame = { viewModel.setRadarFrameIndex(it) },
+            onSelectLayer = onSelectRadarLayer,
+            onSelectRange = onSelectRadarRange,
+            onTogglePlay = onToggleRadarPlay,
+            onScrubFrame = onScrubRadarFrame,
             tickerVisible = tickerVisible
         )
 
@@ -642,7 +671,7 @@ private fun ScreenContent(
             placeName = selectedPlace?.name,
             zoneId = runCatching { java.time.ZoneId.of(weatherState?.place?.zoneId ?: "") }
                 .getOrDefault(java.time.ZoneId.systemDefault()),
-            onViewOnRadar = { onNavigate(ScreenDestination.Radar) },
+            onViewOnRadar = onViewOnRadar,
             tickerVisible = tickerVisible,
             highlightAlertId = highlightAlertId
         )
@@ -663,11 +692,11 @@ private fun ScreenContent(
             pirateWeatherAttempted = pirateWeatherAttempted,
             savedPlaces = savedPlaces,
             selectedPlaceId = selectedPlace?.id,
-            onSetUseMetric = { viewModel.setUseMetric(it) },
-            onSavePirateWeatherApiKey = { viewModel.setPirateWeatherApiKey(it) },
+            onSetUseMetric = onSetUseMetric,
+            onSavePirateWeatherApiKey = onSavePirateWeatherApiKey,
 
-            onSelectPlace = { viewModel.selectPlace(it) },
-            onAddPlace = { name, state, lat, lon -> viewModel.addPlace(name, state, lat, lon) },
+            onSelectPlace = onSelectPlace,
+            onAddPlace = onAddPlace,
             tickerVisible = tickerVisible,
             alertsEnabled = alertsEnabled,
             onSetAlertsEnabled = onSetAlertsEnabled,

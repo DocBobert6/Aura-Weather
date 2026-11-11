@@ -9,6 +9,7 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.work.AlertNotifier
@@ -106,17 +107,17 @@ class MainActivity : ComponentActivity() {
                     isRadarPlaying = isRadarPlaying,
                     regionalPoints = regionalPoints,
                     musicEnabled = musicEnabled,
-                    onToggleMusic = { viewModel.setMusicEnabled(!musicEnabled) },
+                    onToggleMusic = remember(musicEnabled) { { viewModel.setMusicEnabled(!musicEnabled) } },
                     alertsEnabled = alertsEnabled,
-                    onSetAlertsEnabled = { viewModel.setAlertsEnabled(it) },
+                    onSetAlertsEnabled = remember(viewModel) { { enabled: Boolean -> viewModel.setAlertsEnabled(enabled) } },
                     rainAlertsEnabled = rainAlertsEnabled,
-                    onSetRainAlertsEnabled = { viewModel.setRainAlertsEnabled(it) },
+                    onSetRainAlertsEnabled = remember(viewModel) { { enabled: Boolean -> viewModel.setRainAlertsEnabled(enabled) } },
                     pendingDestination = pendingNav,
                     highlightAlertId = highlightAlert,
-                    onPendingDestinationConsumed = {
+                    onPendingDestinationConsumed = remember { {
                         pendingDestination.value = null
                         highlightAlertId.value = null
-                    }
+                    } }
                 )
             }
         }

@@ -322,8 +322,20 @@ class WeatherViewModel(
         }
     }
 
+    // Memoized: a fresh UnitFormatter on every call made every screen
+    // unskippable, so the shell's 6-second ticker rotation recomposed
+    // the whole Home list (and every other screen) each time it ticked.
+    // The instance is recreated only when the unit flips.
+    private var cachedUnitFormatter: UnitFormatter? = null
+    private var cachedUnitFormatterMetric: Boolean? = null
+
     fun getUnitFormatter(): UnitFormatter {
-        return UnitFormatter(useMetric.value)
+        val metric = useMetric.value
+        if (cachedUnitFormatter == null || cachedUnitFormatterMetric != metric) {
+            cachedUnitFormatter = UnitFormatter(metric)
+            cachedUnitFormatterMetric = metric
+        }
+        return cachedUnitFormatter!!
     }
 
     class Factory(
