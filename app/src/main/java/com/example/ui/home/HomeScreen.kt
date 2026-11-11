@@ -884,7 +884,10 @@ private fun HourlyForecastCard(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(hourlyPoints.size) { index ->
+                    // Stable keys: each hour is keyed by its instant, so
+                    // a recomposition of the strip skips cells whose
+                    // hour has not changed instead of re-running all 48.
+                    items(hourlyPoints.size, key = { index -> hourlyPoints[index].time }) { index ->
                         val point = hourlyPoints[index]
                         // The first hour is now — label it, so the strip reads
                         // against the present instead of a redundant "9 AM".

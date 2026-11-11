@@ -5,6 +5,13 @@ import kotlin.math.roundToInt
 
 /**
  * Formats SI internal values into display units (US Customary or SI Metric).
+ *
+ * Stability note: this class is deliberately kept a pure function of one
+ * Boolean flag (a single private val) so the Compose compiler infers it
+ * as stable — it must NOT gain an androidx import (no @Immutable here):
+ * the pure-test classpath has no Compose runtime, and UnitFormatter is
+ * compiled there. Stability plus the ViewModel's memoization is what lets
+ * screens skip recomposition when the shell re-renders.
  */
 class UnitFormatter(private val useMetric: Boolean = false) {
 
