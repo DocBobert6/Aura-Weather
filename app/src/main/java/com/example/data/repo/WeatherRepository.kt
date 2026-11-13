@@ -850,7 +850,18 @@ class WeatherRepository(
             val now = Instant.now()
             val zoneId = runCatching { ZoneId.of(place.zoneId) }.getOrDefault(ZoneId.systemDefault())
             val solar = SolarCalculator.calculate(place.point, now, zoneId)
-            val lunar = LunarCalculator.calculate(now)
+            // Cache restore must recompute moonrise/moonset, exactly as the
+            // fresh path does: LunarCalculator.calculate() alone leaves
+            // them null, so a cached state showed no moonrise/moonset
+            // until the next successful network refresh (AUDIT5 L-1).
+            val lunarBase = LunarCalculator.calculate(now)
+            val (moonrise, moonset) = LunarCalculator.calculateRiseSet(
+                date = now.atZone(zoneId).toLocalDate(),
+                zoneId = zoneId,
+                latitude = place.point.lat,
+                longitude = place.point.lon
+            )
+            val lunar = lunarBase.copy(moonrise = moonrise, moonset = moonset)
 
             val current = moshi.adapter(CurrentConditions::class.java).fromJson(cache.currentJson)
                 ?: return null
