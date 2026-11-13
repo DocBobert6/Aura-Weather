@@ -552,7 +552,6 @@ fun SettingsScreen(
 
                     AttributionRow("Weather & Alerts", "National Weather Service (NOAA / api.weather.gov)")
                     AttributionRow("Minute-Cast & AQI", "Open-Meteo.com (CC BY 4.0)")
-                    AttributionRow("Pollen", "Unavailable — no free US pollen source")
                     AttributionRow("1-Minute Rain (with key)", "Pirate Weather (pirateweather.net)")
                     AttributionRow("Radar Reflectivity", "Iowa Environmental Mesonet (IEM) / NEXRAD")
                     AttributionRow("Radar Basemap", "Esri World Dark Gray Base")

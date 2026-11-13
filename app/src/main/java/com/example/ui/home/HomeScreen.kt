@@ -337,7 +337,7 @@ fun HomeScreen(
             )
         }
 
-        // 10. Air Quality & Pollen Summary Card
+        // 10. Air Quality Summary Card
         item {
             AirAndPollenSummaryCard(
                 state = state,
@@ -1322,7 +1322,7 @@ private fun AirAndPollenSummaryCard(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "AIR QUALITY & POLLEN",
+                    text = "AIR QUALITY",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = RetroTokens.TextSecondary
