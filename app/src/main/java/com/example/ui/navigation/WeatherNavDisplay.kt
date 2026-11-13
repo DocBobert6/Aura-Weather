@@ -38,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.example.data.mapper.pressureDescriptor
 import com.example.data.mapper.visibilityDescriptor
 import com.example.data.mapper.RadarRange
 import com.example.domain.model.FullWeatherState
@@ -570,7 +571,8 @@ private fun buildTickerItems(
         items.add("VISIBILITY: ${unitFormatter.formatVisibility(it).uppercase()}$desc")
     }
     current.pressurePa?.let {
-        items.add("BAROMETRIC PRESSURE: ${unitFormatter.formatPressure(it).uppercase()}")
+        val desc = pressureDescriptor(it)?.let { d -> " ($d)" } ?: ""
+        items.add("BAROMETRIC PRESSURE: ${unitFormatter.formatPressure(it).uppercase()}$desc")
     }
     current.windMs?.let {
         items.add("WIND: ${unitFormatter.formatWindSpeed(it).uppercase()}")
