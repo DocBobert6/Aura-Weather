@@ -407,7 +407,6 @@ private fun NoPlaceCard(
     }
 }
 
-@Composable
 /**
  * Star4000 has no en dash (U+2013), em dash (U+2014), or ellipsis
  * (U+2026) glyphs — they render blank. Strings rendered in a Star4000
@@ -418,6 +417,7 @@ private fun NoPlaceCard(
 private fun star4000Safe(text: String): String =
     text.replace("\u2014", "-").replace("\u2013", "-").replace("\u2026", "...")
 
+@Composable
 private fun LoadErrorCard(message: String, onRetry: () -> Unit) {
     RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(24.dp)) {
