@@ -743,7 +743,13 @@ class WeatherRepository(
             }
         }
         return buckets.entries.take(14).map { (date, b) ->
-            val cond = b.dayCond ?: WeatherCondition.ClearDay
+            // No daytime period for this date (e.g. today after the
+            // daytime period ends, or a trailing partial day): the
+            // condition is unknown, never an invented "Clear"
+            // (AUDIT5 L-3). WeatherCondition.Unknown renders as "Fair"
+            // with a sun/moon icon (see getWeatherIcon /
+            // conditionToWidgetIcon), so the UI handles it gracefully.
+            val cond = b.dayCond ?: WeatherCondition.Unknown
             val summary = b.dayShort?.let { short ->
                 val hi = b.highC?.let { "${it.toInt()}°" } ?: "--"
                 "$short, high $hi"
