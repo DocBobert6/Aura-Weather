@@ -240,3 +240,25 @@ fun radarFrameUrls(
         }
     }
 }
+
+/**
+ * Rolling look-ahead indices for the radar loop (AUDIT5 L-4): the
+ * next [ahead] frame indices after [currentFrameIndex], wrapping
+ * around the end of the loop so the last frames prefetch frame 0, 1,
+ * ... instead of nothing. The loop itself advances with
+ * `(index + 1) % frameCount`, so the prefetch must wrap the same way
+ * or every wrap stutters on an on-demand download.
+ *
+ * The current frame itself is never returned (it is already the
+ * visible frame, prefetched by the range effect), and duplicates are
+ * dropped, so a 1-frame loop returns an empty list and a 2-frame loop
+ * returns just the other frame.
+ */
+fun lookAheadFrameIndices(currentFrameIndex: Int, frameCount: Int, ahead: Int = 3): List<Int> {
+    if (frameCount <= 0 || ahead <= 0) return emptyList()
+    val current = currentFrameIndex.coerceIn(0, frameCount - 1)
+    return (1..ahead)
+        .map { (current + it) % frameCount }
+        .filter { it != current }
+        .distinct()
+}

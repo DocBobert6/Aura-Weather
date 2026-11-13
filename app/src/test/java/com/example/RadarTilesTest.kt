@@ -1,6 +1,7 @@
 package com.example
 
 import com.example.data.mapper.iemLayerNameFor
+import com.example.data.mapper.lookAheadFrameIndices
 import com.example.data.mapper.RadarRange
 import com.example.data.mapper.hrrrLayerName
 import com.example.data.mapper.iemTileUrl
@@ -198,6 +199,50 @@ class RadarTilesTest {
         val run = java.time.Instant.parse("2026-11-10T00:00:00Z")
         assertTrue(!frames.last().validTime.isAfter(run.plusSeconds(48 * 3600)))
         assertTrue(frames.last().validTime.isAfter(now.plusSeconds(46 * 3600)))
+    }
+
+    @Test
+    fun testLookAheadFrameIndices_noWrapMidRange() {
+        assertEquals(listOf(11, 12, 13), lookAheadFrameIndices(10, 75))
+    }
+
+    @Test
+    fun testLookAheadFrameIndices_wrapsAtLastFrame() {
+        // At the last frame the next three are 0, 1, 2 (L-4: frame 0
+        // must be prefetched before the loop wraps onto it).
+        assertEquals(listOf(0, 1, 2), lookAheadFrameIndices(74, 75))
+    }
+
+    @Test
+    fun testLookAheadFrameIndices_wrapsAtLastMinusOne() {
+        assertEquals(listOf(74, 0, 1), lookAheadFrameIndices(73, 75))
+    }
+
+    @Test
+    fun testLookAheadFrameIndices_wrapsAtLastMinusTwo() {
+        assertEquals(listOf(73, 74, 0), lookAheadFrameIndices(72, 75))
+    }
+
+    @Test
+    fun testLookAheadFrameIndices_wrapsLiveLoop() {
+        assertEquals(listOf(0, 1, 2), lookAheadFrameIndices(9, 10))
+    }
+
+    @Test
+    fun testLookAheadFrameIndices_singleFrameIsEmpty() {
+        // A 1-frame loop has no frame ahead of itself to prefetch.
+        assertEquals(emptyList<Int>(), lookAheadFrameIndices(0, 1))
+    }
+
+    @Test
+    fun testLookAheadFrameIndices_twoFramesAlternates() {
+        assertEquals(listOf(1), lookAheadFrameIndices(0, 2))
+        assertEquals(listOf(0), lookAheadFrameIndices(1, 2))
+    }
+
+    @Test
+    fun testLookAheadFrameIndices_emptyRangeIsEmpty() {
+        assertEquals(emptyList<Int>(), lookAheadFrameIndices(0, 0))
     }
 
     @Test
