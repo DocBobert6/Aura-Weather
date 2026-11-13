@@ -25,6 +25,10 @@ import kotlin.random.Random
  * on ANY focus loss — a phone call or another app's audio must never be
  * talked over by the weather music. On focus gain it resumes, but only
  * if the toggle is still on and the app is still in the foreground.
+ * A permanent loss (AUDIOFOCUS_LOSS) sends no gain afterwards, so it is
+ * recovered the next time the app returns to the foreground: onForeground()
+ * re-requests focus. A transient loss self-heals on AUDIOFOCUS_GAIN and is
+ * never re-requested, so returning mid-prompt cannot steal focus back.
  */
 class BackgroundMusicPlayer(context: Context) {
 
@@ -50,14 +54,21 @@ class BackgroundMusicPlayer(context: Context) {
     private var inForeground: Boolean = false
     private var hasFocus: Boolean = false
     private var focusRequest: AudioFocusRequest? = null
+    /** True only after a permanent AUDIOFOCUS_LOSS (no gain will follow). */
+    private var permanentFocusLoss: Boolean = false
 
     private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
             AudioManager.AUDIOFOCUS_GAIN -> {
                 hasFocus = true
+                permanentFocusLoss = false
                 updatePlayback()
             }
-            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                hasFocus = false
+                permanentFocusLoss = true
+                pause()
+            }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 hasFocus = false
@@ -82,6 +93,15 @@ class BackgroundMusicPlayer(context: Context) {
     /** Call from Activity.onStart — the app has come to the foreground. */
     fun onForeground() {
         inForeground = true
+        if (enabled && permanentFocusLoss) {
+            // A permanent loss sends no AUDIOFOCUS_GAIN, so without this
+            // the music would stay silent until the toggle was cycled.
+            // requestFocus() is a no-op while focus is still held, and a
+            // transient loss never sets the flag, so this cannot steal
+            // focus back from a transient holder or restart the track:
+            // updatePlayback() below resumes the paused player in place.
+            requestFocus()
+        }
         updatePlayback()
     }
 
@@ -181,6 +201,7 @@ class BackgroundMusicPlayer(context: Context) {
             )
         }
         hasFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        if (hasFocus) permanentFocusLoss = false
     }
 
     private fun abandonFocus() {

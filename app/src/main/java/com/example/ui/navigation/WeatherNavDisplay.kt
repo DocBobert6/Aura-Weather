@@ -38,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.example.data.mapper.pressureDescriptor
 import com.example.data.mapper.visibilityDescriptor
 import com.example.data.mapper.RadarRange
 import com.example.domain.model.FullWeatherState
@@ -570,7 +571,8 @@ private fun buildTickerItems(
         items.add("VISIBILITY: ${unitFormatter.formatVisibility(it).uppercase()}$desc")
     }
     current.pressurePa?.let {
-        items.add("BAROMETRIC PRESSURE: ${unitFormatter.formatPressure(it).uppercase()}")
+        val desc = pressureDescriptor(it)?.let { d -> " ($d)" } ?: ""
+        items.add("BAROMETRIC PRESSURE: ${unitFormatter.formatPressure(it).uppercase()}$desc")
     }
     current.windMs?.let {
         items.add("WIND: ${unitFormatter.formatWindSpeed(it).uppercase()}")
@@ -627,8 +629,12 @@ private fun ScreenContent(
     val onSavePirateWeatherApiKey = remember(viewModel) { { key: String -> viewModel.setPirateWeatherApiKey(key) } }
     val onAddPlace = remember(viewModel) { { name: String, state: String, lat: Double, lon: Double -> viewModel.addPlace(name, state, lat, lon) } }
     val onNavigateToAlerts = remember(onNavigate) { { onNavigate(ScreenDestination.Alerts) } }
-    val onNavigateToAirPollen = remember(onNavigate) { { onNavigate(ScreenDestination.AirSky) } }
-    val onNavigateToSunMoon = remember(onNavigate) { { onNavigate(ScreenDestination.AirSky) } }
+    // The AirSky destination carries two tabs; each Home summary card
+    // retargets the tab before navigating, so the Sun & Moon card lands
+    // on the Sun & Moon tab instead of the Air tab (B-1).
+    var airSkyInitialTab by rememberSaveable { mutableStateOf(0) } // 0: Air Quality, 1: Sun & Moon
+    val onNavigateToAirPollen = remember(onNavigate) { { airSkyInitialTab = 0; onNavigate(ScreenDestination.AirSky) } }
+    val onNavigateToSunMoon = remember(onNavigate) { { airSkyInitialTab = 1; onNavigate(ScreenDestination.AirSky) } }
     val onNavigateToSettings = remember(onNavigate) { { onNavigate(ScreenDestination.Settings) } }
     val onViewOnRadar = remember(onNavigate) { { onNavigate(ScreenDestination.Radar) } }
 
@@ -677,11 +683,12 @@ private fun ScreenContent(
         )
 
         ScreenDestination.AirSky -> {
-            // Tab switcher or composite view for Air & Pollen and Sun & Moon
+            // Tab switcher or composite view for Air Quality and Sun & Moon
             AirSkyCompositeView(
                 weatherState = weatherState,
                 selectedPlace = selectedPlace,
-                tickerVisible = tickerVisible
+                tickerVisible = tickerVisible,
+                initialTab = airSkyInitialTab
             )
         }
 
@@ -710,13 +717,19 @@ private fun ScreenContent(
 private fun AirSkyCompositeView(
     weatherState: FullWeatherState?,
     selectedPlace: Place?,
-    tickerVisible: Boolean
+    tickerVisible: Boolean,
+    initialTab: Int = 0
 ) {
-    var selectedTab by rememberSaveable { mutableStateOf(0) } // 0: Air & Pollen, 1: Sun & Moon
+    var selectedTab by rememberSaveable { mutableStateOf(initialTab) } // 0: Air Quality, 1: Sun & Moon
+    // A Home summary card can retarget the tab while this view is still
+    // composed — apply it, so the card's tab always wins (B-1).
+    LaunchedEffect(initialTab) {
+        selectedTab = initialTab
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         PillSegmentedControl(
-            options = listOf("Air & Pollen", "Sun & Moon"),
+            options = listOf("Air Quality", "Sun & Moon"),
             selectedIndex = selectedTab,
             onSelect = { selectedTab = it },
             modifier = Modifier

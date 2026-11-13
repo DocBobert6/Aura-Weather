@@ -219,8 +219,13 @@ private fun AlertExpandableCard(
     initiallyExpanded: Boolean = false
 ) {
     // The first card (the most severe — the list is sorted) starts open so
-    // the area and instructions are visible without a tap.
-    var expanded by remember { mutableStateOf(initiallyExpanded) }
+    // the area and instructions are visible without a tap. Keyed on
+    // initiallyExpanded so a highlight arriving after first composition
+    // (a second notification tap while already on Alerts) still expands
+    // the highlighted card; a manual collapse is kept while the key is
+    // unchanged, and items are keyed by alert id so the state follows
+    // the alert, not the list position.
+    var expanded by remember(initiallyExpanded) { mutableStateOf(initiallyExpanded) }
 
     val (badgeBg, badgeText) = AuraColors.severityStyle(alert.severity)
 

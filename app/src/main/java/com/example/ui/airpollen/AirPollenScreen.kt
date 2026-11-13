@@ -15,12 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Park
-import androidx.compose.material.icons.filled.Spa
-import androidx.compose.material.icons.filled.Yard
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,7 +26,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -80,7 +73,7 @@ fun AirPollenScreen(
         item {
             Column {
                 Text(
-                    text = "AIR QUALITY & POLLEN",
+                    text = "AIR QUALITY",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = RetroTokens.Yellow
@@ -246,44 +239,12 @@ fun AirPollenScreen(
             }
         }
 
-        // Pollen Section
-        item {
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "POLLEN",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = RetroTokens.Yellow
-            )
-        }
-
+        // Allergy Index (AQI-only): the pollen gauges are gone (L-9) -
+        // pollen counts are unavailable, so the index runs on air
+        // quality alone. The panel and its honest note stay.
         item {
             RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(18.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceAround
-                    ) {
-                        PollenGauge(
-                            title = "Tree",
-                            icon = Icons.Default.Park,
-                            level = pollen?.treeIndex,
-                            hasKey = pollen?.hasKey ?: false
-                        )
-                        PollenGauge(
-                            title = "Grass",
-                            icon = Icons.Default.Yard,
-                            level = pollen?.grassIndex,
-                            hasKey = pollen?.hasKey ?: false
-                        )
-                        PollenGauge(
-                            title = "Weed",
-                            icon = Icons.Default.Spa,
-                            level = pollen?.weedIndex,
-                            hasKey = pollen?.hasKey ?: false
-                        )
-                    }
-
                     // Build D: a simple allergy index from the pollen
                     // counts and AQI already on this screen — the worst of
                     // the two, with the driver named. It is NOT a medical
@@ -296,7 +257,6 @@ fun AirPollenScreen(
                         aqi = airQuality?.aqi
                     )
                     if (allergy != null) {
-                        Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = "ALLERGY INDEX",
                             style = MaterialTheme.typography.titleSmall,
@@ -385,32 +345,3 @@ private fun PollutantCard(
     }
 }
 
-@Composable
-private fun PollenGauge(
-    title: String,
-    icon: ImageVector,
-    level: Int?,
-    hasKey: Boolean
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(
-            imageVector = icon,
-            contentDescription = title,
-            tint = if (hasKey) AuraColors.PollenActive else RetroTokens.TextSecondary,
-            modifier = Modifier.size(32.dp)
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = title.uppercase(),
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = RetroTokens.TextPrimary
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = if (hasKey && level != null) "$level / 5" else "--",
-            style = MaterialTheme.typography.labelSmall,
-            color = RetroTokens.TextSecondary
-        )
-    }
-}

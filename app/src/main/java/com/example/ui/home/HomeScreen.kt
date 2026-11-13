@@ -218,7 +218,7 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = state.errorMessage,
+                            text = star4000Safe(state.errorMessage),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
@@ -337,7 +337,7 @@ fun HomeScreen(
             )
         }
 
-        // 10. Air Quality & Pollen Summary Card
+        // 10. Air Quality Summary Card
         item {
             AirAndPollenSummaryCard(
                 state = state,
@@ -407,6 +407,16 @@ private fun NoPlaceCard(
     }
 }
 
+/**
+ * Star4000 has no en dash (U+2013), em dash (U+2014), or ellipsis
+ * (U+2026) glyphs — they render blank. Strings rendered in a Star4000
+ * style pass through here so a stray dash never vanishes (L-8). The
+ * only live case is the offline error message ("Network offline — …",
+ * from the repository), which renders in bodyMedium here.
+ */
+private fun star4000Safe(text: String): String =
+    text.replace("\u2014", "-").replace("\u2013", "-").replace("\u2026", "...")
+
 @Composable
 private fun LoadErrorCard(message: String, onRetry: () -> Unit) {
     RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
@@ -426,7 +436,7 @@ private fun LoadErrorCard(message: String, onRetry: () -> Unit) {
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = message,
+                text = star4000Safe(message),
                 style = MaterialTheme.typography.bodyMedium,
                 color = RetroTokens.TextSecondary
             )
@@ -1036,7 +1046,7 @@ private fun DailyForecastCard(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = if (pop > 0) "$pop%" else "",
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 16.sp),
                             color = RetroTokens.TextPrimary,
                             modifier = Modifier.width(40.dp)
                         )
@@ -1312,7 +1322,7 @@ private fun AirAndPollenSummaryCard(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "AIR QUALITY & POLLEN",
+                    text = "AIR QUALITY",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = RetroTokens.TextSecondary

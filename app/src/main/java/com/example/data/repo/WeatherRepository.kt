@@ -56,6 +56,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -471,7 +472,7 @@ class WeatherRepository(
 
         // --- Hourly (48h). NWS hourly is primary when /points resolved;
         // Open-Meteo is the fallback (and the only source outside the US).
-        val hourlyList = parseNwsHourly(nwsHourlyResult?.properties?.periods, now)
+        val hourlyList = parseNwsHourly(nwsHourlyResult?.properties?.periods, now, zoneId)
             .ifEmpty { parseOpenMeteoHourly(openMeteoResult, resolvedPlace, zoneId, now) }
             // The first hour is "now": its icon must match the hero, which
             // comes from the observation. The forecast period's shortForecast
@@ -694,9 +695,9 @@ class WeatherRepository(
     }
 
     /** NWS hourly periods → hourly points, starting at the current hour. */
-    private fun parseNwsHourly(periods: List<NwsForecastPeriod>?, now: Instant): List<HourlyPoint> {
+    private fun parseNwsHourly(periods: List<NwsForecastPeriod>?, now: Instant, zoneId: ZoneId): List<HourlyPoint> {
         if (periods.isNullOrEmpty()) return emptyList()
-        val cutoff = now.minusSeconds(3600)
+        val cutoff = hourlyCutoff(now, zoneId)
         return periods.mapNotNull { period ->
             val start = period.startTime?.let { runCatching { Instant.parse(it) }.getOrNull() }
                 ?: return@mapNotNull null
@@ -742,7 +743,13 @@ class WeatherRepository(
             }
         }
         return buckets.entries.take(14).map { (date, b) ->
-            val cond = b.dayCond ?: WeatherCondition.ClearDay
+            // No daytime period for this date (e.g. today after the
+            // daytime period ends, or a trailing partial day): the
+            // condition is unknown, never an invented "Clear"
+            // (AUDIT5 L-3). WeatherCondition.Unknown renders as "Fair"
+            // with a sun/moon icon (see getWeatherIcon /
+            // conditionToWidgetIcon), so the UI handles it gracefully.
+            val cond = b.dayCond ?: WeatherCondition.Unknown
             val summary = b.dayShort?.let { short ->
                 val hi = b.highC?.let { "${it.toInt()}°" } ?: "--"
                 "$short, high $hi"
@@ -766,7 +773,7 @@ class WeatherRepository(
     ): List<HourlyPoint> {
         val omHourly = result?.hourly ?: return emptyList()
         val times = omHourly.time ?: return emptyList()
-        val cutoff = now.minusSeconds(3600)
+        val cutoff = hourlyCutoff(now, zoneId)
         val points = mutableListOf<HourlyPoint>()
         for (i in times.indices) {
             val instant = parseOpenMeteoUtcInstant(times[i]) ?: continue
@@ -850,7 +857,18 @@ class WeatherRepository(
             val now = Instant.now()
             val zoneId = runCatching { ZoneId.of(place.zoneId) }.getOrDefault(ZoneId.systemDefault())
             val solar = SolarCalculator.calculate(place.point, now, zoneId)
-            val lunar = LunarCalculator.calculate(now)
+            // Cache restore must recompute moonrise/moonset, exactly as the
+            // fresh path does: LunarCalculator.calculate() alone leaves
+            // them null, so a cached state showed no moonrise/moonset
+            // until the next successful network refresh (AUDIT5 L-1).
+            val lunarBase = LunarCalculator.calculate(now)
+            val (moonrise, moonset) = LunarCalculator.calculateRiseSet(
+                date = now.atZone(zoneId).toLocalDate(),
+                zoneId = zoneId,
+                latitude = place.point.lat,
+                longitude = place.point.lon
+            )
+            val lunar = lunarBase.copy(moonrise = moonrise, moonset = moonset)
 
             val current = moshi.adapter(CurrentConditions::class.java).fromJson(cache.currentJson)
                 ?: return null
@@ -902,6 +920,19 @@ class WeatherRepository(
         const val REGIONAL_NEIGHBOUR_DISTANCE_METERS = 80_000.0
     }
 }
+
+/**
+ * Start of the current hour in [zoneId] — the cutoff for hourly lists
+ * (AUDIT5 L-2). Entries before this instant belong to the previous hour
+ * and are dropped, so the first kept entry is the current hour and the
+ * first-hour condition override in fetchFreshWeather stamps "now" onto
+ * the current hour, not the previous one. The truncation is in the
+ * place's zone, not UTC: in a half-hour zone (e.g. Asia/Kolkata) the
+ * local hour starts on the UTC half-hour, and a UTC truncation would
+ * keep the previous local hour's entry.
+ */
+internal fun hourlyCutoff(now: Instant, zoneId: ZoneId): Instant =
+    now.atZone(zoneId).truncatedTo(ChronoUnit.HOURS).toInstant()
 
 private fun SavedPlaceEntity.toPlace(): Place = Place(
     id = id,

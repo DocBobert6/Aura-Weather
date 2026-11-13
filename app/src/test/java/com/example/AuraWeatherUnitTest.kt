@@ -19,6 +19,8 @@ import com.example.domain.astro.LunarCalculator
 import com.example.domain.astro.SolarCalculator
 import com.example.domain.model.GeoPoint
 import com.example.domain.model.WeatherCondition
+import com.example.ui.widget.WidgetConditionIcon
+import com.example.ui.widget.conditionToWidgetIcon
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -27,6 +29,7 @@ import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import kotlin.math.abs
 
 class AuraWeatherUnitTest {
@@ -535,5 +538,97 @@ class AuraWeatherUnitTest {
         // 2.5 cm = 0.98 in.
         assertEquals("0.98 in", imperial.formatSnowfall(2.5))
         assertEquals("0 in", imperial.formatSnowfall(null))
+    }
+
+    // --- AUDIT5 L-1: cache restore must recompute moonrise/moonset. ---
+    // LunarCalculator.calculate() on its own leaves both null; only
+    // calculateRiseSet() fills them. The repository's parseCacheToState
+    // now calls calculateRiseSet with the cached date/place, mirroring
+    // the fresh path — these tests pin the two halves of that contract.
+
+    @Test
+    fun testLunarCalculator_calculateLeavesMoonriseMoonsetNull() {
+        val lunar = LunarCalculator.calculate(Instant.parse("2026-11-08T12:00:00Z"))
+        assertNull("calculate() alone must not invent rise/set times", lunar.moonrise)
+        assertNull("calculate() alone must not invent rise/set times", lunar.moonset)
+    }
+
+    @Test
+    fun testLunarCalculator_riseSetRecomputeForCacheRestore() {
+        // The exact recompute parseCacheToState performs for a cached
+        // state: today's date in the place zone, at the place coords.
+        val zone = ZoneId.of("America/New_York")
+        val now = Instant.parse("2026-11-08T12:00:00Z")
+        val (rise, set) = LunarCalculator.calculateRiseSet(
+            now.atZone(zone).toLocalDate(), zone, 38.77, -84.56
+        )
+        assertNotNull("Moonrise must be recomputable on cache restore", rise)
+        assertNotNull("Moonset must be recomputable on cache restore", set)
+        assertTrue("Moonrise should precede moonset", rise!!.isBefore(set))
+        // And the copy the restore builds from them keeps both.
+        val restored = LunarCalculator.calculate(now).copy(moonrise = rise, moonset = set)
+        assertEquals(rise, restored.moonrise)
+        assertEquals(set, restored.moonset)
+    }
+
+    // --- AUDIT5 L-2: hourly lists start at the current hour. ---
+    // The repository's hourlyCutoff() is `now` truncated to the hour in
+    // the place's zone. These tests pin the cutoff arithmetic it applies
+    // (the parsers themselves are covered by WeatherRepositoryAudit5Test
+    // in CI): an entry 59 minutes ago falls before the cutoff, an entry
+    // at the current hour does not.
+
+    @Test
+    fun testHourlyCutoffRule_wholeHourZone() {
+        val zone = ZoneId.of("America/New_York")
+        val now = Instant.parse("2026-11-13T14:37:00Z") // 09:37 EST
+        val cutoff = now.atZone(zone).truncatedTo(ChronoUnit.HOURS).toInstant()
+        assertEquals(Instant.parse("2026-11-13T14:00:00Z"), cutoff)
+        val fiftyNineMinAgo = Instant.parse("2026-11-13T13:38:00Z")
+        assertTrue("Entry 59 min ago must be dropped", fiftyNineMinAgo.isBefore(cutoff))
+        val currentHour = Instant.parse("2026-11-13T14:00:00Z")
+        assertTrue("Entry at the current hour must be kept", !currentHour.isBefore(cutoff))
+    }
+
+    @Test
+    fun testHourlyCutoffRule_halfHourZone() {
+        // Asia/Kolkata is UTC+5:30, so the local hour starts on the UTC
+        // half-hour. A UTC truncation would cut at 10:00Z and keep the
+        // previous local hour's 09:00Z entry; the zone truncation cuts
+        // at 09:30Z and drops it.
+        val zone = ZoneId.of("Asia/Kolkata")
+        val now = Instant.parse("2026-11-13T10:07:00Z") // 15:37 IST
+        val cutoff = now.atZone(zone).truncatedTo(ChronoUnit.HOURS).toInstant()
+        assertEquals(Instant.parse("2026-11-13T09:30:00Z"), cutoff)
+        assertEquals(
+            "UTC truncation would give the wrong cutoff here",
+            Instant.parse("2026-11-13T10:00:00Z"), now.truncatedTo(ChronoUnit.HOURS)
+        )
+        val previousLocalHour = Instant.parse("2026-11-13T09:00:00Z") // 14:30 IST
+        assertTrue("Previous local hour entry must be dropped", previousLocalHour.isBefore(cutoff))
+        val currentHour = Instant.parse("2026-11-13T10:00:00Z") // 15:30 IST
+        assertTrue("Current local hour entry must be kept", !currentHour.isBefore(cutoff))
+    }
+
+    // --- AUDIT5 L-3: a daily bucket with no daytime period is Unknown. ---
+    // Unknown renders as "Fair" (not an invented "Clear") and both icon
+    // mappings cover it, so a night-only day cannot crash the UI.
+
+    @Test
+    fun testWeatherConditionUnknown_rendersAsFairNotClear() {
+        assertEquals("Fair", WeatherCondition.Unknown.displayName)
+        assertTrue("Unknown must be distinct from ClearDay", WeatherCondition.Unknown != WeatherCondition.ClearDay)
+    }
+
+    @Test
+    fun testWeatherConditionUnknown_widgetIcon() {
+        assertEquals(
+            WidgetConditionIcon.Sunny,
+            conditionToWidgetIcon(WeatherCondition.Unknown, true)
+        )
+        assertEquals(
+            WidgetConditionIcon.Moon,
+            conditionToWidgetIcon(WeatherCondition.Unknown, false)
+        )
     }
 }

@@ -68,6 +68,7 @@ import coil.request.ImageRequest
 import com.example.data.mapper.gibsTimestamp
 import com.example.data.mapper.RadarRange
 import com.example.data.mapper.iemLayerNameFor
+import com.example.data.mapper.lookAheadFrameIndices
 import com.example.data.mapper.radarFrameUrls
 import com.example.data.mapper.radarRangeFrames
 import com.example.data.mapper.latToTileY
@@ -332,8 +333,14 @@ fun RadarScreen(
         LaunchedEffect(selectedRange, selectedLayer, effectiveZoomLevel, centerLat, centerLon, safeFrameIndex) {
             if (selectedRange == RadarRange.Live) return@LaunchedEffect
             if (selectedLayer != RadarLayer.Reflectivity && selectedLayer != RadarLayer.LocalSite) return@LaunchedEffect
-            for (k in 1..3) {
-                val layer = frames.getOrNull(safeFrameIndex + k)?.layerName ?: continue
+            // Wrap around the end of the loop (L-4): at the last frames
+            // the next indices are 0, 1, 2, so frame 0 is prefetched
+            // before the loop wraps onto it instead of downloading on
+            // demand and stuttering once per cycle. This effect is keyed
+            // on safeFrameIndex, so the wrap prefetch runs as soon as the
+            // playhead reaches the last frame.
+            for (index in lookAheadFrameIndices(safeFrameIndex, frameCount)) {
+                val layer = frames.getOrNull(index)?.layerName ?: continue
                 val urls = radarFrameUrls(layer, centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY)
                 for (url in urls) {
                     prefetchLoader.enqueue(
