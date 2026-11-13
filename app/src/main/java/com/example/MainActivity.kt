@@ -44,9 +44,15 @@ class MainActivity : ComponentActivity() {
     private val highlightAlertId = MutableStateFlow<String?>(null)
 
     private fun handleDeepLink(intent: Intent?) {
-        if (intent?.getStringExtra(AlertNotifier.EXTRA_DESTINATION) == AlertNotifier.DESTINATION_ALERTS) {
-            highlightAlertId.value = intent.getStringExtra(AlertNotifier.EXTRA_ALERT_ID)
-            pendingDestination.value = ScreenDestination.Alerts
+        when (intent?.getStringExtra(AlertNotifier.EXTRA_DESTINATION)) {
+            AlertNotifier.DESTINATION_ALERTS -> {
+                highlightAlertId.value = intent.getStringExtra(AlertNotifier.EXTRA_ALERT_ID)
+                pendingDestination.value = ScreenDestination.Alerts
+            }
+            AlertNotifier.DESTINATION_HOME -> {
+                highlightAlertId.value = null
+                pendingDestination.value = ScreenDestination.Home
+            }
         }
     }
 

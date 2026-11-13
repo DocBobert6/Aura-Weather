@@ -31,6 +31,7 @@ object AlertNotifier {
     const val EXTRA_DESTINATION = "com.example.extra.DESTINATION"
     const val EXTRA_ALERT_ID = "com.example.extra.ALERT_ID"
     const val DESTINATION_ALERTS = "alerts"
+    const val DESTINATION_HOME = "home"
 
     fun createChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -62,6 +63,7 @@ object AlertNotifier {
     fun notifyRain(context: Context, minutesUntil: Int, intensity: String, placeName: String?) {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_DESTINATION, DESTINATION_HOME)
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
