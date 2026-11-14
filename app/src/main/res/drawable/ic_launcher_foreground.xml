@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/ic_aura_weather_1793991075925"
+        android:drawable="@drawable/ic_aura_weather_sun_orbit"
         android:gravity="center" />
 </layer-list>
