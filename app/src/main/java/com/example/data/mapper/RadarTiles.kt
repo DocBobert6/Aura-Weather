@@ -6,6 +6,7 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlin.math.cos
 import kotlin.math.ln
+import kotlin.math.roundToInt
 import kotlin.math.tan
 
 /**
@@ -249,16 +250,92 @@ fun radarFrameUrls(
  * `(index + 1) % frameCount`, so the prefetch must wrap the same way
  * or every wrap stutters on an on-demand download.
  *
+ * Default [ahead] is 5 (radar smoothness fix, 2026-11-14): 3 was not
+ * enough — with ~77 tiles per frame on a phone grid and only a
+ * handful of concurrent IEM requests, the loop outran a 3-frame
+ * buffer and arrived at blank frames. 5 frames is the rolling
+ * window; the range effect also prefetches the current frame plus
+ * this window on a range switch. Whole ranges (49-99 frames) are
+ * never prefetched: thousands of requests.
+ *
  * The current frame itself is never returned (it is already the
  * visible frame, prefetched by the range effect), and duplicates are
  * dropped, so a 1-frame loop returns an empty list and a 2-frame loop
  * returns just the other frame.
  */
-fun lookAheadFrameIndices(currentFrameIndex: Int, frameCount: Int, ahead: Int = 3): List<Int> {
+fun lookAheadFrameIndices(currentFrameIndex: Int, frameCount: Int, ahead: Int = 5): List<Int> {
     if (frameCount <= 0 || ahead <= 0) return emptyList()
     val current = currentFrameIndex.coerceIn(0, frameCount - 1)
     return (1..ahead)
         .map { (current + it) % frameCount }
         .filter { it != current }
         .distinct()
+}
+
+// ---------------------------------------------------------------------------
+// GIBS satellite tiles (radar smoothness fix, 2026-11-14): the satellite
+// layers are a tile grid like radar, not a single image — the screen
+// used to prefetch nothing for them, so satellite loaded tile-by-tile
+// behind the LOADING overlay. These are the exact URLs the screen's
+// AsyncImage loads, so a prefetched tile is a cache hit for it.
+// ---------------------------------------------------------------------------
+
+/** One GIBS satellite tile URL. [isVisible] selects the GeoColor
+ * visible layer (matrix set Level7, matrices 0..6); false is the
+ * Band13 clean-infrared layer (matrix set Level6, matrices 0..5).
+ * [gibsTime] is the full UTC timestamp from gibsTimestamp; [zoom]
+ * must already be the layer-clamped effective zoom (see
+ * satelliteZoomLevel) — an unclamped zoom 404s/400s. */
+fun gibsTileUrl(isVisible: Boolean, gibsTime: String, zoom: Int, tileX: Int, tileY: Int): String =
+    if (isVisible) {
+        "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/$gibsTime/GoogleMapsCompatible_Level7/$zoom/$tileY/$tileX.png"
+    } else {
+        "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_Band13_Clean_Infrared/default/$gibsTime/GoogleMapsCompatible_Level6/$zoom/$tileY/$tileX.png"
+    }
+
+/**
+ * The GIBS satellite tile URLs for the visible grid centred on the
+ * place — the same grid the screen renders (see the file header
+ * note on tilesX/tilesY vs the drawn 2 * half + 1 span). One bounded
+ * burst per layer/zoom/centre change, exactly like the radar
+ * current-frame prefetch.
+ */
+fun satelliteTileUrls(
+    isVisible: Boolean,
+    gibsTime: String,
+    centerLat: Double,
+    centerLon: Double,
+    zoom: Int,
+    tilesX: Int,
+    tilesY: Int
+): List<String> {
+    val centerTileX = lonToTileX(centerLon, zoom)
+    val centerTileY = latToTileY(centerLat, zoom)
+    val halfX = tilesX / 2
+    val halfY = tilesY / 2
+    return buildList {
+        for (dx in -halfX..halfX) {
+            for (dy in -halfY..halfY) {
+                add(gibsTileUrl(isVisible, gibsTime, zoom, centerTileX + dx, centerTileY + dy))
+            }
+        }
+    }
+}
+
+/**
+ * Snapped tile span (satellite seam fix, 2026-11-14): the screen span
+ * of tile [tileIndex] at [stepPx] pixels per tile from a common
+ * [originPx] (the screen position of world x/y = 0). The left edge
+ * is rounded, and the width is derived from the NEXT tile's left
+ * edge — never from a separately rounded size — so adjacent tiles
+ * share edges exactly and no 1px seams open up when the step is
+ * fractional (pinch zoom) or the size round-trips through dp.
+ * Returns (leftPx, widthPx); width is always stepPx rounded to the
+ * nearest integer, i.e. floor or ceil of the step, never 0 for a
+ * step >= 1px.
+ */
+fun snappedTileSpan(originPx: Float, tileIndex: Int, stepPx: Float): Pair<Int, Int> {
+    val left = (originPx + tileIndex * stepPx).roundToInt()
+    val right = (originPx + (tileIndex + 1) * stepPx).roundToInt()
+    return left to (right - left)
 }

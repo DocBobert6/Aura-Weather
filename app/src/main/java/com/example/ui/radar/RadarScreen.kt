@@ -1,5 +1,7 @@
 package com.example.ui.radar
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -35,6 +37,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -43,6 +46,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -65,6 +69,7 @@ import coil.compose.AsyncImage
 import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import com.example.data.mapper.gibsTileUrl
 import com.example.data.mapper.gibsTimestamp
 import com.example.data.mapper.RadarRange
 import com.example.data.mapper.iemLayerNameFor
@@ -74,7 +79,9 @@ import com.example.data.mapper.radarRangeFrames
 import com.example.data.mapper.latToTileY
 import com.example.data.mapper.lonToTileX
 import com.example.data.mapper.radarPrefetchUrls
+import com.example.data.mapper.satelliteTileUrls
 import com.example.data.mapper.satelliteZoomLevel
+import com.example.data.mapper.snappedTileSpan
 import com.example.domain.model.FullWeatherState
 import com.example.ui.RadarLayer
 import com.example.ui.designsystem.AuraBars
@@ -89,6 +96,8 @@ import kotlin.math.ln
 import kotlin.math.roundToInt
 import kotlin.math.tan
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 // The scrubber's custom thumb is an experimental Material3 API.
 @OptIn(ExperimentalMaterial3Api::class)
@@ -190,6 +199,35 @@ fun RadarScreen(
     val forecastUnavailable = isForecastRange && !isSatellite &&
         forecastTileErr >= 3 && forecastTileOk == 0
 
+    // Per-frame tile settlement (radar smoothness fix, 2026-11-14):
+    // the loop used to advance every 750ms whether or not the next
+    // frame's tiles had arrived, so it showed blank dark basemap and
+    // tiles popping in one by one. These counters track the CURRENT
+    // frame's radar tiles only (loaded or errored) and reset whenever
+    // the frame, range, layer, zoom or centre changes — i.e. whenever
+    // the tile set changes. Satellite layers do not count here: their
+    // tiles are tracked by satSettled and the loop never runs for them.
+    // frameTotalTiles is pushed up from the tile grid (BoxWithConstraints
+    // scope) via SideEffect; the guard keeps the frame "not ready"
+    // until the grid has reported its size at least once.
+    var frameTileOk by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, safeFrameIndex, forecastRetryGen) { mutableIntStateOf(0) }
+    var frameTileErr by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, safeFrameIndex, forecastRetryGen) { mutableIntStateOf(0) }
+    var frameTotalTiles by remember { mutableIntStateOf(0) }
+    val frameReady = frameTotalTiles > 0 && frameTileOk + frameTileErr >= frameTotalTiles
+    // The loop effect below does not restart on frame changes, so it
+    // reads readiness through rememberUpdatedState (same pattern as
+    // latestFrameIndex) instead of capturing a stale value.
+    val latestFrameReady by rememberUpdatedState(frameReady)
+    // Whole-frame fade-in (fix 3): the radar layer stays hidden until
+    // its tiles have settled, then fades in complete over 150ms
+    // instead of tiles popping in one by one. Satellite keeps the
+    // fixed 0.85 alpha (its own loading overlay covers the wait).
+    val frameAlpha by animateFloatAsState(
+        targetValue = if (isSatellite) 0.85f else if (frameReady) 0.85f else 0f,
+        animationSpec = tween(durationMillis = 150),
+        label = "radarFrameAlpha"
+    )
+
     // Auto-retry when the forecast is unavailable: up to 3 attempts
     // with exponential backoff (5s, 10s, 20s), then stop and leave the
     // RETRY button. Each attempt bumps the retry generation, which
@@ -213,11 +251,22 @@ fun RadarScreen(
     // frame index + play state. rememberUpdatedState keeps the frame
     // index fresh inside the loop without restarting the effect on every
     // frame advance (which would reset the 750ms delay each time).
+    //
+    // Frame-ready hold (radar smoothness fix, 2026-11-14): the loop no
+    // longer steps blindly every 750ms. Each step waits for the CURRENT
+    // frame's tiles to settle (loaded or errored) — so the frame the
+    // user sees is always complete — then dwells 750ms, then advances.
+    // The 750ms is now a minimum dwell, not a blind step. The 2s
+    // timeout is the honest fallback: a dead or slow server can delay
+    // a step, never freeze the loop.
     val latestFrameIndex by rememberUpdatedState(safeFrameIndex)
     val latestOnScrubFrame by rememberUpdatedState(onScrubFrame)
     LaunchedEffect(isPlaying, isSatellite, selectedRange) {
         if (!isPlaying || isSatellite) return@LaunchedEffect
         while (true) {
+            withTimeoutOrNull(2000L) {
+                snapshotFlow { latestFrameReady }.first { it }
+            }
             delay(750)
             latestOnScrubFrame((latestFrameIndex + 1) % frameCount.coerceAtLeast(1))
         }
@@ -262,6 +311,11 @@ fun RadarScreen(
         // Tiles actually rendered: the loop runs -half..half on each axis.
         val totalSatTiles = (2 * halfTilesX + 1) * (2 * halfTilesY + 1)
 
+        // Push the rendered tile count up to the per-frame settlement
+        // state (fix 2): the loop's frame-ready gate needs the total
+        // the grid actually draws, which is only known here.
+        SideEffect { frameTotalTiles = totalSatTiles }
+
         // Safety: never leave the satellite loading overlay up forever.
         // If the tiles have not all settled in 12s, hide it anyway.
         LaunchedEffect(selectedLayer, effectiveZoomLevel) {
@@ -276,8 +330,9 @@ fun RadarScreen(
         // when the layer, zoom, or centre changes — not on every frame
         // advance, and not on pinch-zoom (the grid is captured when the
         // effect last ran; a resize loads its new tiles on demand).
-        // Satellite is a single image, so it needs no prefetch. The grid
-        // is capped (tilesX <= 9, tilesY <= 11) and Coil bounds the
+        // Satellite layers get the same treatment below (fix 4): the
+        // GIBS grid is a tile set like radar, not a single image. The
+        // grid is capped (tilesX <= 9, tilesY <= 11) and Coil bounds the
         // network concurrency, so this is a bounded burst, not a flood.
         // The prefetch and the AsyncImage loads share the same
         // ImageLoader, the same URLs, and explicit cache policies, so a
@@ -302,39 +357,69 @@ fun RadarScreen(
                         }
                     }
                 } else {
-                    // Ranges have 49-99 frames: prefetching them all
-                    // would be thousands of tile requests. Prefetch only
-                    // the current frame's layer; the rest load on demand
-                    // and are cached by Coil as the user plays/scrubs.
-                    val layer = currentFrame?.layerName ?: return@LaunchedEffect
-                    val urls = radarFrameUrls(layer, centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY)
-                    for (url in urls) {
-                        prefetchLoader.enqueue(
-                            ImageRequest.Builder(context)
-                                .data(url)
-                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                .diskCachePolicy(CachePolicy.ENABLED)
-                                .build()
-                        )
+                    // Switch burst (fix 1): prefetch the current frame
+                    // AND the next 5 frames (the rolling look-ahead
+                    // window), so the loop does not arrive at unloaded
+                    // frames right after a range switch. Bounded: 6
+                    // frames x the visible grid (~77 tiles on a phone
+                    // grid = ~460 requests), never the whole range —
+                    // 49-99 frames would be thousands of requests.
+                    // Coil deduplicates URLs already cached or in
+                    // flight, so the overlap with the rolling
+                    // look-ahead effect below is free.
+                    val burstIndices = listOf(safeFrameIndex) +
+                        lookAheadFrameIndices(safeFrameIndex, frameCount)
+                    for (index in burstIndices) {
+                        val layer = frames.getOrNull(index)?.layerName ?: continue
+                        val urls = radarFrameUrls(layer, centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY)
+                        for (url in urls) {
+                            prefetchLoader.enqueue(
+                                ImageRequest.Builder(context)
+                                    .data(url)
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .build()
+                            )
+                        }
                     }
+                }
+            } else if (isSatellite) {
+                // Satellite prefetch (fix 4): the GIBS grid is a tile
+                // set like radar, not a single image — prefetch the
+                // visible grid on layer/zoom/centre change so the
+                // overlay clears fast instead of tile-by-tile. One
+                // bounded burst (~77 tiles on a phone grid).
+                val urls = satelliteTileUrls(
+                    selectedLayer == RadarLayer.SatelliteVis,
+                    gibsTime, centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY
+                )
+                for (url in urls) {
+                    prefetchLoader.enqueue(
+                        ImageRequest.Builder(context)
+                            .data(url)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .build()
+                    )
                 }
             }
         }
 
         // Rolling look-ahead prefetch for future ranges (loop smoothing):
-        // the range effect above prefetches only the current frame, so
-        // every loop advance used to download the next frame's tiles on
-        // demand and stutter. This keeps the next 3 frames ahead of the
-        // playhead cached, re-running as the frame index advances (and
-        // when the user scrubs). Bounded: 3 frames x the visible grid.
-        // Live needs none of this — all 10 of its frames are prefetched
-        // by the range effect. Coil deduplicates URLs already cached or
-        // in flight, so re-enqueueing a frame is a cheap cache hit.
+        // the range effect above prefetches the current frame plus the
+        // first 5, so every loop advance used to download the next
+        // frame's tiles on demand and stutter. This keeps the next 5
+        // frames ahead of the playhead cached, re-running as the frame
+        // index advances (and when the user scrubs). Bounded: 5 frames
+        // x the visible grid. Live needs none of this — all 10 of its
+        // frames are prefetched by the range effect. Coil deduplicates
+        // URLs already cached or in flight, so re-enqueueing a frame is
+        // a cheap cache hit.
         LaunchedEffect(selectedRange, selectedLayer, effectiveZoomLevel, centerLat, centerLon, safeFrameIndex) {
             if (selectedRange == RadarRange.Live) return@LaunchedEffect
             if (selectedLayer != RadarLayer.Reflectivity && selectedLayer != RadarLayer.LocalSite) return@LaunchedEffect
             // Wrap around the end of the loop (L-4): at the last frames
-            // the next indices are 0, 1, 2, so frame 0 is prefetched
+            // the next indices are 0, 1, 2, 3, 4, so frame 0 is prefetched
             // before the loop wraps onto it instead of downloading on
             // demand and stuttering once per cycle. This effect is keyed
             // on safeFrameIndex, so the wrap prefetch runs as soon as the
@@ -358,6 +443,12 @@ fun RadarScreen(
         val centerWorldX = lonToWorldPixel(centerLon, effectiveZoomLevel) * userScale
         val centerWorldY = latToWorldPixel(centerLat, effectiveZoomLevel) * userScale
 
+        // Map origin: the screen position of world x/y = 0. Every tile's
+        // snapped edges (below) are derived from this one origin, so
+        // adjacent tiles share edges exactly.
+        val mapOriginX = (screenWidthPx / 2f) - centerWorldX + panOffsetX
+        val mapOriginY = (screenHeightPx / 2f) - centerWorldY + panOffsetY
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -379,27 +470,34 @@ fun RadarScreen(
                     val tileX = centerTileX + dx
                     val tileY = centerTileY + dy
 
-                    // Calculate top-left position on screen for this tile
-                    val tileWorldLeft = tileX * 256f * userScale
-                    val tileWorldTop = tileY * 256f * userScale
-
-                    val screenX = (screenWidthPx / 2f) + (tileWorldLeft - centerWorldX) + panOffsetX
-                    val screenY = (screenHeightPx / 2f) + (tileWorldTop - centerWorldY) + panOffsetY
+                    // Snapped tile edges (fix 4): each tile's left/top
+                    // edge is rounded once from the common map origin
+                    // and its width comes from the NEXT tile's left edge
+                    // (snappedTileSpan), so adjacent tiles share edges
+                    // exactly. Rounding each tile's offset and size
+                    // independently left 1px gaps or overlaps whenever
+                    // the tile step was fractional (pinch zoom) — visible
+                    // as seams on satellite.
+                    val (tileLeftPx, tileWidthPx) = snappedTileSpan(mapOriginX, tileX, tileSizePx)
+                    val (tileTopPx, tileHeightPx) = snappedTileSpan(mapOriginY, tileY, tileSizePx)
 
                     val basemapUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/$effectiveZoomLevel/$tileY/$tileX"
                     val radarUrl = when (selectedLayer) {
                         RadarLayer.Reflectivity, RadarLayer.LocalSite ->
                             "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$iemLayerName/$effectiveZoomLevel/$tileX/$tileY.png"
                         RadarLayer.SatelliteVis ->
-                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/$gibsTime/GoogleMapsCompatible_Level7/$effectiveZoomLevel/$tileY/$tileX.png"
+                            gibsTileUrl(true, gibsTime, effectiveZoomLevel, tileX, tileY)
                         RadarLayer.SatelliteIr ->
-                            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_Band13_Clean_Infrared/default/$gibsTime/GoogleMapsCompatible_Level6/$effectiveZoomLevel/$tileY/$tileX.png"
+                            gibsTileUrl(false, gibsTime, effectiveZoomLevel, tileX, tileY)
                     }
 
                     Box(
                         modifier = Modifier
-                            .offset { IntOffset(screenX.roundToInt(), screenY.roundToInt()) }
-                            .size(with(LocalDensity.current) { tileSizePx.toDp() })
+                            .offset { IntOffset(tileLeftPx, tileTopPx) }
+                            .size(
+                                with(LocalDensity.current) { tileWidthPx.toDp() },
+                                with(LocalDensity.current) { tileHeightPx.toDp() }
+                            )
                     ) {
                         // 1. Esri World Dark Gray Base (dark, keyless). CARTO dark_all now returns an
                         // "API KEY REQUIRED" watermark tile, so it cannot be used.
@@ -417,14 +515,17 @@ fun RadarScreen(
                         // 2. Real IEM NEXRAD Composite Radar Tile (Transparent PNG when no rain!)
                         // Satellite layers report each tile as it settles
                         // (loaded or errored) so the loading overlay knows
-                        // when the imagery has arrived; radar layers do not
-                        // need it (prefetched, and the loop shows progress).
-                        // Forecast ranges also report each tile, so a down
-                        // IEM backend shows the "future radar unavailable"
-                        // state instead of a blank void. Explicit cache
-                        // policies: the prefetch and the screen share the
-                        // same ImageLoader and URLs, so a prefetched tile
-                        // is a cache hit here. key(forecastRetryGen)
+                        // when the imagery has arrived. Radar layers
+                        // report each tile to the per-frame settlement
+                        // counters (fix 2/3): the loop holds until the
+                        // frame's tiles have settled, and the layer fades
+                        // in whole once they have. Forecast ranges also
+                        // report each tile, so a down IEM backend shows
+                        // the "future radar unavailable" state instead of
+                        // a blank void. Explicit cache policies: the
+                        // prefetch and the screen share the same
+                        // ImageLoader and URLs, so a prefetched tile is
+                        // a cache hit here. key(forecastRetryGen)
                         // recreates the request on a retry.
                         key(forecastRetryGen) {
                             AsyncImage(
@@ -439,14 +540,16 @@ fun RadarScreen(
                                 onSuccess = {
                                     if (isSatellite) satSettled++
                                     if (isForecastRange && !isSatellite) forecastTileOk++
+                                    if (!isSatellite) frameTileOk++
                                 },
                                 onError = {
                                     if (isSatellite) satSettled++
                                     if (isForecastRange && !isSatellite) forecastTileErr++
+                                    if (!isSatellite) frameTileErr++
                                 },
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .alpha(0.85f)
+                                    .alpha(frameAlpha)
                             )
                         }
 

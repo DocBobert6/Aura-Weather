@@ -1,5 +1,6 @@
 package com.example
 
+import com.example.data.mapper.gibsTileUrl
 import com.example.data.mapper.iemLayerNameFor
 import com.example.data.mapper.lookAheadFrameIndices
 import com.example.data.mapper.RadarRange
@@ -11,7 +12,9 @@ import com.example.data.mapper.radarRangeFrames
 import com.example.data.mapper.latToTileY
 import com.example.data.mapper.lonToTileX
 import com.example.data.mapper.radarPrefetchUrls
+import com.example.data.mapper.satelliteTileUrls
 import com.example.data.mapper.satelliteZoomLevel
+import com.example.data.mapper.snappedTileSpan
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -203,29 +206,36 @@ class RadarTilesTest {
 
     @Test
     fun testLookAheadFrameIndices_noWrapMidRange() {
-        assertEquals(listOf(11, 12, 13), lookAheadFrameIndices(10, 75))
+        // Default look-ahead is 5 (radar smoothness fix, 2026-11-14).
+        assertEquals(listOf(11, 12, 13, 14, 15), lookAheadFrameIndices(10, 75))
+    }
+
+    @Test
+    fun testLookAheadFrameIndices_explicitAheadThree() {
+        // The old 3-frame window is still available explicitly.
+        assertEquals(listOf(11, 12, 13), lookAheadFrameIndices(10, 75, ahead = 3))
     }
 
     @Test
     fun testLookAheadFrameIndices_wrapsAtLastFrame() {
-        // At the last frame the next three are 0, 1, 2 (L-4: frame 0
+        // At the last frame the next five are 0, 1, 2, 3, 4 (L-4: frame 0
         // must be prefetched before the loop wraps onto it).
-        assertEquals(listOf(0, 1, 2), lookAheadFrameIndices(74, 75))
+        assertEquals(listOf(0, 1, 2, 3, 4), lookAheadFrameIndices(74, 75))
     }
 
     @Test
     fun testLookAheadFrameIndices_wrapsAtLastMinusOne() {
-        assertEquals(listOf(74, 0, 1), lookAheadFrameIndices(73, 75))
+        assertEquals(listOf(74, 0, 1, 2, 3), lookAheadFrameIndices(73, 75))
     }
 
     @Test
     fun testLookAheadFrameIndices_wrapsAtLastMinusTwo() {
-        assertEquals(listOf(73, 74, 0), lookAheadFrameIndices(72, 75))
+        assertEquals(listOf(73, 74, 0, 1, 2), lookAheadFrameIndices(72, 75))
     }
 
     @Test
     fun testLookAheadFrameIndices_wrapsLiveLoop() {
-        assertEquals(listOf(0, 1, 2), lookAheadFrameIndices(9, 10))
+        assertEquals(listOf(0, 1, 2, 3, 4), lookAheadFrameIndices(9, 10))
     }
 
     @Test
@@ -252,5 +262,81 @@ class RadarTilesTest {
         assertEquals(9, urls.size)
         assertTrue(urls.all { it.contains("ridge::USCOMP-N0Q-202611100040") })
         assertTrue(urls.all { it.startsWith("https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/") })
+    }
+
+    @Test
+    fun testGibsTileUrl_visible() {
+        // GeoColor visible: Level7 matrix set, timestamp in the path.
+        assertEquals(
+            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/2026-11-14T02:30:00Z/GoogleMapsCompatible_Level7/6/93/64.png",
+            gibsTileUrl(true, "2026-11-14T02:30:00Z", 6, 64, 93)
+        )
+    }
+
+    @Test
+    fun testGibsTileUrl_infrared() {
+        // Band13 clean IR: Level6 matrix set.
+        assertEquals(
+            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_Band13_Clean_Infrared/default/2026-11-14T02:30:00Z/GoogleMapsCompatible_Level6/5/93/64.png",
+            gibsTileUrl(false, "2026-11-14T02:30:00Z", 5, 64, 93)
+        )
+    }
+
+    @Test
+    fun testSatelliteTileUrls_visibleGrid() {
+        // Same 6x9 phone grid as the radar prefetch: 7 x 9 = 63 tiles,
+        // centred on tile (67, 97) at zoom 8, first tile (64, 93).
+        val urls = satelliteTileUrls(true, "2026-11-14T02:30:00Z", centerLat, centerLon, zoom, tilesX, tilesY)
+        assertEquals(63, urls.size)
+        assertTrue(urls.all { it.contains("GOES-East_ABI_GeoColor") })
+        assertTrue(urls.all { it.contains("GoogleMapsCompatible_Level7") })
+        assertTrue(urls.all { it.contains("2026-11-14T02:30:00Z") })
+        assertEquals(
+            "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/2026-11-14T02:30:00Z/GoogleMapsCompatible_Level7/8/93/64.png",
+            urls.first()
+        )
+    }
+
+    @Test
+    fun testSatelliteTileUrls_infraredGrid() {
+        val urls = satelliteTileUrls(false, "2026-11-14T02:30:00Z", centerLat, centerLon, 5, tilesX, tilesY)
+        assertEquals(63, urls.size)
+        assertTrue(urls.all { it.contains("GOES-East_ABI_Band13_Clean_Infrared") })
+        assertTrue(urls.all { it.contains("GoogleMapsCompatible_Level6") })
+        assertTrue(urls.all { it.contains("/5/") })
+    }
+
+    @Test
+    fun testSnappedTileSpan_integerStepIsExact() {
+        // Whole-pixel step: every tile is exactly the step wide.
+        assertEquals(100 to 256, snappedTileSpan(100f, 0, 256f))
+        assertEquals(356 to 256, snappedTileSpan(100f, 1, 256f))
+        assertEquals(-156 to 256, snappedTileSpan(100f, -1, 256f))
+    }
+
+    @Test
+    fun testSnappedTileSpan_fractionalStepSharesEdges() {
+        // Pinch-zoom step (256 * 1.03): consecutive spans must share
+        // edges exactly — the right edge of one is the left edge of
+        // the next — with widths of 263 or 264, never a 1px gap.
+        val step = 263.68f
+        for (i in -5..20) {
+            val (left, width) = snappedTileSpan(17.3f, i, step)
+            val (nextLeft, _) = snappedTileSpan(17.3f, i + 1, step)
+            assertEquals(nextLeft, left + width)
+            assertTrue(width == 263 || width == 264)
+        }
+    }
+
+    @Test
+    fun testSnappedTileSpan_absoluteTileCoords() {
+        // Absolute tile indices (zoom 8 centre tile ~68) with a
+        // fractional origin: widths stay the step, no drift.
+        val (left, width) = snappedTileSpan(-1234.25f, 68, 256f)
+        assertEquals(16174, left)
+        assertEquals(256, width)
+        val (left2, width2) = snappedTileSpan(-1234.25f, 69, 256f)
+        assertEquals(left + width, left2)
+        assertEquals(256, width2)
     }
 }
