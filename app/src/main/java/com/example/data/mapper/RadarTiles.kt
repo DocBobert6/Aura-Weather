@@ -332,13 +332,24 @@ fun loopDwellMs(displayedIndex: Int, frameCount: Int): Long =
 /**
  * Honest first-load data cost of preloading the loop, for the
  * "LOADING LOOP..." state (AUDIT6 §9 Fix 3). From the audit's probe
- * (§9 Fix 3 / appendix): LIVE downloads ~25 MB of speckle-heavy
+ * (§9 Fix 3 / appendix): IEM LIVE downloads ~25 MB of speckle-heavy
  * tiles the first time, then reads them from the disk cache; future
  * ranges are mostly transparent PNGs (~3.5 MB for 24H, ~5 MB for
- * 48H). Star4000-safe: capitals, digits, spaces and periods only.
+ * 48H). With the Fix 6+7 wiring the LIVE loop is usually MRMS
+ * (10 frames x ~9 KB per viewport-size image) or LibreWXR
+ * (10 frames x ~26 KB per clear 77-tile frame) — both far cheaper
+ * than IEM live — so the Live cost follows the resolved source.
+ * Star4000-safe: capitals, digits, spaces and periods only.
  */
-fun loopPreloadCostText(range: RadarRange): String = when (range) {
-    RadarRange.Live -> "FIRST LOAD ABOUT 25 MB THEN CACHED"
+fun loopPreloadCostText(range: RadarRange, liveSource: RadarSourceKind? = null): String = when (range) {
+    RadarRange.Live -> when (liveSource) {
+        // Null means "not resolved yet": MRMS is the primary, so the
+        // text states the primary's cost and updates if the source
+        // falls back (the screen passes the resolved source).
+        RadarSourceKind.MRMS, null -> "FIRST LOAD ABOUT 100 KB THEN CACHED"
+        RadarSourceKind.LIBRE_WXR -> "FIRST LOAD ABOUT 300 KB THEN CACHED"
+        RadarSourceKind.IEM -> "FIRST LOAD ABOUT 25 MB THEN CACHED"
+    }
     RadarRange.Future24h -> "FIRST LOAD ABOUT 3.5 MB THEN CACHED"
     RadarRange.Future48h -> "FIRST LOAD ABOUT 5 MB THEN CACHED"
 }
@@ -693,3 +704,311 @@ fun satelliteTileUrlsForRange(
             }
         }
     }
+
+// ---------------------------------------------------------------------------
+// Multi-source observed radar (AUDIT6 §9 Fixes 6+7, wired 2026-11-15):
+// MRMS primary, LibreWXR paired, IEM fallback — LIVE (and LocalSite,
+// which is also observed radar) only. Future ranges stay on IEM HRRR
+// and never touch this section. Pure Kotlin — covered by
+// RadarTilesTest, no Compose, no Android.
+// ---------------------------------------------------------------------------
+
+/** MRMS frames are 5 min apart, so a frame time matches its MRMS time
+ * when it is within half a step (2.5 min) of one. */
+const val MRMS_MATCH_TOLERANCE_MS: Long = 150_000L
+
+/** LibreWXR past frames are 10 min apart: half a step is 5 min. */
+const val LIBRE_WXR_MATCH_TOLERANCE_SECONDS: Long = 300L
+
+/** The LIVE loop keeps its 10-frame shape at MRMS cadence: 10 frames
+ * x 5 min = a 50-min span (vs 45 min on the old IEM loop). The MRMS
+ * service window itself is wider (~112 min / 22 frames live) — the
+ * loop plays only the newest 10, so the finer cadence is the point
+ * (less flicker), not a longer span. */
+const val MRMS_LOOP_FRAME_COUNT: Int = 10
+
+/** [range] expanded by [marginTiles] tiles on every side, clamped to
+ * the valid tile coordinates for [zoom]. The MRMS bbox is the
+ * viewport prefetch range plus this margin, so a pan of up to a tile
+ * does not immediately leave the single image behind (the Fix 4
+ * margin principle, applied to the single-image path). */
+fun expandedTileRange(range: TileRange, marginTiles: Int, zoom: Int): TileRange {
+    val maxCoord = (1 shl zoom) - 1
+    return TileRange(
+        (range.minX - marginTiles).coerceIn(0, maxCoord),
+        (range.maxX + marginTiles).coerceIn(0, maxCoord),
+        (range.minY - marginTiles).coerceIn(0, maxCoord),
+        (range.maxY + marginTiles).coerceIn(0, maxCoord)
+    )
+}
+
+/** The lon/lat bbox exactly covering [range] at [zoom]: west/east
+ * from the outer tile edges, north/south likewise. tileYToLat gives
+ * the NORTH edge of a tile, so the range's south edge is the north
+ * edge of the tile below its last row. */
+fun lonLatBboxForTileRange(range: TileRange, zoom: Int): LonLatBbox {
+    return LonLatBbox(
+        westLon = tileXToLon(range.minX, zoom),
+        southLat = tileYToLat(range.maxY + 1, zoom),
+        eastLon = tileXToLon(range.maxX + 1, zoom),
+        northLat = tileYToLat(range.minY, zoom)
+    )
+}
+
+/** The MRMS extent time nearest [validTimeMs], or null when no extent
+ * time is within [toleranceMs]. The loop's frame times are the IEM
+ * skeleton (now minus multiples of 5 min, unaligned seconds) or the
+ * MRMS times themselves, so an exact match cannot be assumed — the
+ * nearest aligned time within half a step is the match. */
+fun nearestMrmsTimeMs(
+    validTimeMs: Long,
+    timesMs: List<Long>,
+    toleranceMs: Long = MRMS_MATCH_TOLERANCE_MS
+): Long? {
+    var best: Long? = null
+    var bestDiff = Long.MAX_VALUE
+    for (timeMs in timesMs) {
+        val diff = kotlin.math.abs(timeMs - validTimeMs)
+        if (diff < bestDiff) {
+            bestDiff = diff
+            best = timeMs
+        }
+    }
+    val found = best
+    return if (found != null && bestDiff <= toleranceMs) found else null
+}
+
+/** The LibreWXR PAST frame nearest [validTimeSec], or null when none
+ * is within [toleranceSec]. Past frames only: nowcast frames are
+ * server-side advected forecasts, not observed radar, and must never
+ * stand in for an observed loop frame. */
+fun nearestLibreWxrPastFrame(
+    validTimeSec: Long,
+    maps: LibreWxrMaps,
+    toleranceSec: Long = LIBRE_WXR_MATCH_TOLERANCE_SECONDS
+): LibreWxrFrame? {
+    var best: LibreWxrFrame? = null
+    var bestDiff = Long.MAX_VALUE
+    for (frame in maps.past) {
+        val diff = kotlin.math.abs(frame.timeEpochSec - validTimeSec)
+        if (diff < bestDiff) {
+            bestDiff = diff
+            best = frame
+        }
+    }
+    val found = best
+    return if (found != null && bestDiff <= toleranceSec) found else null
+}
+
+/**
+ * The LIVE loop frames from MRMS extent times: the newest
+ * [MRMS_LOOP_FRAME_COUNT] times, oldest first, each with its true
+ * valid time and a minute-granular label. The newest frame is labelled
+ * "LIVE NOW" (as the old IEM skeleton did). The IEM layer name is kept
+ * per frame — mapped from the END, so the newest frame always carries
+ * the live layer name even when the extent holds fewer than 10
+ * frames — because it is the IEM-fallback identity and the crossfade
+ * key for that frame. Empty when the extent holds no times: the
+ * caller then keeps the IEM skeleton instead of synthesising frames.
+ */
+fun mrmsLiveFrames(timesMs: List<Long>, now: Instant): List<RadarFrame> {
+    val recent = timesMs.sorted().takeLast(MRMS_LOOP_FRAME_COUNT)
+    if (recent.isEmpty()) return emptyList()
+    return recent.mapIndexed { index, timeMs ->
+        val validTime = Instant.ofEpochMilli(timeMs)
+        val label = if (index == recent.lastIndex) "LIVE NOW" else radarFrameLabel(validTime, now)
+        val layerIndex = MRMS_LOOP_FRAME_COUNT - 1 - (recent.lastIndex - index)
+        RadarFrame(validTime, iemLayerNameFor(layerIndex), label)
+    }
+}
+
+/**
+ * One LIVE loop frame with its source resolved: which source serves
+ * this frame, what the loop draws for it, and the per-tile identity
+ * the display path needs. [libreWxrFrame]/[libreWxrHost] are set
+ * only for LIBRE_WXR (the display builds per-tile URLs from the
+ * frame's path, never from the URL list); [iemLayerName] is always
+ * set (IEM-fallback identity + crossfade key). [validTime] is the
+ * time of the image actually served (the matched MRMS/LibreWXR
+ * time), which can differ from the loop frame's time by up to the
+ * match tolerance — the loop label stays the frame-list label.
+ */
+data class ResolvedLiveFrame(
+    val validTime: Instant,
+    val source: RadarSourceKind,
+    val content: RadarFrameContent,
+    val libreWxrFrame: LibreWxrFrame?,
+    val libreWxrHost: String?,
+    val iemLayerName: String
+)
+
+/**
+ * Resolve one LIVE loop frame to its source, in
+ * [DEFAULT_RADAR_SOURCE_ORDER] (MRMS, LibreWXR, IEM), starting at
+ * [startFrom] when the frame has already fallen back (the screen's
+ * per-frame override — see the fallback watcher in RadarScreen).
+ * A source is taken only when its prerequisites hold:
+ * - MRMS: a viewport [bbox] is known AND the extent holds a time
+ *   within half a step of the frame time. Content is ONE exportImage
+ *   URL for the bbox at the matched (aligned) time.
+ * - LibreWXR: a maps document is known AND a past frame is within
+ *   half a step. Content is the frame's tile grid over [tileRange]
+ *   (the viewport prefetch range — the Fix 4 range, not the
+ *   centre-based grid of the adapter's libreWxrFrameTileUrls).
+ * - IEM: always available (terminal fallback). Content is the
+ *   frame's IEM tile grid over [tileRange].
+ * [tileRange] null (grid not yet reported) yields an empty tile list
+ * for Tiled content: the frame is then gated on its display tiles,
+ * never on a prefetch list that does not exist yet.
+ */
+fun resolveLiveFrame(
+    validTime: Instant,
+    iemLayerName: String,
+    mrmsTimesMs: List<Long>,
+    libreWxrMaps: LibreWxrMaps?,
+    bbox: LonLatBbox?,
+    imageWidthPx: Int,
+    imageHeightPx: Int,
+    zoom: Int,
+    tileRange: TileRange?,
+    startFrom: RadarSourceKind? = null
+): ResolvedLiveFrame {
+    val order = if (startFrom != null) {
+        val at = DEFAULT_RADAR_SOURCE_ORDER.indexOf(startFrom)
+        if (at < 0) DEFAULT_RADAR_SOURCE_ORDER else DEFAULT_RADAR_SOURCE_ORDER.subList(at, DEFAULT_RADAR_SOURCE_ORDER.size)
+    } else {
+        DEFAULT_RADAR_SOURCE_ORDER
+    }
+    for (source in order) {
+        when (source) {
+            RadarSourceKind.MRMS -> {
+                val box = bbox
+                val matchedMs = box?.let { nearestMrmsTimeMs(validTime.toEpochMilli(), mrmsTimesMs) }
+                if (box != null && matchedMs != null) {
+                    val image = RadarFrameContent.SingleImage(
+                        url = mrmsExportImageUrl(box, matchedMs, imageWidthPx, imageHeightPx),
+                        bbox = box,
+                        widthPx = imageWidthPx,
+                        heightPx = imageHeightPx
+                    )
+                    return ResolvedLiveFrame(
+                        Instant.ofEpochMilli(matchedMs), RadarSourceKind.MRMS, image, null, null, iemLayerName
+                    )
+                }
+            }
+            RadarSourceKind.LIBRE_WXR -> {
+                val maps = libreWxrMaps
+                val frame = maps?.let { nearestLibreWxrPastFrame(validTime.epochSecond, it) }
+                if (maps != null && frame != null) {
+                    val urls = tileRange?.let { libreWxrFrameTileUrlsForRange(maps, frame, zoom, it) }.orEmpty()
+                    return ResolvedLiveFrame(
+                        Instant.ofEpochSecond(frame.timeEpochSec), RadarSourceKind.LIBRE_WXR,
+                        RadarFrameContent.Tiled(urls, zoom), frame, maps.host, iemLayerName
+                    )
+                }
+            }
+            RadarSourceKind.IEM -> {
+                val urls = tileRange?.let { radarFrameUrlsForRange(iemLayerName, zoom, it) }.orEmpty()
+                return ResolvedLiveFrame(
+                    validTime, RadarSourceKind.IEM,
+                    RadarFrameContent.Tiled(urls, zoom), null, null, iemLayerName
+                )
+            }
+        }
+    }
+    // Unreachable: IEM always resolves. Kept so the function is total
+    // even if the order above ever loses its terminal source.
+    val urls = tileRange?.let { radarFrameUrlsForRange(iemLayerName, zoom, it) }.orEmpty()
+    return ResolvedLiveFrame(
+        validTime, RadarSourceKind.IEM,
+        RadarFrameContent.Tiled(urls, zoom), null, null, iemLayerName
+    )
+}
+
+/** The prefetch/readiness URLs for a resolved frame: the one image
+ * URL for a SingleImage frame, the tile grid for a Tiled frame. */
+fun liveFrameContentUrls(resolved: ResolvedLiveFrame): List<String> = when (val content = resolved.content) {
+    is RadarFrameContent.SingleImage -> listOf(content.url)
+    is RadarFrameContent.Tiled -> content.urls
+}
+
+/**
+ * The display tile URL for a resolved frame at ([tileX], [tileY]):
+ * built from the frame's source identity, not from its URL list
+ * (the list covers the prefetch range, while the display iterates
+ * the display range — the two ranges differ by the pan-velocity
+ * tile). Null for MRMS: a SingleImage frame draws one overlay
+ * image, never per-tile URLs. Null also when a LibreWXR frame lost
+ * its host/path — the caller then falls back to the IEM tile URL.
+ */
+fun liveFrameTileUrl(resolved: ResolvedLiveFrame, zoom: Int, tileX: Int, tileY: Int): String? =
+    when (resolved.source) {
+        RadarSourceKind.MRMS -> null
+        RadarSourceKind.LIBRE_WXR -> {
+            val frame = resolved.libreWxrFrame
+            val host = resolved.libreWxrHost
+            if (frame != null && host != null) libreWxrTileUrl(host, frame.path, zoom, tileX, tileY) else null
+        }
+        RadarSourceKind.IEM -> iemTileUrl(resolved.iemLayerName, zoom, tileX, tileY)
+    }
+
+/** The LibreWXR tile URLs for one frame across [range] — the
+ * viewport-driven form of [libreWxrFrameTileUrls], mirroring
+ * [radarFrameUrlsForRange] so LibreWXR plugs into the same grid,
+ * prefetch and cache machinery as IEM. */
+fun libreWxrFrameTileUrlsForRange(
+    maps: LibreWxrMaps,
+    frame: LibreWxrFrame,
+    zoom: Int,
+    range: TileRange
+): List<String> =
+    buildList {
+        for (tileX in range.minX..range.maxX) {
+            for (tileY in range.minY..range.maxY) {
+                add(libreWxrTileUrl(maps.host, frame.path, zoom, tileX, tileY))
+            }
+        }
+    }
+
+/**
+ * Per-frame fallback (Fix 6+7 state machine), pure half: the next
+ * source for a frame whose [current] source failed, or null to stay.
+ * Failure is read off the prefetch failure set ([failedUrls] —
+ * prefetch listener errors only; display errors never drive it):
+ * - MRMS fails as ONE image: its URL in the failed set demotes the
+ *   frame to LibreWXR when a maps document is available, else IEM.
+ * - LibreWXR fails as a GRID: only when EVERY tile URL of the frame
+ *   failed does the frame demote to IEM. A partial failure shows
+ *   with holes (a settled tile error is a known-missing tile, as
+ *   everywhere else) — demoting the whole frame for one bad tile
+ *   would refetch 77 IEM tiles for nothing.
+ * - IEM is terminal: null, always.
+ * The screen's watcher applies this monotonically (overrides only
+ * move down the order), so a fallback can never oscillate back to
+ * a source that already failed for that frame.
+ */
+fun fallbackSourceAfterFailure(
+    current: RadarSourceKind,
+    content: RadarFrameContent,
+    failedUrls: Set<String>,
+    libreWxrAvailable: Boolean
+): RadarSourceKind? = when (current) {
+    RadarSourceKind.MRMS -> {
+        val image = content as? RadarFrameContent.SingleImage
+        if (image != null && image.url in failedUrls) {
+            if (libreWxrAvailable) RadarSourceKind.LIBRE_WXR else RadarSourceKind.IEM
+        } else {
+            null
+        }
+    }
+    RadarSourceKind.LIBRE_WXR -> {
+        val tiled = content as? RadarFrameContent.Tiled
+        if (tiled != null && tiled.urls.isNotEmpty() && tiled.urls.all { it in failedUrls }) {
+            RadarSourceKind.IEM
+        } else {
+            null
+        }
+    }
+    RadarSourceKind.IEM -> null
+}
+

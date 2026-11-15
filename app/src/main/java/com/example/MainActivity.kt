@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
             val selectedRadarLayer by viewModel.selectedRadarLayer.collectAsStateWithLifecycle()
             val selectedRadarRange by viewModel.selectedRadarRange.collectAsStateWithLifecycle()
             val currentRadarFrameIndex by viewModel.currentRadarFrameIndex.collectAsStateWithLifecycle()
+            val radarFrames by viewModel.radarFrames.collectAsStateWithLifecycle()
             val isRadarPlaying by viewModel.isRadarPlaying.collectAsStateWithLifecycle()
             val pirateWeatherApiKey by viewModel.pirateWeatherApiKey.collectAsStateWithLifecycle()
             val pirateWeatherWorking by viewModel.pirateWeatherWorking.collectAsStateWithLifecycle()
@@ -110,6 +111,7 @@ class MainActivity : ComponentActivity() {
                     selectedRadarLayer = selectedRadarLayer,
                     selectedRadarRange = selectedRadarRange,
                     currentRadarFrameIndex = currentRadarFrameIndex,
+                    radarFrames = radarFrames,
                     isRadarPlaying = isRadarPlaying,
                     regionalPoints = regionalPoints,
                     musicEnabled = musicEnabled,

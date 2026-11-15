@@ -73,6 +73,7 @@ import coil.request.CachePolicy
 import coil.request.Disposable
 import coil.request.ImageRequest
 import com.example.AuraWeatherApp
+import com.example.core.HttpClients
 import com.example.data.mapper.PAN_SETTLE_DELAY_MS
 import com.example.data.mapper.ParentTile
 import com.example.data.mapper.TileRange
@@ -103,6 +104,22 @@ import com.example.data.mapper.satelliteTileUrlsForRange
 import com.example.data.mapper.satelliteZoomLevel
 import com.example.data.mapper.snappedTileSpan
 import com.example.data.mapper.viewportTileRange
+import com.example.data.mapper.LIBRE_WXR_MAPS_URL
+import com.example.data.mapper.LibreWxrMaps
+import com.example.data.mapper.MRMS_SERVICE_INFO_URL
+import com.example.data.mapper.RadarFrame
+import com.example.data.mapper.RadarFrameContent
+import com.example.data.mapper.RadarSourceKind
+import com.example.data.mapper.ResolvedLiveFrame
+import com.example.data.mapper.expandedTileRange
+import com.example.data.mapper.fallbackSourceAfterFailure
+import com.example.data.mapper.liveFrameContentUrls
+import com.example.data.mapper.liveFrameTileUrl
+import com.example.data.mapper.lonLatBboxForTileRange
+import com.example.data.mapper.mrmsFrameTimesFromServiceInfoJson
+import com.example.data.mapper.mrmsLiveFrames
+import com.example.data.mapper.parseLibreWxrMaps
+import com.example.data.mapper.resolveLiveFrame
 import com.example.domain.model.FullWeatherState
 import com.example.ui.RadarLayer
 import com.example.ui.designsystem.AuraBars
@@ -116,9 +133,13 @@ import java.time.Instant
 import kotlin.math.ln
 import kotlin.math.roundToInt
 import kotlin.math.tan
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 // The scrubber's custom thumb is an experimental Material3 API.
 @OptIn(ExperimentalMaterial3Api::class)
@@ -133,6 +154,11 @@ fun RadarScreen(
     onSelectRange: (RadarRange) -> Unit,
     onTogglePlay: () -> Unit,
     onScrubFrame: (Int) -> Unit,
+    // Fix 13 seam: the ViewModel-owned frame list, when the caller
+    // passes it (plumbing in WeatherNavDisplay/MainActivity still to
+    // do — the seam is built here and in WeatherViewModel). Null keeps
+    // the screen's own frozen-at-range-entry list.
+    radarFrames: List<RadarFrame>? = null,
     tickerVisible: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -193,11 +219,35 @@ fun RadarScreen(
     var displayTileRange by remember { mutableStateOf<TileRange?>(null) }
     var prefetchTileRange by remember { mutableStateOf<TileRange?>(null) }
 
+    // Observed-radar source metadata (AUDIT6 §9 Fixes 6+7): the MRMS
+    // service-info timeExtent and the LibreWXR maps document, fetched
+    // on Live entry by the effect below (after isSatellite). Either
+    // may stay empty / null — a missing document just removes that
+    // source from per-frame resolution, and the loop falls through to
+    // the next source in the order. Keyed on the range, so re-entering
+    // Live re-fetches fresh metadata (frame times move; old frames
+    // prune within minutes).
+    var mrmsFrameTimesMs by remember(selectedRange) { mutableStateOf<List<Long>>(emptyList()) }
+    var libreWxrMaps by remember(selectedRange) { mutableStateOf<LibreWxrMaps?>(null) }
+
     // The frames for the selected range (Build B), oldest first.
-    // Live is the existing 10-frame loop; past ranges are the archived
-    // mosaic, future ranges are HRRR. Recomputed when the range changes
-    // (a fresh "now"), not on every frame advance.
-    val frames = remember(selectedRange) { radarRangeFrames(selectedRange, Instant.now()) }
+    // Live is the 10-frame loop — from the MRMS extent once its
+    // metadata arrives (mrmsLiveFrames: the newest 10 of the service's
+    // window, true valid times), else the IEM skeleton; future ranges
+    // are HRRR. Recomputed when the range changes (a fresh "now") or
+    // when MRMS metadata arrives, not on every frame advance.
+    // When the caller passes the ViewModel-owned list (Fix 13 seam,
+    // `radarFrames`), that list is the fallback instead of a fresh
+    // recompute — the ViewModel's list and this one agree on count,
+    // both computed once at range entry.
+    val frames = remember(selectedRange, mrmsFrameTimesMs, radarFrames) {
+        if (selectedRange == RadarRange.Live) {
+            val mrms = mrmsLiveFrames(mrmsFrameTimesMs, Instant.now())
+            if (mrms.isNotEmpty()) mrms else radarFrames ?: radarRangeFrames(selectedRange, Instant.now())
+        } else {
+            radarFrames ?: radarRangeFrames(selectedRange, Instant.now())
+        }
+    }
     val frameCount = frames.size
     // Defensive clamp: the ViewModel coerces too, but its "now" and the
     // screen's can straddle a sampling boundary.
@@ -225,6 +275,29 @@ fun RadarScreen(
     // the clear-air caption and the transport pill are radar-only
     // (audit fix E).
     val isSatellite = selectedLayer == RadarLayer.SatelliteVis || selectedLayer == RadarLayer.SatelliteIr
+
+    // Fetch the observed-radar source metadata (Fix 6+7): the MRMS
+    // service info (timeExtent) and the LibreWXR maps document (frame
+    // times + tile prefixes). Two small JSON documents over the plain
+    // OkHttp client (no Retrofit needed — the pure parsers read the
+    // numbers/frames needed). Fetched independently: either may fail
+    // without blocking the other, and a failure just removes that
+    // source from resolution. No periodic re-fetch: like the frozen
+    // frame list, metadata refreshes on range re-entry. Satellite
+    // has no loop, so no fetch while on satellite; switching back to
+    // a radar layer re-runs this effect and fetches then.
+    val radarSourceHttpClient = remember { HttpClients.plainClient() }
+    LaunchedEffect(selectedRange, isSatellite) {
+        if (selectedRange != RadarRange.Live || isSatellite) return@LaunchedEffect
+        val mrmsJson = withContext(Dispatchers.IO) {
+            fetchRadarSourceText(radarSourceHttpClient, MRMS_SERVICE_INFO_URL)
+        }
+        if (mrmsJson != null) mrmsFrameTimesMs = mrmsFrameTimesFromServiceInfoJson(mrmsJson)
+        val libreJson = withContext(Dispatchers.IO) {
+            fetchRadarSourceText(radarSourceHttpClient, LIBRE_WXR_MAPS_URL)
+        }
+        if (libreJson != null) parseLibreWxrMaps(libreJson)?.let { libreWxrMaps = it }
+    }
 
     // Satellite loading overlay (audit findings 1+2): counts GIBS tiles
     // that have finished (loaded or errored). Resets when the layer or
@@ -402,6 +475,111 @@ fun RadarScreen(
         if (url !in prefetchFailedUrls) prefetchFailedUrls = prefetchFailedUrls + url
     }
 
+    // Per-frame source overrides (Fix 6+7 fallback state machine).
+    //
+    // The machine, in full:
+    // 1. RESOLVE (pure, RadarTiles.resolveLiveFrame): each Live frame
+    //    resolves to the first source in MRMS -> LibreWXR -> IEM whose
+    //    prerequisites hold (MRMS: extent time within half a step +
+    //    viewport bbox known; LibreWXR: maps document + a past frame
+    //    within half a step; IEM: always). The resolved content is
+    //    what the loop prefetches, gates on and draws.
+    // 2. DETECT (prefetch listener): a failed prefetch marks the URL
+    //    in prefetchFailedUrls (markPrefetchFailed). For MRMS that is
+    //    one URL — the frame's whole image — so the failure is
+    //    unambiguous. For LibreWXR a single bad tile means nothing
+    //    (settled-error semantics); only ALL of the frame's tiles
+    //    failing demotes it.
+    // 3. FALL BACK (watcher effect below): the pure
+    //    fallbackSourceAfterFailure decides the next source per frame
+    //    from the failure set, and writes it here. Overrides only ever
+    //    move DOWN the order, and resolveLiveFrame starts from the
+    //    override — so a fallback can never oscillate back to a source
+    //    that already failed for that frame, even though
+    //    cancelPrefetchOutside drops failed URLs from the failure set
+    //    (the OVERRIDE, not the failure set, is the memory).
+    // 4. RE-PREFETCH + RE-GATE: the resolved list feeds the prefetch
+    //    effect and isFrameReady, so the fallback's URLs are enqueued
+    //    and the loop waits on them (bounded by the 2 s timeout, as
+    //    always). The held frame only releases when the FALLBACK
+    //    content is ready (Fix 14 hold, unchanged).
+    // Keyed on the tile-set generation, like the prefetch settled set:
+    // a new generation retries the primary from scratch.
+    var liveFrameSourceOverride by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf<Map<Int, RadarSourceKind>>(emptyMap()) }
+
+    // The MRMS viewport (Fix 6): the settled prefetch tile range,
+    // expanded by one tile, as a lon/lat bbox + the pixel size the
+    // exportImage is rendered at (the bbox's screen size at the
+    // settled scale, so the image is drawn 1:1). Derived from state
+    // published by the grid, so a pan settle rebuilds the bbox and
+    // the MRMS URLs with it. Null / 0 until the grid has reported
+    // once — until then MRMS cannot resolve and frames fall through
+    // to LibreWXR/IEM.
+    val mrmsTileRange = remember(prefetchTileRange, effectiveZoomLevel) {
+        prefetchTileRange?.let { expandedTileRange(it, 1, effectiveZoomLevel) }
+    }
+    val mrmsBbox = remember(mrmsTileRange, effectiveZoomLevel) {
+        mrmsTileRange?.let { lonLatBboxForTileRange(it, effectiveZoomLevel) }
+    }
+    val mrmsImageWidthPx = remember(mrmsTileRange, settledUserScale) {
+        mrmsTileRange?.let { (it.width * 256f * settledUserScale).roundToInt().coerceIn(256, 2048) } ?: 0
+    }
+    val mrmsImageHeightPx = remember(mrmsTileRange, settledUserScale) {
+        mrmsTileRange?.let { (it.height * 256f * settledUserScale).roundToInt().coerceIn(256, 2048) } ?: 0
+    }
+
+    // The resolved observed-radar content for every Live frame (Fix
+    // 6+7): MRMS single image where the extent covers the frame, else
+    // LibreWXR tiles, else IEM tiles — per frame, via resolveLiveFrame.
+    // Future ranges resolve nothing here (IEM HRRR stays their only
+    // source). Recomputed when the frame list, the source metadata,
+    // the viewport bbox, the tile range or a per-frame fallback
+    // override changes. The prefetch effect and isFrameReady both read
+    // this list, so a fallback override re-prefetches and re-gates the
+    // frame without touching the loop.
+    val liveResolved: List<ResolvedLiveFrame> = remember(frames, mrmsFrameTimesMs, libreWxrMaps, mrmsBbox, mrmsImageWidthPx, mrmsImageHeightPx, effectiveZoomLevel, prefetchTileRange, liveFrameSourceOverride, isSatellite) {
+        if (selectedRange != RadarRange.Live || isSatellite) emptyList()
+        else frames.mapIndexed { index, frame ->
+            resolveLiveFrame(
+                validTime = frame.validTime,
+                iemLayerName = frame.layerName,
+                mrmsTimesMs = mrmsFrameTimesMs,
+                libreWxrMaps = libreWxrMaps,
+                bbox = mrmsBbox,
+                imageWidthPx = mrmsImageWidthPx,
+                imageHeightPx = mrmsImageHeightPx,
+                zoom = effectiveZoomLevel,
+                tileRange = prefetchTileRange,
+                startFrom = liveFrameSourceOverride[index]
+            )
+        }
+    }
+
+    // Fallback watcher (Fix 6+7 state machine, step 3): when the
+    // resolved list or the prefetch failure set changes, ask the pure
+    // fallback rule whether any frame's current source failed, and
+    // record the next source as that frame's override. Only ever
+    // writes a move DOWN the order (the pure rule returns null for
+    // IEM, the terminal source, and for failures that do not demote),
+    // and a write recomputes liveResolved — which re-runs this effect
+    // with the new source, whose URLs have not failed, so the watcher
+    // goes quiet. No retry within a generation: a frame that fell
+    // back stays fallen back until the tile-set generation changes.
+    LaunchedEffect(liveResolved, prefetchFailedUrls) {
+        if (selectedRange != RadarRange.Live || isSatellite) return@LaunchedEffect
+        var updated: Map<Int, RadarSourceKind>? = null
+        for ((index, resolved) in liveResolved.withIndex()) {
+            val next = fallbackSourceAfterFailure(
+                resolved.source, resolved.content, prefetchFailedUrls, libreWxrMaps != null
+            ) ?: continue
+            if (next == resolved.source) continue
+            val base = updated ?: liveFrameSourceOverride
+            updated = base + (index to next)
+        }
+        val nextOverrides = updated
+        if (nextOverrides != null) liveFrameSourceOverride = nextOverrides
+    }
+
     // Is [frameIndex] ready to show? Prefetch settlement first: every
     // tile URL of that frame over the CURRENT viewport prefetch range
     // must be settled. The displayed frame's own AsyncImages are the
@@ -411,6 +589,26 @@ fun RadarScreen(
     // or the alpha. Satellite has no loop and no frame list — its
     // readiness is satSettled, not this function.
     fun isFrameReady(frameIndex: Int): Boolean {
+        // Live multi-source (Fix 6+7): readiness is the RESOLVED
+        // content's settlement. A SingleImage frame is ready when its
+        // one image settled in the prefetch lane; a Tiled frame when
+        // every tile URL of its resolved grid settled. The resolved
+        // source already accounts for per-frame fallback overrides, so
+        // a frame that fell back to LibreWXR is gated on LibreWXR
+        // tiles, not on MRMS. A Tiled frame with no URLs yet (grid not
+        // reported) falls back to the displayed frame's own AsyncImages
+        // below, so the loop is never wedged before the first layout.
+        if (selectedRange == RadarRange.Live && !isSatellite) {
+            val resolved = liveResolved.getOrNull(frameIndex) ?: return false
+            return when (val content = resolved.content) {
+                is RadarFrameContent.SingleImage -> content.url in prefetchSettledUrls
+                is RadarFrameContent.Tiled -> if (content.urls.isEmpty()) {
+                    frameIndex == heldFrameIndex && frameReady
+                } else {
+                    isTileSettled(content.urls, prefetchSettledUrls)
+                }
+            }
+        }
         val range = prefetchTileRange
         if (range != null && !isSatellite) {
             val layer = frames.getOrNull(frameIndex)?.layerName ?: return false
@@ -418,6 +616,21 @@ fun RadarScreen(
         }
         return frameIndex == heldFrameIndex && frameReady
     }
+
+    // Latest-state reader for frame readiness (Fix 6+7): the loop
+    // effect below is long-lived (keyed on play state, not on the
+    // frame list), and isFrameReady closes over liveResolved and
+    // frames — plain values that CHANGE when MRMS metadata arrives
+    // (skeleton -> MRMS list) or a fallback override lands. A
+    // snapshotFlow holding the launch-time function would keep gating
+    // on the stale IEM resolution — whose URLs the prefetch effect
+    // already cancelled — and the loop would fall back to its 2 s
+    // timeout on every step. rememberUpdatedState refreshes this
+    // lambda every recomposition (the same pattern as
+    // latestForecastSlowCheck), so the flows below re-evaluate against
+    // the current resolution. displayedFrameReady above needs none of
+    // this: it is computed during composition, fresh every time.
+    val latestIsFrameReady by rememberUpdatedState({ index: Int -> isFrameReady(index) })
     // The frame on screen is the HELD frame (Fix 14), not the scrub
     // target: alpha follows the held frame's readiness, so scrubbing
     // to a frame whose tiles have not arrived yet cannot fade the
@@ -500,20 +713,61 @@ fun RadarScreen(
     // stale layer of another range.
     var crossfadeFromLayer by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf<String?>(null) }
     var lastShownLayer by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf(heldLayerName) }
+    // The previous held frame's resolved content (Fix 6+7): the
+    // outgoing image for the crossfade when the previous frame was
+    // MRMS (SingleImage — its URL, drawn by the overlay below) or
+    // LibreWXR/IEM (Tiled — its per-tile URLs, via prevRadarUrl).
+    // Null for future ranges (no resolved list) and on the first
+    // frame. Same generation keys as the layer state, so a range
+    // switch never crossfades from a stale frame.
+    var crossfadeFromResolved by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf<ResolvedLiveFrame?>(null) }
+    var lastShownResolved by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf<ResolvedLiveFrame?>(liveResolved.getOrNull(heldFrameIndex)) }
+    // The held frame this effect last crossfaded FOR (coordinator fix,
+    // 2026-11-15): the effect below is keyed on the held frame's
+    // resolved content as well as its index, so it also restarts when
+    // the content changes under the same frame — and this index tells
+    // the two restarts apart. Same generation keys as the layer state.
+    var lastCrossfadeIndex by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableIntStateOf(heldFrameIndex) }
     val crossfadeProgress by animateFloatAsState(
         targetValue = if (crossfadeFromLayer != null) 1f else 0f,
         animationSpec = tween(durationMillis = 150),
         label = "radarCrossfade"
     )
-    // Keyed on the HELD frame (Fix 14): the crossfade runs when the
-    // map actually swaps, not when the scrub target changes.
-    LaunchedEffect(heldFrameIndex) {
+    // Keyed on the HELD frame (Fix 14) AND its resolved content (Fix
+    // 6+7): the crossfade runs when the map actually swaps, not when
+    // the scrub target changes — and the content key keeps
+    // lastShownResolved honest when the resolution changes under the
+    // same frame. That happens on every Live entry: the list starts as
+    // the IEM skeleton and rebuilds to MRMS once the metadata lands
+    // (~1 s), while the held index stays put — without the sync below,
+    // the first loop step would crossfade from the stale IEM content
+    // (tiles the user never saw) instead of the MRMS image on screen.
+    // A restart with the SAME index is a content-only change: sync the
+    // bookkeeping and return without a crossfade (the incoming content
+    // fades in via frameAlpha on its own). A restart with a NEW index
+    // is a real swap: crossfade from the previous content. If a
+    // content change cancels a crossfade mid-delay, crossfadeFromLayer
+    // stays set until the next swap clears it — benign: the outgoing
+    // is already invisible (progress 1f) and the next swap overwrites
+    // it.
+    LaunchedEffect(heldFrameIndex, liveResolved.getOrNull(heldFrameIndex)) {
         val previous = lastShownLayer
-        if (previous == heldLayerName) return@LaunchedEffect
+        val previousResolved = lastShownResolved
+        val currentResolved = liveResolved.getOrNull(heldFrameIndex)
+        if (previous == heldLayerName && previousResolved == currentResolved) return@LaunchedEffect
+        if (heldFrameIndex == lastCrossfadeIndex) {
+            lastShownLayer = heldLayerName
+            lastShownResolved = currentResolved
+            return@LaunchedEffect
+        }
+        lastCrossfadeIndex = heldFrameIndex
         crossfadeFromLayer = previous
+        crossfadeFromResolved = previousResolved
         delay(150)
         crossfadeFromLayer = null
+        crossfadeFromResolved = null
         lastShownLayer = heldLayerName
+        lastShownResolved = currentResolved
     }
 
     // Auto-retry when the forecast is unavailable: up to 3 attempts
@@ -573,6 +827,14 @@ fun RadarScreen(
     // Set by the Slider's drag callbacks at the bottom of this file.
     var isScrubbing by remember { mutableStateOf(false) }
     val latestFrameIndex by rememberUpdatedState(safeFrameIndex)
+    // Same treatment for the frame count (Fix 6+7): the loop effect
+    // never restarts on a frame-list change, and the MRMS list is 10
+    // frames in the normal case but fewer if the service extent ever
+    // degrades — a stale count of 10 would advance the playhead past
+    // the end of the list. (The slider and labels read frameCount
+    // during composition, fresh every time; only this long-lived
+    // effect needs the latest reader.)
+    val latestFrameCount by rememberUpdatedState(frameCount)
     val latestOnScrubFrame by rememberUpdatedState(onScrubFrame)
     val latestIsScrubbing by rememberUpdatedState(isScrubbing)
     LaunchedEffect(isPlaying, isSatellite, selectedRange) {
@@ -586,14 +848,14 @@ fun RadarScreen(
                 delay(200)
                 continue
             }
-            if (frameCount < 1) {
+            if (latestFrameCount < 1) {
                 delay(1000)
                 continue
             }
             // Hold the frame on screen until it is ready (a scrub
             // target or a timeout-advanced frame may not be yet).
             withTimeoutOrNull(RADAR_LOOP_WAIT_TIMEOUT_MS) {
-                snapshotFlow { isFrameReady(latestFrameIndex) }.first { it }
+                snapshotFlow { latestIsFrameReady(latestFrameIndex) }.first { it }
             }
             // Wait for the NEXT frame before leaving this one: the
             // current frame stays visible at full alpha throughout.
@@ -601,12 +863,12 @@ fun RadarScreen(
             // mid-wait retargets the wait instead of waiting on a
             // stale frame.
             withTimeoutOrNull(RADAR_LOOP_WAIT_TIMEOUT_MS) {
-                snapshotFlow { loopNextIndex(latestFrameIndex, frameCount) to isFrameReady(loopNextIndex(latestFrameIndex, frameCount)) }
+                snapshotFlow { loopNextIndex(latestFrameIndex, latestFrameCount) to latestIsFrameReady(loopNextIndex(latestFrameIndex, latestFrameCount)) }
                     .first { (_, ready) -> ready }
             }
-            val advancedTo = loopNextIndex(latestFrameIndex, frameCount)
+            val advancedTo = loopNextIndex(latestFrameIndex, latestFrameCount)
             latestOnScrubFrame(advancedTo)
-            delay(loopDwellMs(advancedTo, frameCount))
+            delay(loopDwellMs(advancedTo, latestFrameCount))
         }
     }
 
@@ -625,7 +887,7 @@ fun RadarScreen(
     LaunchedEffect(safeFrameIndex) {
         if (isSatellite) return@LaunchedEffect
         if (safeFrameIndex == heldFrameIndex) return@LaunchedEffect
-        snapshotFlow { isFrameReady(safeFrameIndex) }.first { it }
+        snapshotFlow { latestIsFrameReady(safeFrameIndex) }.first { it }
         heldFrameIndex = safeFrameIndex
     }
 
@@ -829,29 +1091,39 @@ fun RadarScreen(
                 }
             }
         }
-        LaunchedEffect(selectedLayer, effectiveZoomLevel, centerLat, centerLon, selectedRange, viewportPrefetchRange) {
+        LaunchedEffect(selectedLayer, effectiveZoomLevel, centerLat, centerLon, selectedRange, viewportPrefetchRange, liveResolved) {
             if (selectedLayer == RadarLayer.Reflectivity || selectedLayer == RadarLayer.LocalSite) {
                 if (selectedRange == RadarRange.Live) {
-                    // Whole-loop preload (Fix 3): all 10 LIVE frames
-                    // (loopPreloadWindowSize), current frame first so
-                    // the visible tiles are not queued behind the
-                    // other nine. Disk-only (see prefetchRadarTile),
-                    // ~25 MB first load, then disk-cached.
-                    // Viewport-driven (Fix 4): the loop is prefetched
-                    // over the panned viewport range, not the place —
-                    // a pan settle re-runs this effect, and the
-                    // enqueue guard means only the newly visible
-                    // tiles are actually enqueued; tiles that left
-                    // the viewport are cancelled above.
-                    val frames = radarPrefetchUrlsForRange(effectiveZoomLevel, viewportPrefetchRange)
-                    cancelPrefetchOutside(frames.flatten().toSet())
-                    val current = frames.getOrElse(safeFrameIndex) { emptyList() }
-                    val ordered = listOf(safeFrameIndex to current) +
-                        frames.mapIndexedNotNull { index, urls ->
-                            if (index != safeFrameIndex) index to urls else null
-                        }
-                    for ((frameIndex, frameUrls) in ordered) {
-                        for (url in frameUrls) {
+                    // Whole-loop preload (Fix 3) over the RESOLVED
+                    // contents (Fix 6+7): one exportImage per MRMS
+                    // frame, one tile grid per LibreWXR/IEM frame —
+                    // current frame first so the visible image/tiles
+                    // are not queued behind the other nine. Disk-only
+                    // (see prefetchRadarTile), ~100 KB first load on
+                    // MRMS, then disk-cached.
+                    // Viewport-driven (Fix 4): the resolved contents
+                    // are built over the panned viewport range, so a
+                    // pan settle re-runs this effect (via
+                    // liveResolved), and the enqueue guard means only
+                    // the newly visible URLs are actually enqueued;
+                    // URLs that left the viewport are cancelled above.
+                    // A per-frame fallback override rebuilds
+                    // liveResolved, so the fallback's URLs are
+                    // enqueued here and the failed source's URLs are
+                    // cancelled — the override itself remembers the
+                    // failure, so the cancellation cannot resurrect
+                    // the failed source (see the fallback watcher).
+                    // prefetchRadarTile enqueues any radar image URL,
+                    // tile or single: the prefetch lane is the loop's
+                    // disk-cache store for both shapes, and its
+                    // listener is the fallback detection point.
+                    val wanted = liveResolved.flatMapTo(mutableSetOf()) { liveFrameContentUrls(it) }
+                    cancelPrefetchOutside(wanted)
+                    val orderedIndices = listOf(safeFrameIndex) +
+                        (0 until frameCount).filter { it != safeFrameIndex }
+                    for (index in orderedIndices) {
+                        val urls = liveResolved.getOrNull(index)?.let { liveFrameContentUrls(it) }.orEmpty()
+                        for (url in urls) {
                             prefetchRadarTile(url)
                         }
                     }
@@ -1016,6 +1288,14 @@ fun RadarScreen(
             // grid. Tile POSITIONS still use the live map origin, so
             // a drag transforms the tiles smoothly and the set only
             // reconciles on settle.
+            // The HELD frame's resolved observed-radar content (Fix
+            // 6+7; Live only): the tile loop and the single-image
+            // overlay below both read this, so a held MRMS frame draws
+            // its overlay and no per-tile radar, while a held
+            // LibreWXR/IEM frame draws its per-tile URLs. Future
+            // ranges have no resolved list (null) and keep the IEM
+            // layer path.
+            val heldResolved = if (selectedRange == RadarRange.Live && !isSatellite) liveResolved.getOrNull(heldFrameIndex) else null
             for (tileX in displayRange.minX..displayRange.maxX) {
                 for (tileY in displayRange.minY..displayRange.maxY) {
 
@@ -1033,10 +1313,23 @@ fun RadarScreen(
                     val basemapUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/$effectiveZoomLevel/$tileY/$tileX"
                     // The HELD layer (Fix 14), not the scrub target:
                     // the map shows the last ready frame until the
-                    // target's tiles settle.
-                    val radarUrl = when (selectedLayer) {
-                        RadarLayer.Reflectivity, RadarLayer.LocalSite ->
-                            "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$heldLayerName/$effectiveZoomLevel/$tileX/$tileY.png"
+                    // target's tiles settle. The URL comes from the
+                    // held frame's resolved content (Fix 6+7): a
+                    // LibreWXR/IEM frame builds its per-tile URL from
+                    // the frame's source identity, and an MRMS frame
+                    // has NO per-tile URL (null) — its one overlay
+                    // image is drawn after the tile loops, so this
+                    // tile draws no radar tile at all (see the
+                    // `if (radarUrl != null)` below). Future ranges
+                    // have no resolved list and keep the IEM layer URL.
+                    val radarUrl: String? = when (selectedLayer) {
+                        RadarLayer.Reflectivity, RadarLayer.LocalSite -> when {
+                            heldResolved == null ->
+                                "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$heldLayerName/$effectiveZoomLevel/$tileX/$tileY.png"
+                            heldResolved.source == RadarSourceKind.MRMS -> null
+                            else -> liveFrameTileUrl(heldResolved, effectiveZoomLevel, tileX, tileY)
+                                ?: "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$heldLayerName/$effectiveZoomLevel/$tileX/$tileY.png"
+                        }
                         RadarLayer.SatelliteVis ->
                             gibsTileUrl(true, gibsTime, effectiveZoomLevel, tileX, tileY)
                         RadarLayer.SatelliteIr ->
@@ -1052,10 +1345,25 @@ fun RadarScreen(
                     val parentBasemapUrl = parent?.let {
                         "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/${it.zoom}/${it.tileY}/${it.tileX}"
                     }
+                    // Parent radar underlay (Fix 4) follows the held
+                    // frame's resolved source (Fix 6+7): a LibreWXR
+                    // parent at zoom-1, an IEM parent for IEM frames
+                    // and future ranges. An MRMS frame has no parent
+                    // underlay — a single exportImage has no
+                    // lower-zoom parent tile — so this is null and the
+                    // basemap (with its own parent underlay) shows
+                    // underneath while the image loads. That is the
+                    // one Fix 4 mechanism that does not apply to
+                    // SingleImage frames.
                     val parentRadarUrl = parent?.let {
                         when (selectedLayer) {
-                            RadarLayer.Reflectivity, RadarLayer.LocalSite ->
-                                iemTileUrl(heldLayerName, it.zoom, it.tileX, it.tileY)
+                            RadarLayer.Reflectivity, RadarLayer.LocalSite -> when {
+                                heldResolved == null ->
+                                    iemTileUrl(heldLayerName, it.zoom, it.tileX, it.tileY)
+                                heldResolved.source == RadarSourceKind.MRMS -> null
+                                else -> liveFrameTileUrl(heldResolved, it.zoom, it.tileX, it.tileY)
+                                    ?: iemTileUrl(heldLayerName, it.zoom, it.tileX, it.tileY)
+                            }
                             RadarLayer.SatelliteVis ->
                                 gibsTileUrl(true, gibsTime, it.zoom, it.tileX, it.tileY)
                             RadarLayer.SatelliteIr ->
@@ -1069,8 +1377,20 @@ fun RadarScreen(
                     // in progress, or on satellite layers (no loop).
                     // Built with iemTileUrl — the same URL the screen
                     // loads for that layer — so it is a cache hit.
+                    // Outgoing frame's tile (Fix 2 two-slot swap),
+                    // from the previous held frame's RESOLVED content
+                    // (Fix 6+7): a LibreWXR/IEM previous frame gives
+                    // its per-tile URL; an MRMS previous frame has no
+                    // tile (its outgoing image is drawn by the overlay
+                    // below); future ranges have no resolved content
+                    // and keep the layer-name path.
                     val prevRadarUrl = if (!isSatellite) {
-                        crossfadeFromLayer?.let { iemTileUrl(it, effectiveZoomLevel, tileX, tileY) }
+                        val fromResolved = crossfadeFromResolved
+                        if (fromResolved != null) {
+                            liveFrameTileUrl(fromResolved, effectiveZoomLevel, tileX, tileY)
+                        } else {
+                            crossfadeFromLayer?.let { iemTileUrl(it, effectiveZoomLevel, tileX, tileY) }
+                        }
                     } else {
                         null
                     }
@@ -1115,7 +1435,11 @@ fun RadarScreen(
                             ParentTileUnderlay(parentRadarUrl, parent, tileSizePx)
                         }
 
-                        // 2. Real IEM NEXRAD Composite Radar Tile (Transparent PNG when no rain!)
+                        // 2. Radar tile for the held frame (Fix 6+7):
+                        // the resolved source's tile — LibreWXR or IEM
+                        // (transparent PNG when no rain). No tile at all
+                        // for an MRMS frame (radarUrl is null; the
+                        // overlay below draws its single image).
                         // Satellite layers report each tile as it settles
                         // (loaded or errored) so the loading overlay knows
                         // when the imagery has arrived. Radar layers
@@ -1171,6 +1495,15 @@ fun RadarScreen(
                                         .alpha(0.85f * (1f - crossfadeProgress))
                                 )
                             }
+                            // No per-tile radar for a SingleImage
+                            // (MRMS) frame: radarUrl is null and the
+                            // one overlay image below draws the frame.
+                            // Skipping the AsyncImage also keeps the
+                            // per-frame tile counters honest — they
+                            // count tiles, and this frame has none
+                            // (its readiness is its one image settling
+                            // in the prefetch lane — see isFrameReady).
+                            if (radarUrl != null) {
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
                                     .data(radarUrl)
@@ -1195,6 +1528,7 @@ fun RadarScreen(
                                     .fillMaxSize()
                                     .alpha(if (crossfadeFromLayer != null) 0.85f * crossfadeProgress else frameAlpha)
                             )
+                            }
                         }
 
                         // 3. Esri reference layer (city labels + boundaries,
@@ -1215,6 +1549,101 @@ fun RadarScreen(
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
+                    }
+                }
+            }
+
+            // Single-image radar overlay (Fix 6+7): an MRMS frame is
+            // ONE image for the whole viewport, not a tile grid — one
+            // AsyncImage stretched over its bbox, above the basemap
+            // tiles and below the reference labels (re-drawn below, so
+            // city labels stay on top of the echo exactly as on the
+            // tiled path). Positioned from the bbox's lon/lat edges
+            // through the same world-pixel math as the tiles, at the
+            // live pan/scale, so it tracks drags and pinch-zoom.
+            // Whole-frame fade-in (Fix 2/3) works as for tiles:
+            // frameAlpha is 0 until the image settles in the prefetch
+            // lane, then 150 ms in. The crossfade (Fix 2) draws the
+            // previous held frame's single image underneath while this
+            // one fades in; a previous TILED frame instead crossfades
+            // through its per-tile prev images above (prevRadarUrl).
+            // Known limits, stated plainly: the Fix 4 parent-tile
+            // underlay does not apply to this image (no lower-zoom
+            // parent exists for an exportImage), so while a fresh
+            // bbox's image loads the basemap shows underneath; and a
+            // shape change from SingleImage to Tiled (a fallback
+            // landing mid-loop) has no outgoing-image crossfade — the
+            // previous image vanishes and the new tiles fade in.
+            val heldContent = heldResolved?.content
+            if (!isSatellite && selectedRange == RadarRange.Live && heldContent is RadarFrameContent.SingleImage) {
+                val bbox = heldContent.bbox
+                val leftPx = mapOriginX + lonToWorldPixel(bbox.westLon, effectiveZoomLevel) * userScale
+                val topPx = mapOriginY + latToWorldPixel(bbox.northLat, effectiveZoomLevel) * userScale
+                val widthPx = (lonToWorldPixel(bbox.eastLon, effectiveZoomLevel) - lonToWorldPixel(bbox.westLon, effectiveZoomLevel)) * userScale
+                val heightPx = (latToWorldPixel(bbox.southLat, effectiveZoomLevel) - latToWorldPixel(bbox.northLat, effectiveZoomLevel)) * userScale
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
+                        .size(
+                            with(LocalDensity.current) { widthPx.toDp() },
+                            with(LocalDensity.current) { heightPx.toDp() }
+                        )
+                ) {
+                    val fromSingleUrl = (crossfadeFromResolved?.content as? RadarFrameContent.SingleImage)?.url
+                    if (fromSingleUrl != null) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(fromSingleUrl)
+                                .memoryCacheKey(fromSingleUrl)
+                                .crossfade(false)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .build(),
+                            contentDescription = "Radar image",
+                            contentScale = ContentScale.FillBounds,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .alpha(0.85f * (1f - crossfadeProgress))
+                        )
+                    }
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(heldContent.url)
+                            .memoryCacheKey(heldContent.url)
+                            .crossfade(true)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .build(),
+                        contentDescription = "Radar image",
+                        contentScale = ContentScale.FillBounds,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .alpha(if (crossfadeFromLayer != null) 0.85f * crossfadeProgress else frameAlpha)
+                    )
+                }
+                // Reference labels on top (Fix 6+7): the tile loop drew
+                // the Esri reference layer under this overlay, so the
+                // same tiles are drawn again here — same URLs, so
+                // memory-cache hits, no new requests — and city labels
+                // stay on top of the radar echo, as on the tiled path.
+                for (tileX in displayRange.minX..displayRange.maxX) {
+                    for (tileY in displayRange.minY..displayRange.maxY) {
+                        val (tileLeftPx, tileWidthPx) = snappedTileSpan(mapOriginX, tileX, tileSizePx)
+                        val (tileTopPx, tileHeightPx) = snappedTileSpan(mapOriginY, tileY, tileSizePx)
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/$effectiveZoomLevel/$tileY/$tileX")
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Place labels",
+                            contentScale = ContentScale.FillBounds,
+                            modifier = Modifier
+                                .offset { IntOffset(tileLeftPx, tileTopPx) }
+                                .size(
+                                    with(LocalDensity.current) { tileWidthPx.toDp() },
+                                    with(LocalDensity.current) { tileHeightPx.toDp() }
+                                )
+                        )
                     }
                 }
             }
@@ -1340,7 +1769,7 @@ fun RadarScreen(
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = loopPreloadCostText(selectedRange),
+                            text = loopPreloadCostText(selectedRange, liveResolved.getOrNull(safeFrameIndex)?.source),
                             style = MaterialTheme.typography.labelSmall,
                             color = RetroTokens.TextSecondary,
                             textAlign = TextAlign.Center
@@ -1759,6 +2188,18 @@ fun RadarScreen(
         }
     }
 }
+
+// One small radar-source metadata document (AUDIT6 §9 Fix 6+7) over
+// plain OkHttp — no Retrofit needed: the pure parsers in
+// MrmsTiles/LibreWxrTiles read the numbers/frames needed from the
+// service-info / weather-maps JSON. Null on any failure (HTTP error,
+// empty body, exception): the caller falls back to the next source.
+private fun fetchRadarSourceText(client: OkHttpClient, url: String): String? = runCatching {
+    val request = Request.Builder().url(url).build()
+    client.newCall(request).execute().use { response ->
+        if (!response.isSuccessful) null else response.body?.string()
+    }
+}.getOrNull()
 
 // Spherical Mercator projection utilities (tile coordinates now live in
 // the mapper, RadarTiles, where the prefetch tests cover them).

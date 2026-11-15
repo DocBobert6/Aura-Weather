@@ -45,8 +45,26 @@ import com.example.data.mapper.radarPrefetchUrls
 import com.example.data.mapper.satelliteTileUrls
 import com.example.data.mapper.satelliteZoomLevel
 import com.example.data.mapper.snappedTileSpan
+import com.example.data.mapper.LibreWxrFrame
+import com.example.data.mapper.LibreWxrMaps
+import com.example.data.mapper.RadarFrameContent
+import com.example.data.mapper.RadarSourceKind
+import com.example.data.mapper.expandedTileRange
+import com.example.data.mapper.fallbackSourceAfterFailure
+import com.example.data.mapper.libreWxrFrameTileUrlsForRange
+import com.example.data.mapper.liveFrameContentUrls
+import com.example.data.mapper.liveFrameTileUrl
+import com.example.data.mapper.lonLatBboxForTileRange
+import com.example.data.mapper.mrmsLiveFrames
+import com.example.data.mapper.nearestLibreWxrPastFrame
+import com.example.data.mapper.nearestMrmsTimeMs
+import com.example.data.mapper.parseLibreWxrMaps
+import com.example.data.mapper.resolveLiveFrame
+import com.example.data.mapper.tileXToLon
+import com.example.data.mapper.tileYToLat
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -486,7 +504,13 @@ class RadarTilesTest {
 
     @Test
     fun testLoopPreloadCostText_honestCosts() {
-        assertEquals("FIRST LOAD ABOUT 25 MB THEN CACHED", loopPreloadCostText(RadarRange.Live))
+        // Live cost follows the resolved source (Fix 6+7): MRMS is the
+        // primary (10 frames x ~9 KB), LibreWXR next, IEM last — the
+        // old 25 MB figure is now only the IEM-fallback cost.
+        assertEquals("FIRST LOAD ABOUT 100 KB THEN CACHED", loopPreloadCostText(RadarRange.Live))
+        assertEquals("FIRST LOAD ABOUT 100 KB THEN CACHED", loopPreloadCostText(RadarRange.Live, RadarSourceKind.MRMS))
+        assertEquals("FIRST LOAD ABOUT 300 KB THEN CACHED", loopPreloadCostText(RadarRange.Live, RadarSourceKind.LIBRE_WXR))
+        assertEquals("FIRST LOAD ABOUT 25 MB THEN CACHED", loopPreloadCostText(RadarRange.Live, RadarSourceKind.IEM))
         assertEquals("FIRST LOAD ABOUT 3.5 MB THEN CACHED", loopPreloadCostText(RadarRange.Future24h))
         assertEquals("FIRST LOAD ABOUT 5 MB THEN CACHED", loopPreloadCostText(RadarRange.Future48h))
     }
@@ -797,5 +821,267 @@ class RadarTilesTest {
         assertEquals(1, panDirection(500f))
         assertEquals(-1, panDirection(-9f))
         assertEquals(-1, panDirection(-500f))
+    }
+
+    // -- Multi-source observed radar (AUDIT6 §9 Fixes 6+7) ---------------
+    // Ground truth: the probed MRMS timeExtent [1794709257000,
+    // 1794715977000] (22 five-minute frames) and the LibreWXR sample
+    // document from RadarSourceAdaptersTest (2 past + 2 nowcast).
+    // Centre is Crittenden KY (38.7833, -84.6027): tile (67, 98) at
+    // zoom 8, on a 7x11 grid (centreTileRange(67, 98, 6, 11)).
+
+    private val mrmsProbedTimes: List<Long> =
+        (0 until 22).map { 1794709500000L + it * 300000L }
+
+    private val libreSampleMaps: LibreWxrMaps =
+        parseLibreWxrMaps(
+            "{\"host\":\"https://api.librewxr.net\",\"radar\":{" +
+            "\"past\":[{\"time\":1794715800,\"path\":\"/v2/radar/1794715800\"}," +
+            "{\"time\":1794716400,\"path\":\"/v2/radar/1794716400\"}]," +
+            "\"nowcast\":[{\"time\":1794717000,\"path\":\"/v2/radar/1794717000\"}," +
+            "{\"time\":1794720000,\"path\":\"/v2/radar/1794720000\"}]}}"
+        )!!
+
+    private val crittendenRange: TileRange = centreTileRange(67, 98, 6, 11)
+
+    private fun crittendenBbox() = lonLatBboxForTileRange(crittendenRange, 8)
+
+    @Test
+    fun testExpandedTileRange_expandsAndClamps() {
+        val expanded = expandedTileRange(crittendenRange, 1, 8)
+        assertEquals(63, expanded.minX)
+        assertEquals(71, expanded.maxX)
+        assertEquals(92, expanded.minY)
+        assertEquals(104, expanded.maxY)
+        // Clamped at the zoom edge: min cannot go below 0.
+        val edge = expandedTileRange(TileRange(0, 2, 0, 2), 5, 8)
+        assertEquals(0, edge.minX)
+        assertEquals(0, edge.minY)
+        assertEquals(7, edge.maxX)
+    }
+
+    @Test
+    fun testLonLatBboxForTileRange_coversRangeExactly() {
+        val bbox = crittendenBbox()
+        // West/east are the outer tile edges; north/south likewise.
+        assertEquals(tileXToLon(64, 8), bbox.westLon, 0.00001)
+        assertEquals(tileXToLon(71, 8), bbox.eastLon, 0.00001)
+        assertEquals(tileYToLat(93, 8), bbox.northLat, 0.00001)
+        assertEquals(tileYToLat(104, 8), bbox.southLat, 0.00001)
+        assertTrue(bbox.contains(-84.6027, 38.7833))
+    }
+
+    @Test
+    fun testNearestMrmsTimeMs_nearestWithinTolerance() {
+        // Exact hit, and a time 2 min off its nearest extent time.
+        assertEquals(1794715800000L, nearestMrmsTimeMs(1794715800000L, mrmsProbedTimes))
+        assertEquals(1794715800000L, nearestMrmsTimeMs(1794715800000L + 120000L, mrmsProbedTimes))
+        // More than half a step (2.5 min) from every extent time: no match.
+        assertNull(nearestMrmsTimeMs(1794715800000L + 151000L, mrmsProbedTimes))
+        assertNull(nearestMrmsTimeMs(1794715800000L, emptyList()))
+    }
+
+    @Test
+    fun testNearestLibreWxrPastFrame_nearestPastOnly() {
+        // Exact past hit; nowcast frames are never returned even when nearer.
+        assertEquals(1794716400L, nearestLibreWxrPastFrame(1794716400L, libreSampleMaps)?.timeEpochSec)
+        assertEquals(1794716400L, nearestLibreWxrPastFrame(1794716700L, libreSampleMaps)?.timeEpochSec)
+        // 1794717000 is a nowcast frame: the nearest PAST frame is 10 min away,
+        // outside the tolerance — nowcast frames are never returned.
+        assertNull(nearestLibreWxrPastFrame(1794717000L, libreSampleMaps))
+        // More than 5 min from any past frame: no match.
+        assertNull(nearestLibreWxrPastFrame(1794716400L + 301L, libreSampleMaps))
+    }
+
+    @Test
+    fun testMrmsLiveFrames_probedExtentIsTenFrames() {
+        val now = java.time.Instant.ofEpochMilli(1794715977000L)
+        val frames = mrmsLiveFrames(mrmsProbedTimes, now)
+        // The loop keeps its 10-frame shape: the newest 10 of 22.
+        assertEquals(10, frames.size)
+        assertEquals(1794713100000L, frames.first().validTime.toEpochMilli())
+        assertEquals(1794715800000L, frames.last().validTime.toEpochMilli())
+        assertEquals("47M AGO", frames.first().label)
+        assertEquals("LIVE NOW", frames.last().label)
+        // Layer names map from the end: newest is the live layer.
+        assertEquals("nexrad-n0q-900913-m45m", frames.first().layerName)
+        assertEquals("nexrad-n0q-900913", frames.last().layerName)
+        assertTrue(mrmsLiveFrames(emptyList(), now).isEmpty())
+    }
+
+    @Test
+    fun testResolveLiveFrame_mrmsPreferred() {
+        val resolved = resolveLiveFrame(
+            validTime = java.time.Instant.ofEpochMilli(1794715800000L),
+            iemLayerName = "nexrad-n0q-900913",
+            mrmsTimesMs = mrmsProbedTimes,
+            libreWxrMaps = libreSampleMaps,
+            bbox = crittendenBbox(),
+            imageWidthPx = 1080,
+            imageHeightPx = 1000,
+            zoom = 8,
+            tileRange = crittendenRange
+        )
+        assertEquals(RadarSourceKind.MRMS, resolved.source)
+        val image = resolved.content as RadarFrameContent.SingleImage
+        assertTrue(image.url.contains("time=1794715800000"))
+        assertTrue(image.url.contains("bboxSR=4326"))
+        assertEquals(1080, image.widthPx)
+        assertEquals(1000, image.heightPx)
+        // One URL for the whole frame, not a tile grid.
+        assertEquals(listOf(image.url), liveFrameContentUrls(resolved))
+        assertNull(liveFrameTileUrl(resolved, 8, 67, 98))
+    }
+
+    @Test
+    fun testResolveLiveFrame_libreWxrWhenNoMrms() {
+        val resolved = resolveLiveFrame(
+            validTime = java.time.Instant.ofEpochSecond(1794716400L),
+            iemLayerName = "nexrad-n0q-900913",
+            mrmsTimesMs = emptyList(),
+            libreWxrMaps = libreSampleMaps,
+            bbox = crittendenBbox(),
+            imageWidthPx = 1080,
+            imageHeightPx = 1000,
+            zoom = 8,
+            tileRange = crittendenRange
+        )
+        assertEquals(RadarSourceKind.LIBRE_WXR, resolved.source)
+        val tiled = resolved.content as RadarFrameContent.Tiled
+        assertEquals(77, tiled.urls.size)
+        assertTrue(tiled.urls.contains("https://api.librewxr.net/v2/radar/1794716400/256/8/67/98/2/1_1.png"))
+        assertEquals(
+            "https://api.librewxr.net/v2/radar/1794716400/256/8/67/98/2/1_1.png",
+            liveFrameTileUrl(resolved, 8, 67, 98)
+        )
+    }
+
+    @Test
+    fun testResolveLiveFrame_iemWhenNeither() {
+        val resolved = resolveLiveFrame(
+            validTime = java.time.Instant.ofEpochSecond(1794716400L),
+            iemLayerName = "nexrad-n0q-900913-m45m",
+            mrmsTimesMs = emptyList(),
+            libreWxrMaps = null,
+            bbox = null,
+            imageWidthPx = 1080,
+            imageHeightPx = 1000,
+            zoom = 8,
+            tileRange = crittendenRange
+        )
+        assertEquals(RadarSourceKind.IEM, resolved.source)
+        val tiled = resolved.content as RadarFrameContent.Tiled
+        assertEquals(77, tiled.urls.size)
+        assertTrue(tiled.urls.contains("https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913-m45m/8/67/98.png"))
+        assertEquals(
+            "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913-m45m/8/67/98.png",
+            liveFrameTileUrl(resolved, 8, 67, 98)
+        )
+    }
+
+    @Test
+    fun testResolveLiveFrame_mrmsNeedsBbox() {
+        // Extent times exist but the viewport bbox is not known yet
+        // (grid not reported): MRMS cannot resolve, LibreWXR does.
+        val resolved = resolveLiveFrame(
+            validTime = java.time.Instant.ofEpochSecond(1794716400L),
+            iemLayerName = "nexrad-n0q-900913",
+            mrmsTimesMs = mrmsProbedTimes,
+            libreWxrMaps = libreSampleMaps,
+            bbox = null,
+            imageWidthPx = 1080,
+            imageHeightPx = 1000,
+            zoom = 8,
+            tileRange = crittendenRange
+        )
+        assertEquals(RadarSourceKind.LIBRE_WXR, resolved.source)
+    }
+
+    @Test
+    fun testResolveLiveFrame_overrideStartsFromFallback() {
+        // A per-frame override starts resolution at the fallback source:
+        // MRMS is skipped even though it could serve the frame.
+        val fromLibre = resolveLiveFrame(
+            validTime = java.time.Instant.ofEpochSecond(1794716400L),
+            iemLayerName = "nexrad-n0q-900913",
+            mrmsTimesMs = mrmsProbedTimes,
+            libreWxrMaps = libreSampleMaps,
+            bbox = crittendenBbox(),
+            imageWidthPx = 1080,
+            imageHeightPx = 1000,
+            zoom = 8,
+            tileRange = crittendenRange,
+            startFrom = RadarSourceKind.LIBRE_WXR
+        )
+        assertEquals(RadarSourceKind.LIBRE_WXR, fromLibre.source)
+        val fromIem = resolveLiveFrame(
+            validTime = java.time.Instant.ofEpochSecond(1794716400L),
+            iemLayerName = "nexrad-n0q-900913",
+            mrmsTimesMs = mrmsProbedTimes,
+            libreWxrMaps = libreSampleMaps,
+            bbox = crittendenBbox(),
+            imageWidthPx = 1080,
+            imageHeightPx = 1000,
+            zoom = 8,
+            tileRange = crittendenRange,
+            startFrom = RadarSourceKind.IEM
+        )
+        assertEquals(RadarSourceKind.IEM, fromIem.source)
+    }
+
+    @Test
+    fun testLibreWxrFrameTileUrlsForRange_gridMatchesIemGrid() {
+        val frame = libreSampleMaps.past.last()
+        val urls = libreWxrFrameTileUrlsForRange(libreSampleMaps, frame, 8, crittendenRange)
+        assertEquals(77, urls.size)
+        assertEquals(77, urls.toSet().size)
+        assertTrue(urls.contains("https://api.librewxr.net/v2/radar/1794716400/256/8/67/98/2/1_1.png"))
+    }
+
+    @Test
+    fun testFallbackSourceAfterFailure_mrmsImageFailed() {
+        val image = RadarFrameContent.SingleImage(
+            url = "https://example.invalid/mrms.png",
+            bbox = crittendenBbox(),
+            widthPx = 1080,
+            heightPx = 1000
+        )
+        // Failed image demotes to LibreWXR when available, else IEM.
+        assertEquals(
+            RadarSourceKind.LIBRE_WXR,
+            fallbackSourceAfterFailure(RadarSourceKind.MRMS, image, setOf(image.url), true)
+        )
+        assertEquals(
+            RadarSourceKind.IEM,
+            fallbackSourceAfterFailure(RadarSourceKind.MRMS, image, setOf(image.url), false)
+        )
+        // Not failed: stay.
+        assertNull(fallbackSourceAfterFailure(RadarSourceKind.MRMS, image, emptySet(), true))
+        assertNull(fallbackSourceAfterFailure(RadarSourceKind.MRMS, image, setOf("https://example.invalid/other.png"), true))
+    }
+
+    @Test
+    fun testFallbackSourceAfterFailure_libreAllTilesFailed() {
+        val urls = listOf("https://api.librewxr.net/a.png", "https://api.librewxr.net/b.png")
+        val tiled = RadarFrameContent.Tiled(urls, 8)
+        // Every tile failed: demote to IEM. A partial failure shows
+        // with holes and stays on LibreWXR.
+        assertEquals(
+            RadarSourceKind.IEM,
+            fallbackSourceAfterFailure(RadarSourceKind.LIBRE_WXR, tiled, urls.toSet(), true)
+        )
+        assertNull(fallbackSourceAfterFailure(RadarSourceKind.LIBRE_WXR, tiled, setOf(urls[0]), true))
+        assertNull(fallbackSourceAfterFailure(RadarSourceKind.LIBRE_WXR, tiled, emptySet(), true))
+        assertNull(
+            fallbackSourceAfterFailure(
+                RadarSourceKind.LIBRE_WXR, RadarFrameContent.Tiled(emptyList(), 8), emptySet(), true
+            )
+        )
+    }
+
+    @Test
+    fun testFallbackSourceAfterFailure_iemIsTerminal() {
+        val tiled = RadarFrameContent.Tiled(listOf("https://mesonet.agron.iastate.edu/x.png"), 8)
+        assertNull(fallbackSourceAfterFailure(RadarSourceKind.IEM, tiled, setOf("https://mesonet.agron.iastate.edu/x.png"), true))
     }
 }
