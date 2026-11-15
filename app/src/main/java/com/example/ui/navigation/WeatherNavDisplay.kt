@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -302,6 +303,16 @@ fun WeatherNavDisplay(
  * The solid navy bottom bar: full-width, docked at the bottom, a 1dp
  * lighter-blue top edge, ~64dp tall, with the 5 destinations as icon +
  * label items inside it. The Alerts badge sits on the pill.
+ *
+ * Bottom inset (Bug 2, 2026-11-15): the bar pads its content by
+ * [WindowInsets.navigationBars] — just the gesture area — NOT
+ * safeDrawing. safeDrawing's bottom (~24dp on Robert's Pixel 10a) left
+ * a dead navy strip under the icons; the map gains back the difference
+ * between that and the gesture area. navigationBars keeps only the
+ * gesture-pill zone below the 64dp Row, so the bar sits flush to the
+ * screen edge with the icons/labels clear of the pill. The background
+ * runs to the edge because the padding is applied inside the background
+ * modifier (see below).
  */
 @Composable
 private fun SolidNavBar(
@@ -315,7 +326,7 @@ private fun SolidNavBar(
             .fillMaxWidth()
             .background(RetroTokens.Panel)
             .windowInsetsPadding(
-                WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)
+                WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)
             )
     ) {
         Box(

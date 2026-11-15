@@ -17,8 +17,8 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
@@ -72,10 +72,17 @@ object AuraBars {
      * this is just harmless extra space at the list end. When the R3
      * ticker is visible the ticker's height is added too, so the last
      * item is never hidden behind the ticker either.
+     *
+     * The inset here MUST match the bar's own bottom inset
+     * ([WindowInsets.navigationBars], Bug 2, 2026-11-15): the bar pads
+     * by navigationBars, so screens reserving safeDrawing would hold
+     * the difference as dead clearance for a bar that no longer
+     * extends that far (on Robert's Pixel 10a: safeDrawing bottom
+     * ~24dp, navigationBars is just the gesture area).
      */
     @Composable
     fun contentBottomPadding(tickerVisible: Boolean = false): Dp {
-        val bottomInset = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding()
+        val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         return barHeight + (if (tickerVisible) tickerHeight else 0.dp) + bottomInset
     }
 }
