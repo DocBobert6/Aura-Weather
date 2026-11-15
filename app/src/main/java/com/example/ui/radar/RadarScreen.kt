@@ -73,7 +73,13 @@ import com.example.data.mapper.gibsTileUrl
 import com.example.data.mapper.gibsTimestamp
 import com.example.data.mapper.RadarRange
 import com.example.data.mapper.iemLayerNameFor
+import com.example.data.mapper.iemTileUrl
+import com.example.data.mapper.isFrameSettled
 import com.example.data.mapper.lookAheadFrameIndices
+import com.example.data.mapper.loopDwellMs
+import com.example.data.mapper.loopNextIndex
+import com.example.data.mapper.loopPreloadCostText
+import com.example.data.mapper.RADAR_LOOP_WAIT_TIMEOUT_MS
 import com.example.data.mapper.radarFrameUrls
 import com.example.data.mapper.radarRangeFrames
 import com.example.data.mapper.latToTileY
@@ -214,19 +220,98 @@ fun RadarScreen(
     var frameTileErr by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, safeFrameIndex, forecastRetryGen) { mutableIntStateOf(0) }
     var frameTotalTiles by remember { mutableIntStateOf(0) }
     val frameReady = frameTotalTiles > 0 && frameTileOk + frameTileErr >= frameTotalTiles
-    // The loop effect below does not restart on frame changes, so it
-    // reads readiness through rememberUpdatedState (same pattern as
-    // latestFrameIndex) instead of capturing a stale value.
-    val latestFrameReady by rememberUpdatedState(frameReady)
-    // Whole-frame fade-in (fix 3): the radar layer stays hidden until
-    // its tiles have settled, then fades in complete over 150ms
-    // instead of tiles popping in one by one. Satellite keeps the
-    // fixed 0.85 alpha (its own loading overlay covers the wait).
+
+    // Per-frame PREFETCH readiness (AUDIT6 §9 Fixes 2-3, 2026-11-15):
+    // the display counters above can only see the frame on screen —
+    // they reset the moment the displayed frame changes — so they
+    // cannot say whether frame N+1 is ready while frame N is still
+    // displayed. That is the crux of the old inversion: the loop
+    // advanced first and then waited while the NEW frame sat at
+    // alpha 0. Readiness is therefore tracked PER FRAME INDEX, from
+    // the prefetch lane's completion listener (see prefetchRadarTile
+    // below): each frame's settled-tile count lives in this map and
+    // survives frame advances. Generation keys are the tile-set keys
+    // WITHOUT safeFrameIndex — a new grid (range/layer/zoom/centre/
+    // retry) starts empty; a frame advance must not reset it. The map
+    // is the loop's gate (the loop waits for N+1 here before
+    // advancing) and the alpha's source (a frame swapped in was
+    // already ready, so it never sits at alpha 0).
+    var prefetchSettledByFrame by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf<Map<Int, Int>>(emptyMap()) }
+    // URLs already enqueued in this generation. The rolling
+    // look-ahead re-runs on every frame advance and overlaps the
+    // range-entry burst, and Coil 2.7.0 does NOT coalesce in-flight
+    // requests (AUDIT6 §2.4) — without this guard the same tile
+    // would be fetched twice and counted twice. One enqueue per URL
+    // per generation, so one listener fire per tile, so the counts
+    // in prefetchSettledByFrame are exact.
+    val prefetchEnqueuedUrls = remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableSetOf<String>() }
+
+    // One prefetch settlement for [frameIndex]: loaded or errored
+    // both count — a settled error is a known-missing tile, not a
+    // tile still in flight, and the loop must not wait on it forever.
+    // Called on the main thread: Coil's Listener callbacks are
+    // @MainThread (verified against the coil-base 2.7.0 sources).
+    fun markPrefetchSettled(frameIndex: Int) {
+        prefetchSettledByFrame = prefetchSettledByFrame +
+            (frameIndex to ((prefetchSettledByFrame[frameIndex] ?: 0) + 1))
+    }
+
+    // Is [frameIndex] ready to show? Prefetch settlement first; the
+    // displayed frame's own AsyncImages are the fallback, so a frame
+    // the prefetch never enqueued (a scrub target) still becomes
+    // ready when its tiles settle on screen, and a prefetch listener
+    // that never fires cannot wedge the loop or the alpha.
+    fun isFrameReady(frameIndex: Int): Boolean {
+        if (isFrameSettled(prefetchSettledByFrame[frameIndex] ?: 0, frameTotalTiles)) return true
+        return frameIndex == safeFrameIndex && frameReady
+    }
+    val displayedFrameReady = isFrameReady(safeFrameIndex)
+
+    // Whole-frame fade-in: the radar layer stays hidden until its
+    // tiles have settled, then fades in complete over 150ms instead
+    // of tiles popping in one by one. The readiness here is the
+    // DISPLAYED frame's prefetch readiness (plus the display
+    // fallback), not just its display counters — so a frame the loop
+    // swapped in after gating on its readiness is already at full
+    // alpha the moment it appears. Satellite keeps the fixed 0.85
+    // alpha (its own loading overlay covers the wait).
     val frameAlpha by animateFloatAsState(
-        targetValue = if (isSatellite) 0.85f else if (frameReady) 0.85f else 0f,
+        targetValue = if (isSatellite) 0.85f else if (displayedFrameReady) 0.85f else 0f,
         animationSpec = tween(durationMillis = 150),
         label = "radarFrameAlpha"
     )
+
+    // Loop priming (Fix 3): the "LOADING LOOP..." overlay below shows
+    // until the current frame is ready for the first time in this
+    // generation. Sticky — once any frame has shown, later waits hold
+    // the previous frame visible (Fix 2) and never show the overlay.
+    var loopPrimed by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf(false) }
+    SideEffect { if (displayedFrameReady) loopPrimed = true }
+
+    // Two-slot swap crossfade (Fix 2): when the frame changes, the
+    // outgoing frame's radar tiles stay composed for 150ms underneath
+    // while the incoming frame fades in over them — a layer swap, not
+    // interpolation (no advection, no double-imaged motion: 150ms is
+    // a blink, and the audit forbids on-device interpolation).
+    // lastShownLayer is the layer the user last saw complete; the
+    // effect below captures it before each change. Both reset on a
+    // generation change, so a range switch never crossfades from a
+    // stale layer of another range.
+    var crossfadeFromLayer by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf<String?>(null) }
+    var lastShownLayer by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf(iemLayerName) }
+    val crossfadeProgress by animateFloatAsState(
+        targetValue = if (crossfadeFromLayer != null) 1f else 0f,
+        animationSpec = tween(durationMillis = 150),
+        label = "radarCrossfade"
+    )
+    LaunchedEffect(safeFrameIndex) {
+        val previous = lastShownLayer
+        if (previous == iemLayerName) return@LaunchedEffect
+        crossfadeFromLayer = previous
+        delay(150)
+        crossfadeFromLayer = null
+        lastShownLayer = iemLayerName
+    }
 
     // Auto-retry when the forecast is unavailable: up to 3 attempts
     // with exponential backoff (5s, 10s, 20s), then stop and leave the
@@ -252,23 +337,46 @@ fun RadarScreen(
     // index fresh inside the loop without restarting the effect on every
     // frame advance (which would reset the 750ms delay each time).
     //
-    // Frame-ready hold (radar smoothness fix, 2026-11-14): the loop no
-    // longer steps blindly every 750ms. Each step waits for the CURRENT
-    // frame's tiles to settle (loaded or errored) — so the frame the
-    // user sees is always complete — then dwells 750ms, then advances.
-    // The 750ms is now a minimum dwell, not a blind step. The 2s
-    // timeout is the honest fallback: a dead or slow server can delay
-    // a step, never freeze the loop.
+    // Hold-previous-frame loop (AUDIT6 §9 Fix 2, 2026-11-15): the old
+    // loop advanced FIRST and then waited while the NEW frame sat at
+    // alpha 0 — future frames were invisible 73-100% of the time.
+    // This loop waits BEFORE advancing: it holds the current frame
+    // until it is ready (usually already true), then waits for the
+    // NEXT frame's tiles to settle in the prefetch lane, and only
+    // then swaps — with the 150ms crossfade above — and dwells on the
+    // frame just shown. The frame the user sees is always complete.
+    // The 2s timeout (RADAR_LOOP_WAIT_TIMEOUT_MS) is the honest
+    // fallback, unchanged: a dead or slow server can delay a step,
+    // never freeze the loop. Do not raise it — the audit shows the
+    // timeout is not the bottleneck; the hold inversion was.
+    // Dwell is 750ms per frame, 2250ms on the newest frame (end pause
+    // before the loop wraps — research §5), via loopDwellMs.
     val latestFrameIndex by rememberUpdatedState(safeFrameIndex)
     val latestOnScrubFrame by rememberUpdatedState(onScrubFrame)
     LaunchedEffect(isPlaying, isSatellite, selectedRange) {
         if (!isPlaying || isSatellite) return@LaunchedEffect
         while (true) {
-            withTimeoutOrNull(2000L) {
-                snapshotFlow { latestFrameReady }.first { it }
+            if (frameCount < 1) {
+                delay(1000)
+                continue
             }
-            delay(750)
-            latestOnScrubFrame((latestFrameIndex + 1) % frameCount.coerceAtLeast(1))
+            // Hold the frame on screen until it is ready (a scrub
+            // target or a timeout-advanced frame may not be yet).
+            withTimeoutOrNull(RADAR_LOOP_WAIT_TIMEOUT_MS) {
+                snapshotFlow { isFrameReady(latestFrameIndex) }.first { it }
+            }
+            // Wait for the NEXT frame before leaving this one: the
+            // current frame stays visible at full alpha throughout.
+            // The next index is computed inside the flow so a scrub
+            // mid-wait retargets the wait instead of waiting on a
+            // stale frame.
+            withTimeoutOrNull(RADAR_LOOP_WAIT_TIMEOUT_MS) {
+                snapshotFlow { loopNextIndex(latestFrameIndex, frameCount) to isFrameReady(loopNextIndex(latestFrameIndex, frameCount)) }
+                    .first { (_, ready) -> ready }
+            }
+            val advancedTo = loopNextIndex(latestFrameIndex, frameCount)
+            latestOnScrubFrame(advancedTo)
+            delay(loopDwellMs(advancedTo, frameCount))
         }
     }
 
@@ -323,39 +431,80 @@ fun RadarScreen(
             satSettled = totalSatTiles
         }
 
-        // Prefetch all 10 loop frames for the visible tile grid (3.3), so
-        // a scrub 0->9 is a cache hit instead of a per-frame network
-        // fetch. The current frame is enqueued first so the visible tiles
-        // are not queued behind the other nine frames. Runs on entry and
-        // when the layer, zoom, or centre changes — not on every frame
-        // advance, and not on pinch-zoom (the grid is captured when the
-        // effect last ran; a resize loads its new tiles on demand).
+        // Prefetch the loop for the visible tile grid (3.3, AUDIT6
+        // §9 Fix 3), so a scrub 0->9 is a cache hit instead of a
+        // per-frame network fetch. LIVE preloads the whole 10-frame
+        // loop; future ranges preload the visible window (current +
+        // next 5 — loopPreloadWindowSize). The current frame is
+        // enqueued first so the visible tiles are not queued behind
+        // the other frames. Runs on entry and when the layer, zoom,
+        // or centre changes — not on every frame advance, and not on
+        // pinch-zoom (the grid is captured when the effect last ran;
+        // a resize loads its new tiles on demand).
         // Satellite layers get the same treatment below (fix 4): the
         // GIBS grid is a tile set like radar, not a single image. The
         // grid is capped (tilesX <= 9, tilesY <= 11) and Coil bounds the
         // network concurrency, so this is a bounded burst, not a flood.
-        // The prefetch and the AsyncImage loads share the same memory
-        // and disk caches and the same URLs, and explicit cache
-        // policies, so a prefetched tile is a cache hit for the screen
-        // (no network fetch on the second pass). They do NOT share an
-        // OkHttp client: prefetch runs on its own capped lane (AUDIT6
+        // The prefetch and the AsyncImage loads share the same disk
+        // cache and the same URLs, so a prefetched tile is a disk hit
+        // for the screen (no network fetch on the second pass). They
+        // do NOT share a memory cache entry — prefetch is disk-only
+        // (see prefetchRadarTile) — and they do NOT share an OkHttp
+        // client: prefetch runs on its own capped lane (AUDIT6
         // section 9 Fix 1), display on the singleton's lane.
+        // Coil does NOT deduplicate in-flight requests (AUDIT6 §2.4):
+        // the per-generation prefetchEnqueuedUrls guard in
+        // prefetchRadarTile is what keeps a re-run from fetching the
+        // same tile twice.
         val prefetchLoader = (context.applicationContext as AuraWeatherApp).tilePrefetchLoader
+        // One radar tile into the prefetch lane (AUDIT6 §9 Fix 3):
+        // disk-only, so the loop's store is the disk cache and the
+        // memory cache is never asked to hold the whole loop (AUDIT6
+        // §7.6: 770 LIVE tiles decode to ~202 MB; the memory cache
+        // holds ~195-390 tiles). memoryCachePolicy DISABLED keeps
+        // prefetched tiles out of memory — the displayed frame's
+        // tiles decode into memory on screen instead (~77 tiles,
+        // ~20 MB) — while diskCachePolicy ENABLED writes the raw
+        // bytes to disk, so the later AsyncImage is a disk hit, not
+        // a network fetch. (Coil 2.7.0 has no BlackholeDecoder, so
+        // the decode still runs transiently; only the retention is
+        // skipped — the saving is memory, not decode CPU.)
+        // The listener is the per-frame readiness signal: it fires
+        // on success or error (both count as settled) and marks the
+        // frame ready in prefetchSettledByFrame, which is what the
+        // loop gates on. Skipped if this URL was already enqueued in
+        // this generation (see prefetchEnqueuedUrls).
+        fun prefetchRadarTile(url: String, frameIndex: Int) {
+            if (!prefetchEnqueuedUrls.add(url)) return
+            prefetchLoader.enqueue(
+                ImageRequest.Builder(context)
+                    .data(url)
+                    .memoryCachePolicy(CachePolicy.DISABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .listener(
+                        onSuccess = { _, _ -> markPrefetchSettled(frameIndex) },
+                        onError = { _, _ -> markPrefetchSettled(frameIndex) }
+                    )
+                    .build()
+            )
+        }
         LaunchedEffect(selectedLayer, effectiveZoomLevel, centerLat, centerLon, selectedRange) {
             if (selectedLayer == RadarLayer.Reflectivity || selectedLayer == RadarLayer.LocalSite) {
                 if (selectedRange == RadarRange.Live) {
+                    // Whole-loop preload (Fix 3): all 10 LIVE frames
+                    // (loopPreloadWindowSize), current frame first so
+                    // the visible tiles are not queued behind the
+                    // other nine. Disk-only (see prefetchRadarTile),
+                    // ~25 MB first load, then disk-cached.
                     val frames = radarPrefetchUrls(centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY)
                     val current = frames.getOrElse(safeFrameIndex) { emptyList() }
-                    val ordered = listOf(current) + frames.filterIndexed { index, _ -> index != safeFrameIndex }
-                    for (frameUrls in ordered) {
+                    val ordered = listOf(safeFrameIndex to current) +
+                        frames.mapIndexedNotNull { index, urls ->
+                            if (index != safeFrameIndex) index to urls else null
+                        }
+                    for ((frameIndex, frameUrls) in ordered) {
                         for (url in frameUrls) {
-                            prefetchLoader.enqueue(
-                                ImageRequest.Builder(context)
-                                    .data(url)
-                                    .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .diskCachePolicy(CachePolicy.ENABLED)
-                                    .build()
-                            )
+                            prefetchRadarTile(url, frameIndex)
                         }
                     }
                 } else {
@@ -366,22 +515,18 @@ fun RadarScreen(
                     // frames x the visible grid (~77 tiles on a phone
                     // grid = ~460 requests), never the whole range —
                     // 49-99 frames would be thousands of requests.
-                    // Coil deduplicates URLs already cached or in
-                    // flight, so the overlap with the rolling
-                    // look-ahead effect below is free.
+                    // The overlap with the rolling look-ahead effect
+                    // below is free: prefetchRadarTile enqueues each
+                    // URL once per generation. Full-range cost is
+                    // ~3.5 MB for IN 24H, ~5 MB for IN 48H (mostly
+                    // transparent PNGs) — stated in the loading state.
                     val burstIndices = listOf(safeFrameIndex) +
                         lookAheadFrameIndices(safeFrameIndex, frameCount)
                     for (index in burstIndices) {
                         val layer = frames.getOrNull(index)?.layerName ?: continue
                         val urls = radarFrameUrls(layer, centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY)
                         for (url in urls) {
-                            prefetchLoader.enqueue(
-                                ImageRequest.Builder(context)
-                                    .data(url)
-                                    .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .diskCachePolicy(CachePolicy.ENABLED)
-                                    .build()
-                            )
+                            prefetchRadarTile(url, index)
                         }
                     }
                 }
@@ -407,16 +552,20 @@ fun RadarScreen(
             }
         }
 
-        // Rolling look-ahead prefetch for future ranges (loop smoothing):
-        // the range effect above prefetches the current frame plus the
-        // first 5, so every loop advance used to download the next
-        // frame's tiles on demand and stutter. This keeps the next 5
-        // frames ahead of the playhead cached, re-running as the frame
-        // index advances (and when the user scrubs). Bounded: 5 frames
-        // x the visible grid. Live needs none of this — all 10 of its
-        // frames are prefetched by the range effect. Coil deduplicates
-        // URLs already cached or in flight, so re-enqueueing a frame is
-        // a cheap cache hit.
+        // Rolling look-ahead prefetch for future ranges (loop smoothing
+        // + AUDIT6 §9 Fix 3): the range effect above prefetches the
+        // current frame plus the first 5, so every loop advance used
+        // to download the next frame's tiles on demand and stutter.
+        // This keeps the next 5 frames ahead of the playhead cached,
+        // re-running as the frame index advances (and when the user
+        // scrubs). Bounded: 5 frames x the visible grid. Live needs
+        // none of this — all 10 of its frames are prefetched by the
+        // range effect. This effect is what makes the NEXT frame
+        // ready for the loop gate: without it the loop would wait
+        // out its 2s timeout on every future-range step. Re-enqueueing
+        // a frame is free — prefetchRadarTile enqueues each URL once
+        // per generation, so a re-run only enqueues the newly entered
+        // frame at the window's far end.
         LaunchedEffect(selectedRange, selectedLayer, effectiveZoomLevel, centerLat, centerLon, safeFrameIndex) {
             if (selectedRange == RadarRange.Live) return@LaunchedEffect
             if (selectedLayer != RadarLayer.Reflectivity && selectedLayer != RadarLayer.LocalSite) return@LaunchedEffect
@@ -430,13 +579,7 @@ fun RadarScreen(
                 val layer = frames.getOrNull(index)?.layerName ?: continue
                 val urls = radarFrameUrls(layer, centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY)
                 for (url in urls) {
-                    prefetchLoader.enqueue(
-                        ImageRequest.Builder(context)
-                            .data(url)
-                            .memoryCachePolicy(CachePolicy.ENABLED)
-                            .diskCachePolicy(CachePolicy.ENABLED)
-                            .build()
-                    )
+                    prefetchRadarTile(url, index)
                 }
             }
         }
@@ -493,6 +636,18 @@ fun RadarScreen(
                             gibsTileUrl(false, gibsTime, effectiveZoomLevel, tileX, tileY)
                     }
 
+                    // Outgoing frame's tile (Fix 2 two-slot swap): the
+                    // layer the loop just left, rendered underneath
+                    // during the 150ms crossfade. Null when no swap is
+                    // in progress, or on satellite layers (no loop).
+                    // Built with iemTileUrl — the same URL the screen
+                    // loads for that layer — so it is a cache hit.
+                    val prevRadarUrl = if (!isSatellite) {
+                        crossfadeFromLayer?.let { iemTileUrl(it, effectiveZoomLevel, tileX, tileY) }
+                    } else {
+                        null
+                    }
+
                     Box(
                         modifier = Modifier
                             .offset { IntOffset(tileLeftPx, tileTopPx) }
@@ -519,17 +674,38 @@ fun RadarScreen(
                         // (loaded or errored) so the loading overlay knows
                         // when the imagery has arrived. Radar layers
                         // report each tile to the per-frame settlement
-                        // counters (fix 2/3): the loop holds until the
-                        // frame's tiles have settled, and the layer fades
-                        // in whole once they have. Forecast ranges also
+                        // counters: the fallback readiness for the frame
+                        // on screen (the loop gates on prefetch
+                        // readiness — see isFrameReady — and the layer
+                        // fades in whole once ready). Forecast ranges also
                         // report each tile, so a down IEM backend shows
                         // the "future radar unavailable" state instead of
                         // a blank void. Explicit cache policies: the
-                        // prefetch and the screen share the same caches
-                        // and URLs, so a prefetched tile is a cache hit
-                        // here. key(forecastRetryGen)
+                        // prefetch and the screen share the same disk
+                        // cache and URLs, so a prefetched tile is a disk
+                        // hit here. key(forecastRetryGen)
                         // recreates the request on a retry.
                         key(forecastRetryGen) {
+                            // Outgoing frame, fading out (Fix 2): no
+                            // settlement callbacks — its tiles must not
+                            // count toward the INCOMING frame's counters.
+                            // Per-tile crossfade off: the layer alpha on
+                            // this AsyncImage is the crossfade.
+                            if (prevRadarUrl != null) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(prevRadarUrl)
+                                        .crossfade(false)
+                                        .memoryCachePolicy(CachePolicy.ENABLED)
+                                        .diskCachePolicy(CachePolicy.ENABLED)
+                                        .build(),
+                                    contentDescription = "Radar tile",
+                                    contentScale = ContentScale.FillBounds,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .alpha(0.85f * (1f - crossfadeProgress))
+                                )
+                            }
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
                                     .data(radarUrl)
@@ -551,7 +727,7 @@ fun RadarScreen(
                                 },
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .alpha(frameAlpha)
+                                    .alpha(if (crossfadeFromLayer != null) 0.85f * crossfadeProgress else frameAlpha)
                             )
                         }
 
@@ -634,6 +810,55 @@ fun RadarScreen(
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = RetroTokens.TextPrimary
+                        )
+                    }
+                }
+            }
+        }
+
+        // Loop loading (AUDIT6 §9 Fix 3): until the current frame is
+        // ready for the first time in this generation, the map is bare
+        // basemap — say the loop is loading, and say what it costs.
+        // The cost is the honest first-load figure from the audit's
+        // probe (§9 Fix 3): LIVE downloads ~25 MB of speckle-heavy
+        // tiles the first time, then reads them from the disk cache;
+        // future ranges are mostly transparent PNGs (~3.5 MB for
+        // 24H, ~5 MB for 48H). No Wi-Fi-only gate: the rule is honest
+        // cost, not a gate. Once primed this never shows again in the
+        // generation — later waits hold the previous frame visible
+        // instead (Fix 2).
+        if (!isSatellite && !loopPrimed && !forecastUnavailable) {
+            Box(
+                modifier = Modifier.align(Alignment.Center),
+                contentAlignment = Alignment.Center
+            ) {
+                RetroPanel(shape = RetroShapes.medium) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                color = RetroTokens.Yellow,
+                                strokeWidth = 3.dp,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Text(
+                                text = "LOADING LOOP...",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = RetroTokens.TextPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = loopPreloadCostText(selectedRange),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = RetroTokens.TextSecondary,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }

@@ -286,6 +286,64 @@ fun lookAheadFrameIndices(currentFrameIndex: Int, frameCount: Int, ahead: Int = 
 }
 
 // ---------------------------------------------------------------------------
+// Radar loop gating (AUDIT6 §9 Fixes 2-3): hold the previous frame until
+// the next is ready, preload the loop, dwell on the newest frame.
+// Pure Kotlin — covered by RadarTilesTest, no Compose, no Android.
+// ---------------------------------------------------------------------------
+
+/** Dwell on each frame once shown: 750 ms is the loop's normal step
+ * (in the band the best radar apps use — research §3: 800 ms). */
+const val RADAR_LOOP_DWELL_MS = 750L
+
+/** Dwell on the NEWEST frame before the loop wraps (end pause,
+ * research §5). No published standard duration was found, so this is
+ * a judgment call: 3x the normal dwell, long enough to read the
+ * newest frame, short enough not to feel stalled. */
+const val RADAR_LOOP_END_PAUSE_MS = 2250L
+
+/** How long the loop waits for a frame to become ready before it
+ * advances anyway. UNCHANGED from PR #14 and deliberately not raised:
+ * the audit shows the timeout is not the bottleneck (a cold frame
+ * needs ~16 s; a longer timeout just shows nothing for longer), and
+ * it is the bound that keeps a dead frame from freezing the loop. */
+const val RADAR_LOOP_WAIT_TIMEOUT_MS = 2000L
+
+/** The next frame index after [currentFrameIndex], wrapping to 0 at
+ * the end of the loop — the same wrap the loop itself advances with,
+ * so the prefetch window and the playhead never disagree. Out-of-range
+ * input is coerced; an empty loop has no next frame (0). */
+fun loopNextIndex(currentFrameIndex: Int, frameCount: Int): Int {
+    if (frameCount <= 0) return 0
+    return (currentFrameIndex.coerceIn(0, frameCount - 1) + 1) % frameCount
+}
+
+/** Is a frame ready to show? [settledTiles] tiles (loaded or errored —
+ * a settled error is a known-missing tile, not a tile still in flight)
+ * out of [totalTiles]. A frame with no tiles drawn yet is never ready. */
+fun isFrameSettled(settledTiles: Int, totalTiles: Int): Boolean =
+    totalTiles > 0 && settledTiles >= totalTiles
+
+/** How long the loop dwells on [displayedIndex] once shown: the normal
+ * dwell, except the newest frame (last index) gets the end pause
+ * before the loop wraps. */
+fun loopDwellMs(displayedIndex: Int, frameCount: Int): Long =
+    if (frameCount > 0 && displayedIndex == frameCount - 1) RADAR_LOOP_END_PAUSE_MS else RADAR_LOOP_DWELL_MS
+
+/**
+ * Honest first-load data cost of preloading the loop, for the
+ * "LOADING LOOP..." state (AUDIT6 §9 Fix 3). From the audit's probe
+ * (§9 Fix 3 / appendix): LIVE downloads ~25 MB of speckle-heavy
+ * tiles the first time, then reads them from the disk cache; future
+ * ranges are mostly transparent PNGs (~3.5 MB for 24H, ~5 MB for
+ * 48H). Star4000-safe: capitals, digits, spaces and periods only.
+ */
+fun loopPreloadCostText(range: RadarRange): String = when (range) {
+    RadarRange.Live -> "FIRST LOAD ABOUT 25 MB THEN CACHED"
+    RadarRange.Future24h -> "FIRST LOAD ABOUT 3.5 MB THEN CACHED"
+    RadarRange.Future48h -> "FIRST LOAD ABOUT 5 MB THEN CACHED"
+}
+
+// ---------------------------------------------------------------------------
 // GIBS satellite tiles (radar smoothness fix, 2026-11-14): the satellite
 // layers are a tile grid like radar, not a single image — the screen
 // used to prefetch nothing for them, so satellite loaded tile-by-tile

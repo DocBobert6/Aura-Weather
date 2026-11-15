@@ -2,7 +2,14 @@ package com.example
 
 import com.example.data.mapper.gibsTileUrl
 import com.example.data.mapper.iemLayerNameFor
+import com.example.data.mapper.isFrameSettled
 import com.example.data.mapper.lookAheadFrameIndices
+import com.example.data.mapper.loopDwellMs
+import com.example.data.mapper.loopNextIndex
+import com.example.data.mapper.loopPreloadCostText
+import com.example.data.mapper.RADAR_LOOP_DWELL_MS
+import com.example.data.mapper.RADAR_LOOP_END_PAUSE_MS
+import com.example.data.mapper.RADAR_LOOP_WAIT_TIMEOUT_MS
 import com.example.data.mapper.RadarRange
 import com.example.data.mapper.hrrrLayerName
 import com.example.data.mapper.iemTileUrl
@@ -16,6 +23,7 @@ import com.example.data.mapper.satelliteTileUrls
 import com.example.data.mapper.satelliteZoomLevel
 import com.example.data.mapper.snappedTileSpan
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -313,6 +321,109 @@ class RadarTilesTest {
     @Test
     fun testLookAheadFrameIndices_emptyRangeIsEmpty() {
         assertEquals(emptyList<Int>(), lookAheadFrameIndices(0, 0))
+    }
+
+    // AUDIT6 §9 Fixes 2-3: loop gating (hold the previous frame until
+    // the next is ready), dwell, and the honest preload cost.
+
+    @Test
+    fun testLoopNextIndex_midRange() {
+        assertEquals(11, loopNextIndex(10, 75))
+    }
+
+    @Test
+    fun testLoopNextIndex_wrapsAtLastFrame() {
+        assertEquals(0, loopNextIndex(74, 75))
+        assertEquals(0, loopNextIndex(9, 10))
+    }
+
+    @Test
+    fun testLoopNextIndex_singleFrameStays() {
+        assertEquals(0, loopNextIndex(0, 1))
+    }
+
+    @Test
+    fun testLoopNextIndex_emptyLoopIsZero() {
+        assertEquals(0, loopNextIndex(0, 0))
+    }
+
+    @Test
+    fun testLoopNextIndex_coercesOutOfRangeCurrent() {
+        // A stale index past the end still wraps to 0 instead of
+        // crashing the loop; a negative one coerces to frame 0's next.
+        assertEquals(0, loopNextIndex(99, 10))
+        assertEquals(1, loopNextIndex(-3, 10))
+    }
+
+    @Test
+    fun testIsFrameSettled_allTiles() {
+        assertTrue(isFrameSettled(77, 77))
+    }
+
+    @Test
+    fun testIsFrameSettled_notYet() {
+        assertFalse(isFrameSettled(76, 77))
+        assertFalse(isFrameSettled(0, 77))
+    }
+
+    @Test
+    fun testIsFrameSettled_noTilesDrawnIsNeverReady() {
+        // The grid has not reported its size yet: 0/0 must not read
+        // as ready, or the loop would advance on an empty grid.
+        assertFalse(isFrameSettled(0, 0))
+    }
+
+    @Test
+    fun testIsFrameSettled_overSettledStillReady() {
+        // Defensive: a double-counted tile must not wedge readiness.
+        assertTrue(isFrameSettled(78, 77))
+    }
+
+    @Test
+    fun testLoopDwellMs_normalFrame() {
+        assertEquals(750L, loopDwellMs(0, 10))
+        assertEquals(750L, loopDwellMs(8, 10))
+    }
+
+    @Test
+    fun testLoopDwellMs_newestFrameGetsEndPause() {
+        // End pause before the loop wraps (AUDIT6 §9 Fix 2).
+        assertEquals(2250L, loopDwellMs(9, 10))
+        assertEquals(2250L, loopDwellMs(74, 75))
+    }
+
+    @Test
+    fun testLoopDwellMs_singleFrameIsNewest() {
+        assertEquals(2250L, loopDwellMs(0, 1))
+    }
+
+    @Test
+    fun testLoopDwellMs_emptyLoopIsNormal() {
+        assertEquals(750L, loopDwellMs(0, 0))
+    }
+
+    @Test
+    fun testLoopWaitTimeout_unchangedTwoSeconds() {
+        // The 2 s timeout is the fallback bound, not the bottleneck:
+        // it must stay 2 s (AUDIT6 §9: do not raise it).
+        assertEquals(2000L, RADAR_LOOP_WAIT_TIMEOUT_MS)
+        assertEquals(750L, RADAR_LOOP_DWELL_MS)
+        assertEquals(2250L, RADAR_LOOP_END_PAUSE_MS)
+    }
+
+    @Test
+    fun testLoopPreloadCostText_honestCosts() {
+        assertEquals("FIRST LOAD ABOUT 25 MB THEN CACHED", loopPreloadCostText(RadarRange.Live))
+        assertEquals("FIRST LOAD ABOUT 3.5 MB THEN CACHED", loopPreloadCostText(RadarRange.Future24h))
+        assertEquals("FIRST LOAD ABOUT 5 MB THEN CACHED", loopPreloadCostText(RadarRange.Future48h))
+    }
+
+    @Test
+    fun testLoopPreloadCostText_star4000SafeCharsOnly() {
+        for (range in RadarRange.entries) {
+            val text = loopPreloadCostText(range)
+            assertTrue(text, text.matches(Regex("^[A-Z0-9 .]+$")))
+        }
     }
 
     @Test
