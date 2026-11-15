@@ -164,6 +164,66 @@ class RadarTilesTest {
     }
 
     @Test
+    fun testRadarFrameLabel_minuteGranularFuture() {
+        // AUDIT6 §9 Fix 11: the old "IN 2H" label covered four
+        // consecutive 15-min frames (120-179 min), so it sat still
+        // ~9 s while the loop advanced. Every frame now differs.
+        val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
+        assertEquals("IN 59M", radarFrameLabel(now.plusSeconds(59 * 60), now))
+        assertEquals("IN 1H", radarFrameLabel(now.plusSeconds(60 * 60), now))
+        assertEquals("IN 1H 15M", radarFrameLabel(now.plusSeconds(75 * 60), now))
+        assertEquals("IN 2H", radarFrameLabel(now.plusSeconds(120 * 60), now))
+        assertEquals("IN 2H 15M", radarFrameLabel(now.plusSeconds(135 * 60), now))
+        assertEquals("IN 2H 30M", radarFrameLabel(now.plusSeconds(150 * 60), now))
+        assertEquals("IN 2H 45M", radarFrameLabel(now.plusSeconds(165 * 60), now))
+        assertEquals("IN 3H", radarFrameLabel(now.plusSeconds(180 * 60), now))
+        assertEquals("IN 24H 15M", radarFrameLabel(now.plusSeconds((24 * 60 + 15) * 60), now))
+    }
+
+    @Test
+    fun testRadarFrameLabel_minuteGranularPast() {
+        // The same collapse existed on the past side ("2H AGO"
+        // covered 120-179 min ago); it gets the same fix.
+        val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
+        assertEquals("59M AGO", radarFrameLabel(now.minusSeconds(59 * 60), now))
+        assertEquals("1H AGO", radarFrameLabel(now.minusSeconds(60 * 60), now))
+        assertEquals("1H 15M AGO", radarFrameLabel(now.minusSeconds(75 * 60), now))
+        assertEquals("2H AGO", radarFrameLabel(now.minusSeconds(120 * 60), now))
+        assertEquals("2H 15M AGO", radarFrameLabel(now.minusSeconds(135 * 60), now))
+        assertEquals("2H 30M AGO", radarFrameLabel(now.minusSeconds(150 * 60), now))
+    }
+
+    @Test
+    fun testRadarFrameLabel_each15MinFrameIn2hBandIsDistinct() {
+        // The video's stall: four frames, one label. All four (plus
+        // the next hour boundary) must now be distinct.
+        val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
+        val labels = (120..180 step 15).map { radarFrameLabel(now.plusSeconds(it * 60L), now) }
+        assertEquals(listOf("IN 2H", "IN 2H 15M", "IN 2H 30M", "IN 2H 45M", "IN 3H"), labels)
+        assertEquals(labels.size, labels.toSet().size)
+    }
+
+    @Test
+    fun testRadarFrameLabel_liveAndNow() {
+        val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
+        assertEquals("NOW", radarFrameLabel(now, now))
+        assertEquals("IN 1M", radarFrameLabel(now.plusSeconds(60), now))
+        assertEquals("1M AGO", radarFrameLabel(now.minusSeconds(60), now))
+    }
+
+    @Test
+    fun testRadarFrameLabel_star4000SafeCharsOnly() {
+        // Labels render in the Star4000 font: no en/em dash or
+        // ellipsis — only A-Z, 0-9 and spaces, over the full range.
+        val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
+        val labels = (-48 * 60..48 * 60 step 15).map { radarFrameLabel(now.plusSeconds(it * 60L), now) }
+        assertTrue(labels.isNotEmpty())
+        for (label in labels) {
+            assertTrue(label, label.matches(Regex("^[A-Z0-9 ]+$")))
+        }
+    }
+
+    @Test
     fun testRadarRangeFrames_liveIsTenFrames() {
         val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
         val frames = radarRangeFrames(RadarRange.Live, now)

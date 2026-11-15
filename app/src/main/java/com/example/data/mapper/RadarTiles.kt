@@ -152,6 +152,11 @@ fun hrrrLayerName(forecastMinutes: Int): String {
 /**
  * Short relative label for a frame ("24H AGO", "NOW", "IN 6H"), in the
  * same style as the live loop's "45M AGO" / "LIVE NOW".
+ *
+ * Minute-granular (AUDIT6 §9 Fix 11): an hourly label covered four
+ * consecutive 15-min frames, so the label sat still for ~9 s while the
+ * loop advanced. Hours now carry the remainder minutes ("IN 2H 15M"),
+ * so every frame gets its own label; exact hours stay short ("IN 2H").
  */
 fun radarFrameLabel(validTime: Instant, now: Instant): String {
     val diffMin = Duration.between(now, validTime).toMinutes()
@@ -159,10 +164,18 @@ fun radarFrameLabel(validTime: Instant, now: Instant): String {
         diffMin == 0L -> "NOW"
         diffMin < 0 -> {
             val ago = -diffMin
-            if (ago < 60) "${ago}M AGO" else "${ago / 60}H AGO"
+            val hours = ago / 60
+            val mins = ago % 60
+            if (ago < 60) "${ago}M AGO"
+            else if (mins == 0L) "${hours}H AGO"
+            else "${hours}H ${mins}M AGO"
         }
         else -> {
-            if (diffMin < 60) "IN ${diffMin}M" else "IN ${diffMin / 60}H"
+            val hours = diffMin / 60
+            val mins = diffMin % 60
+            if (diffMin < 60) "IN ${diffMin}M"
+            else if (mins == 0L) "IN ${hours}H"
+            else "IN ${hours}H ${mins}M"
         }
     }
 }
