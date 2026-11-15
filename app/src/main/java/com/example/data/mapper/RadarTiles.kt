@@ -344,6 +344,59 @@ fun loopPreloadCostText(range: RadarRange): String = when (range) {
 }
 
 // ---------------------------------------------------------------------------
+// Forecast slow trigger (AUDIT6 §9 Fix 12, 2026-11-15): the old
+// unavailable state measured settled ERRORS only, so while the
+// switch burst was still draining — nothing settled yet — the user
+// got an empty map with no message and no retry for as long as the
+// backlog took (~97 s worst case). The time-based trigger below
+// fires when too little of the current frame has settled after a
+// wait. Pure Kotlin — covered by RadarTilesTest, no Compose, no
+// Android.
+// ---------------------------------------------------------------------------
+
+/** How long the current frame gets before the slow trigger may fire.
+ * A healthy cold frame needs ~16 s wall for all 77 tiles at 5/host
+ * (audit appendix: 15.6–17.3 s HRRR), so 20 s is PAST a healthy
+ * full load, not inside it — a healthy cold start never fires this.
+ * 20 s is also long enough that the LOADING LOOP state has had its
+ * say first: the trigger is the message for a load that is not
+ * merely slow to start, but stalled. */
+const val FORECAST_SLOW_WAIT_MS = 20000L
+
+/** Minimum settled fraction at the end of the wait: below this the
+ * load counts as stalled. 25% is far below healthy progress (~90%
+ * of a frame is settled by 20 s at ~5 tiles/s) yet above zero, so
+ * a trickle of arrivals does not mask a stuck load — and a frame
+ * that is merely slow but progressing (half settled) does not fire.
+ * Settled includes errors: a down server settles its errors fast
+ * and fires the error trigger instead; this trigger is for the
+ * nothing-has-arrived case. */
+const val FORECAST_SLOW_MIN_SETTLED_FRACTION = 0.25
+
+/** Has the forecast load stalled? True only once [elapsedMs] has
+ * reached [waitMs] AND fewer than [minSettledFraction] of the
+ * frame's [totalTiles] have settled (loaded or errored). A frame
+ * with no tiles drawn yet is never slow — the grid has not
+ * reported, not stalled. */
+fun isForecastSlow(
+    settledTiles: Int,
+    totalTiles: Int,
+    elapsedMs: Long,
+    waitMs: Long = FORECAST_SLOW_WAIT_MS,
+    minSettledFraction: Double = FORECAST_SLOW_MIN_SETTLED_FRACTION
+): Boolean {
+    if (totalTiles <= 0) return false
+    if (elapsedMs < waitMs) return false
+    return settledTiles < minSettledFraction * totalTiles
+}
+
+/** How many of [urls] have settled (are in [settledUrls]) — the
+ * current frame's settled count for the slow trigger, counted over
+ * the prefetch lane's URL set. */
+fun settledUrlCount(urls: List<String>, settledUrls: Set<String>): Int =
+    urls.count { it in settledUrls }
+
+// ---------------------------------------------------------------------------
 // GIBS satellite tiles (radar smoothness fix, 2026-11-14): the satellite
 // layers are a tile grid like radar, not a single image — the screen
 // used to prefetch nothing for them, so satellite loaded tile-by-tile

@@ -10,7 +10,11 @@ import com.example.data.mapper.loopNextIndex
 import com.example.data.mapper.loopPreloadCostText
 import com.example.data.mapper.RADAR_LOOP_DWELL_MS
 import com.example.data.mapper.RADAR_LOOP_END_PAUSE_MS
+import com.example.data.mapper.FORECAST_SLOW_MIN_SETTLED_FRACTION
+import com.example.data.mapper.FORECAST_SLOW_WAIT_MS
 import com.example.data.mapper.RADAR_LOOP_WAIT_TIMEOUT_MS
+import com.example.data.mapper.isForecastSlow
+import com.example.data.mapper.settledUrlCount
 import com.example.data.mapper.SATELLITE_OVERLAY_CAP_MS
 import com.example.data.mapper.RadarRange
 import com.example.data.mapper.hrrrLayerName
@@ -428,6 +432,56 @@ class RadarTilesTest {
         assertEquals(2000L, RADAR_LOOP_WAIT_TIMEOUT_MS)
         assertEquals(750L, RADAR_LOOP_DWELL_MS)
         assertEquals(2250L, RADAR_LOOP_END_PAUSE_MS)
+    }
+
+    @Test
+    fun testForecastSlowWait_isTwentySeconds() {
+        // Fix 12: the slow window is 20 s — a healthy cold frame
+        // needs ~16 s wall for all 77 tiles, so 20 s is past a
+        // healthy full load, not inside it.
+        assertEquals(20000L, FORECAST_SLOW_WAIT_MS)
+        assertEquals(0.25, FORECAST_SLOW_MIN_SETTLED_FRACTION, 0.0)
+    }
+
+    @Test
+    fun testIsForecastSlow_firesWhenTooLittleSettledAfterWait() {
+        assertTrue(isForecastSlow(0, 77, 20000L))
+        assertTrue(isForecastSlow(10, 77, 20000L))
+        // 19 of 77 is below the 25% line (19.25 tiles).
+        assertTrue(isForecastSlow(19, 77, 20000L))
+        assertTrue(isForecastSlow(0, 77, 60000L))
+    }
+
+    @Test
+    fun testIsForecastSlow_doesNotFireWhileHealthy() {
+        // 20 of 77 is above the 25% line; a healthy frame is ~90%
+        // settled by 20 s, so none of these must fire.
+        assertFalse(isForecastSlow(20, 77, 20000L))
+        assertFalse(isForecastSlow(38, 77, 20000L))
+        assertFalse(isForecastSlow(70, 77, 20000L))
+        assertFalse(isForecastSlow(77, 77, 20000L))
+    }
+
+    @Test
+    fun testIsForecastSlow_doesNotFireBeforeWait() {
+        // Nothing settled yet at 5 s is normal on a cold start —
+        // the burst is still draining — not an unavailable state.
+        assertFalse(isForecastSlow(0, 77, 5000L))
+        assertFalse(isForecastSlow(0, 77, 19999L))
+    }
+
+    @Test
+    fun testIsForecastSlow_noTilesIsNeverSlow() {
+        // The grid has not reported yet: 0/0 must not read as slow.
+        assertFalse(isForecastSlow(0, 0, 60000L))
+    }
+
+    @Test
+    fun testSettledUrlCount_countsOnlySettled() {
+        val urls = listOf("a", "b", "c")
+        assertEquals(2, settledUrlCount(urls, setOf("a", "c")))
+        assertEquals(0, settledUrlCount(urls, emptySet()))
+        assertEquals(0, settledUrlCount(emptyList(), setOf("a")))
     }
 
     @Test

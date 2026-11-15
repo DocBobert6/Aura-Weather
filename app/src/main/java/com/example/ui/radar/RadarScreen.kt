@@ -90,7 +90,10 @@ import com.example.data.mapper.loopNextIndex
 import com.example.data.mapper.loopPreloadCostText
 import com.example.data.mapper.panDirection
 import com.example.data.mapper.parentTileFor
+import com.example.data.mapper.FORECAST_SLOW_WAIT_MS
 import com.example.data.mapper.RADAR_LOOP_WAIT_TIMEOUT_MS
+import com.example.data.mapper.isForecastSlow
+import com.example.data.mapper.settledUrlCount
 import com.example.data.mapper.radarFrameUrlsForRange
 import com.example.data.mapper.radarPrefetchUrlsForRange
 import com.example.data.mapper.radarRangeFrames
@@ -266,10 +269,50 @@ fun RadarScreen(
     var forecastAutoRetries by remember(selectedRange) { mutableIntStateOf(0) }
     var forecastTileOk by remember(selectedRange, forecastRetryGen) { mutableIntStateOf(0) }
     var forecastTileErr by remember(selectedRange, forecastRetryGen) { mutableIntStateOf(0) }
-    // Unavailable when the first few forecast tiles all fail and none
-    // loaded: IEM is down (or the layer is wrong), not a slow load.
-    val forecastUnavailable = isForecastRange && !isSatellite &&
+    // Cheap-retry tick (AUDIT6 §9 Fix 12): a retry bumps THIS, not
+    // forecastRetryGen. forecastRetryGen is the tile-set generation
+    // key — bumping it recreates every tile AsyncImage via
+    // key(forecastRetryGen) below and cancels in-flight tiles. The
+    // tick instead resets the counters (in the retry handlers) and
+    // re-arms the slow window/flag (keyed on it below), and drives
+    // the cheap re-enqueue effect, which re-requests only the
+    // current window's tiles whose PREFETCH failed (see
+    // prefetchFailedUrls). Keyed on the range, so a range switch
+    // starts a fresh tick.
+    var forecastCheapRetryTick by remember(selectedRange) { mutableIntStateOf(0) }
+    // Time-based slow flag (AUDIT6 §9 Fix 12): set by the effect near
+    // the prefetch effects once the current frame has had
+    // FORECAST_SLOW_WAIT_MS and still has too few tiles settled.
+    // Keyed on the tile-set generation (same keys as
+    // prefetchSettledUrls) and the retry tick: a layer/zoom/place
+    // change or a retry re-arms a fresh 20 s window, so a fresh tile
+    // set is never measured against a stale deadline and a stuck
+    // flag never survives onto a new tile set.
+    var forecastSlowTimedOut by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen, forecastCheapRetryTick) { mutableStateOf(false) }
+    // Start of the current generation's slow window (uptime ms).
+    // The remember initializer runs when the tile-set generation or
+    // the retry tick changes, so a layer/zoom/place change or a
+    // retry restarts the window.
+    val forecastGenStartMs by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen, forecastCheapRetryTick) { mutableLongStateOf(SystemClock.uptimeMillis()) }
+    // The full unavailable flag is defined after loopPrimed below:
+    // it needs the prefetch settled set (declared later) for the
+    // slow fraction, and the loop-primed gate. The error trigger
+    // itself is this: forecastTileErr >= 3 with no successes means
+    // IEM is down (or the layer is wrong), not a slow load.
+    val forecastErrorUnavailable = isForecastRange && !isSatellite &&
         forecastTileErr >= 3 && forecastTileOk == 0
+
+    // Held frame (AUDIT6 §9 Fix 14): the frame the map actually
+    // shows. Scrubbing changes safeFrameIndex (the target) at once,
+    // but the map keeps showing the last frame whose tiles are ready
+    // until the target's tiles settle — the hold effect after the
+    // loop effect below moves this forward. Keyed on the tile-set
+    // generation, so a range/layer/zoom/centre change restarts the
+    // hold at the current frame. Satellite never uses it (no loop,
+    // no frame list); the hold effect returns early there.
+    var heldFrameIndex by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableIntStateOf(safeFrameIndex) }
+    val heldFrame = frames.getOrNull(heldFrameIndex)
+    val heldLayerName = heldFrame?.layerName ?: iemLayerName
 
     // Per-frame tile settlement (radar smoothness fix, 2026-11-14):
     // the loop used to advance every 750ms whether or not the next
@@ -288,8 +331,8 @@ fun RadarScreen(
     // can inflate these counters by at most the tiles that left the
     // viewport (one shifted column/row), so the fallback may call the
     // displayed frame ready a few tiles early; the loop gate never does.
-    var frameTileOk by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, safeFrameIndex, forecastRetryGen) { mutableIntStateOf(0) }
-    var frameTileErr by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, safeFrameIndex, forecastRetryGen) { mutableIntStateOf(0) }
+    var frameTileOk by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, heldFrameIndex, forecastRetryGen) { mutableIntStateOf(0) }
+    var frameTileErr by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, heldFrameIndex, forecastRetryGen) { mutableIntStateOf(0) }
     var frameTotalTiles by remember { mutableIntStateOf(0) }
     val frameReady = frameTotalTiles > 0 && frameTileOk + frameTileErr >= frameTotalTiles
 
@@ -319,6 +362,12 @@ fun RadarScreen(
     // tiles that are still visible. The generation keys deliberately
     // do NOT include the viewport: a pan must not clear this set.
     var prefetchSettledUrls by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf<Set<String>>(emptySet()) }
+    // Tiles whose PREFETCH failed (Fix 12 cheap retry): the settled
+    // set above cannot tell a loaded tile from a failed one, and a
+    // retry must re-request only the failed ones — never the tiles
+    // still in flight, never the loaded ones. Same generation keys
+    // as the settled set, so a generation change starts it empty.
+    var prefetchFailedUrls by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf<Set<String>>(emptySet()) }
     // URLs already enqueued in this generation. The rolling
     // look-ahead re-runs on every frame advance and overlaps the
     // range-entry burst, and Coil 2.7.0 does NOT coalesce in-flight
@@ -342,6 +391,15 @@ fun RadarScreen(
     // @MainThread (verified against the coil-base 2.7.0 sources).
     fun markPrefetchSettled(url: String) {
         if (url !in prefetchSettledUrls) prefetchSettledUrls = prefetchSettledUrls + url
+        if (url in prefetchFailedUrls) prefetchFailedUrls = prefetchFailedUrls - url
+    }
+
+    // One prefetch FAILURE for [url]: it counts as settled (the loop
+    // must not wait on it forever) and is recorded as failed, so a
+    // cheap retry can re-request exactly this tile.
+    fun markPrefetchFailed(url: String) {
+        if (url !in prefetchSettledUrls) prefetchSettledUrls = prefetchSettledUrls + url
+        if (url !in prefetchFailedUrls) prefetchFailedUrls = prefetchFailedUrls + url
     }
 
     // Is [frameIndex] ready to show? Prefetch settlement first: every
@@ -358,9 +416,13 @@ fun RadarScreen(
             val layer = frames.getOrNull(frameIndex)?.layerName ?: return false
             if (isTileSettled(radarFrameUrlsForRange(layer, effectiveZoomLevel, range), prefetchSettledUrls)) return true
         }
-        return frameIndex == safeFrameIndex && frameReady
+        return frameIndex == heldFrameIndex && frameReady
     }
-    val displayedFrameReady = isFrameReady(safeFrameIndex)
+    // The frame on screen is the HELD frame (Fix 14), not the scrub
+    // target: alpha follows the held frame's readiness, so scrubbing
+    // to a frame whose tiles have not arrived yet cannot fade the
+    // layer out from under the user.
+    val displayedFrameReady = isFrameReady(heldFrameIndex)
 
     // Whole-frame fade-in: the radar layer stays hidden until its
     // tiles have settled, then fades in complete over 150ms instead
@@ -395,6 +457,38 @@ fun RadarScreen(
     var loopPrimed by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf(false) }
     SideEffect { if (displayedFrameReady) loopPrimed = true }
 
+    // Full forecast-unavailable flag (Fix 12): the settled-error
+    // trigger above, OR the time-based slow trigger (the slow flag
+    // is set by the effect near the prefetch effects). The slow
+    // trigger only fires while the loop has never primed: once a
+    // frame has shown, later waits hold the previous frame visible
+    // (Fix 2) instead of an empty map, so there is no empty state
+    // to report. The LOADING LOOP overlay below is suppressed by
+    // this flag, so the two states never fight over the same
+    // centred panel.
+    val forecastUnavailable = forecastErrorUnavailable ||
+        (forecastSlowTimedOut && !loopPrimed)
+
+    // Latest-state reader for the slow check (Fix 12): the slow
+    // effect below delays 20 s, so it must not read the settled
+    // fraction captured at launch. rememberUpdatedState refreshes
+    // this lambda every recomposition; the effect calls it after
+    // the delay and sees the current frame, the current settled
+    // set and the current primed state.
+    val latestForecastSlowCheck by rememberUpdatedState {
+        if (!isForecastRange || isSatellite || loopPrimed) false else {
+            val range = prefetchTileRange
+            if (range == null) false else {
+                val urls = radarFrameUrlsForRange(iemLayerName, effectiveZoomLevel, range)
+                isForecastSlow(
+                    settledUrlCount(urls, prefetchSettledUrls),
+                    urls.size,
+                    SystemClock.uptimeMillis() - forecastGenStartMs
+                )
+            }
+        }
+    }
+
     // Two-slot swap crossfade (Fix 2): when the frame changes, the
     // outgoing frame's radar tiles stay composed for 150ms underneath
     // while the incoming frame fades in over them — a layer swap, not
@@ -405,34 +499,48 @@ fun RadarScreen(
     // generation change, so a range switch never crossfades from a
     // stale layer of another range.
     var crossfadeFromLayer by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf<String?>(null) }
-    var lastShownLayer by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf(iemLayerName) }
+    var lastShownLayer by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf(heldLayerName) }
     val crossfadeProgress by animateFloatAsState(
         targetValue = if (crossfadeFromLayer != null) 1f else 0f,
         animationSpec = tween(durationMillis = 150),
         label = "radarCrossfade"
     )
-    LaunchedEffect(safeFrameIndex) {
+    // Keyed on the HELD frame (Fix 14): the crossfade runs when the
+    // map actually swaps, not when the scrub target changes.
+    LaunchedEffect(heldFrameIndex) {
         val previous = lastShownLayer
-        if (previous == iemLayerName) return@LaunchedEffect
+        if (previous == heldLayerName) return@LaunchedEffect
         crossfadeFromLayer = previous
         delay(150)
         crossfadeFromLayer = null
-        lastShownLayer = iemLayerName
+        lastShownLayer = heldLayerName
     }
 
     // Auto-retry when the forecast is unavailable: up to 3 attempts
     // with exponential backoff (5s, 10s, 20s), then stop and leave the
-    // RETRY button. Each attempt bumps the retry generation, which
-    // recreates the tile AsyncImages (keyed below) so the failed set
-    // is re-requested. Coil does not cache failures, so the retry hits
-    // the network again.
+    // RETRY button. Each attempt bumps the cheap-retry tick (Fix 12),
+    // NOT the retry generation — bumping the generation would
+    // recreate every tile AsyncImage and cancel in-flight tiles.
+    // The tick resets the forecast counters and re-arms the slow
+    // window, and drives the cheap re-enqueue effect, which
+    // re-requests only the tiles whose prefetch failed. Coil does
+    // not cache failures, so the re-request hits the network again.
     LaunchedEffect(forecastUnavailable, forecastAutoRetries) {
         if (!forecastUnavailable || forecastAutoRetries >= 3) return@LaunchedEffect
         val backoffMs = 5000L * (1L shl forecastAutoRetries)
         delay(backoffMs)
         if (forecastUnavailable) {
             forecastAutoRetries++
-            forecastRetryGen++
+            // Cheap retry (Fix 12): bump the retry tick, NOT
+            // forecastRetryGen — bumping the generation would
+            // recreate every tile AsyncImage and cancel the tiles
+            // still in flight. The tick resets the forecast
+            // counters (below) and the slow window/flag (keyed on
+            // it), and drives the cheap re-enqueue effect, which
+            // re-requests only the tiles whose prefetch failed.
+            forecastCheapRetryTick++
+            forecastTileOk = 0
+            forecastTileErr = 0
         }
     }
 
@@ -458,11 +566,26 @@ fun RadarScreen(
     // timeout is not the bottleneck; the hold inversion was.
     // Dwell is 750ms per frame, 2250ms on the newest frame (end pause
     // before the loop wraps — research §5), via loopDwellMs.
+    // Scrubbing (AUDIT6 §9 Fix 14): true while the user's finger is
+    // on the scrubber. The loop below pauses while it is true (it
+    // checks the latest value each step, so no effect restart), and
+    // the held frame above keeps the last ready frame on screen.
+    // Set by the Slider's drag callbacks at the bottom of this file.
+    var isScrubbing by remember { mutableStateOf(false) }
     val latestFrameIndex by rememberUpdatedState(safeFrameIndex)
     val latestOnScrubFrame by rememberUpdatedState(onScrubFrame)
+    val latestIsScrubbing by rememberUpdatedState(isScrubbing)
     LaunchedEffect(isPlaying, isSatellite, selectedRange) {
         if (!isPlaying || isSatellite) return@LaunchedEffect
         while (true) {
+            // Pause while the user drags (Fix 14): advancing
+            // mid-drag would fight the scrub target and blank the
+            // layer. After the drag ends the loop resumes below,
+            // gating on the new frame's readiness — never blindly.
+            if (latestIsScrubbing) {
+                delay(200)
+                continue
+            }
             if (frameCount < 1) {
                 delay(1000)
                 continue
@@ -485,6 +608,25 @@ fun RadarScreen(
             latestOnScrubFrame(advancedTo)
             delay(loopDwellMs(advancedTo, frameCount))
         }
+    }
+
+    // Scrub hold (AUDIT6 §9 Fix 14): move the held frame forward
+    // only once the scrub/loop target's tiles are ready. While the
+    // user drags, this effect restarts on every target change and
+    // the map keeps showing the last ready frame; when the user
+    // stops on a frame, the hold releases the moment its tiles
+    // settle in the prefetch lane (the look-ahead effect below also
+    // enqueues the scrub target itself, so a target outside the old
+    // window still gets fetched). No timeout: a target that never
+    // becomes ready simply never replaces the frame on screen, and
+    // the loop's own 2 s timeout still bounds the playhead — the
+    // loop advances the TARGET, this effect only moves what is
+    // SHOWN. Satellite returns early (no loop, no held frame).
+    LaunchedEffect(safeFrameIndex) {
+        if (isSatellite) return@LaunchedEffect
+        if (safeFrameIndex == heldFrameIndex) return@LaunchedEffect
+        snapshotFlow { isFrameReady(safeFrameIndex) }.first { it }
+        heldFrameIndex = safeFrameIndex
     }
 
     // Pan settle (AUDIT6 §9 Fix 4): the tile set reconciles on gesture
@@ -641,7 +783,7 @@ fun RadarScreen(
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .listener(
                         onSuccess = { _, _ -> markPrefetchSettled(url) },
-                        onError = { _, _ -> markPrefetchSettled(url) }
+                        onError = { _, _ -> markPrefetchFailed(url) }
                     )
                     .build()
             )
@@ -651,11 +793,16 @@ fun RadarScreen(
         // memory cache on (Fix 3's disk-only rule is for the radar
         // loop's 770 tiles; a satellite frame is one 77-tile image),
         // no readiness listener — satellite readiness is satSettled.
+        // Explicit memoryCacheKey (Fix 15, same note as the display
+        // AsyncImage below): the satellite prefetch writes memory,
+        // so its key must match the display's key for the same tile
+        // URL, or the prefetch "hit" misses in memory and re-decodes.
         fun prefetchSatelliteTile(url: String) {
             if (!prefetchEnqueuedUrls.add(url)) return
             val disposable = prefetchLoader.enqueue(
                 ImageRequest.Builder(context)
                     .data(url)
+                    .memoryCacheKey(url)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .build()
@@ -678,6 +825,7 @@ fun RadarScreen(
                     iterator.remove()
                     prefetchEnqueuedUrls.remove(url)
                     if (url in prefetchSettledUrls) prefetchSettledUrls = prefetchSettledUrls - url
+                    if (url in prefetchFailedUrls) prefetchFailedUrls = prefetchFailedUrls - url
                 }
             }
         }
@@ -772,12 +920,70 @@ fun RadarScreen(
             // on safeFrameIndex, so the wrap prefetch runs as soon as the
             // playhead reaches the last frame. Viewport-driven (Fix 4):
             // the look-ahead covers the panned viewport range too.
+            // The scrub target itself (Fix 14): the look-ahead below
+            // covers the NEXT 5 frames, not the frame the user just
+            // scrubbed to — and the held frame only advances once the
+            // target is ready — so the target's own tiles must be
+            // enqueued here too, or a scrub to a frame outside the
+            // old window would never become ready and the hold would
+            // never release. Re-enqueueing is free: the guard in
+            // prefetchRadarTile enqueues each URL once per generation.
+            frames.getOrNull(safeFrameIndex)?.layerName?.let { layer ->
+                for (url in radarFrameUrlsForRange(layer, effectiveZoomLevel, viewportPrefetchRange)) {
+                    prefetchRadarTile(url)
+                }
+            }
             for (index in lookAheadFrameIndices(safeFrameIndex, frameCount)) {
                 val layer = frames.getOrNull(index)?.layerName ?: continue
                 val urls = radarFrameUrlsForRange(layer, effectiveZoomLevel, viewportPrefetchRange)
                 for (url in urls) {
                     prefetchRadarTile(url)
                 }
+            }
+        }
+
+        // Time-based slow trigger (AUDIT6 §9 Fix 12): the settled-error
+        // trigger cannot fire while the switch burst is still draining
+        // — nothing has settled, so nothing is "unavailable" and the
+        // user stares at an empty map for as long as the backlog takes
+        // (~97 s worst case). This effect waits out the slow window
+        // (FORECAST_SLOW_WAIT_MS) from the generation start, then asks
+        // the latest-state check (which reads the CURRENT frame's
+        // prefetch-settled fraction, not a launch-time snapshot)
+        // whether too little has arrived. It fires at most once per
+        // generation: the flag is keyed on the retry tick, and a retry
+        // re-arms a fresh window.
+        LaunchedEffect(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen, forecastCheapRetryTick) {
+            if (!isForecastRange || isSatellite) return@LaunchedEffect
+            val remainingMs = FORECAST_SLOW_WAIT_MS - (SystemClock.uptimeMillis() - forecastGenStartMs)
+            if (remainingMs > 0) delay(remainingMs)
+            if (latestForecastSlowCheck()) forecastSlowTimedOut = true
+        }
+
+        // Cheap retry (AUDIT6 §9 Fix 12): when the retry tick moves
+        // (manual RETRY or the auto-retry above), re-request ONLY the
+        // current window's tiles whose prefetch FAILED. Tiles still in
+        // flight keep flying — nothing is cancelled, no AsyncImage is
+        // recreated (forecastRetryGen is untouched) — and tiles that
+        // already loaded are never re-requested. The failed URLs are
+        // dropped from the enqueue guard and the settled/failed sets
+        // first, so prefetchRadarTile enqueues them again. Display
+        // tiles that errored recover from the disk cache the next time
+        // their frame is shown (loop wrap or scrub re-requests the
+        // same URL, which is now a disk hit).
+        LaunchedEffect(forecastCheapRetryTick) {
+            if (forecastCheapRetryTick == 0) return@LaunchedEffect
+            if (!isForecastRange || isSatellite) return@LaunchedEffect
+            val wanted = (listOf(safeFrameIndex) + lookAheadFrameIndices(safeFrameIndex, frameCount)).flatMapTo(mutableSetOf()) { index ->
+                val layer = frames.getOrNull(index)?.layerName ?: return@flatMapTo emptyList<String>()
+                radarFrameUrlsForRange(layer, effectiveZoomLevel, viewportPrefetchRange)
+            }
+            for (url in wanted.intersect(prefetchFailedUrls)) {
+                prefetchEnqueuedUrls.remove(url)
+                prefetchSettledUrls = prefetchSettledUrls - url
+                prefetchFailedUrls = prefetchFailedUrls - url
+                prefetchDisposables.remove(url)
+                prefetchRadarTile(url)
             }
         }
 
@@ -825,9 +1031,12 @@ fun RadarScreen(
                     val (tileTopPx, tileHeightPx) = snappedTileSpan(mapOriginY, tileY, tileSizePx)
 
                     val basemapUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/$effectiveZoomLevel/$tileY/$tileX"
+                    // The HELD layer (Fix 14), not the scrub target:
+                    // the map shows the last ready frame until the
+                    // target's tiles settle.
                     val radarUrl = when (selectedLayer) {
                         RadarLayer.Reflectivity, RadarLayer.LocalSite ->
-                            "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$iemLayerName/$effectiveZoomLevel/$tileX/$tileY.png"
+                            "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$heldLayerName/$effectiveZoomLevel/$tileX/$tileY.png"
                         RadarLayer.SatelliteVis ->
                             gibsTileUrl(true, gibsTime, effectiveZoomLevel, tileX, tileY)
                         RadarLayer.SatelliteIr ->
@@ -846,7 +1055,7 @@ fun RadarScreen(
                     val parentRadarUrl = parent?.let {
                         when (selectedLayer) {
                             RadarLayer.Reflectivity, RadarLayer.LocalSite ->
-                                iemTileUrl(iemLayerName, it.zoom, it.tileX, it.tileY)
+                                iemTileUrl(heldLayerName, it.zoom, it.tileX, it.tileY)
                             RadarLayer.SatelliteVis ->
                                 gibsTileUrl(true, gibsTime, it.zoom, it.tileX, it.tileY)
                             RadarLayer.SatelliteIr ->
@@ -922,6 +1131,24 @@ fun RadarScreen(
                         // cache and URLs, so a prefetched tile is a disk
                         // hit here. key(forecastRetryGen)
                         // recreates the request on a retry.
+                        // Memory-cache key alignment (AUDIT6 §9 Fix 15,
+                        // INFERRED not measured — audit §7.5: verify the
+                        // hit rate on device): Coil's memory-cache key
+                        // includes the requested size, and the display
+                        // decodes at the snapped layout size (255/256/
+                        // 257 px) while a prefetch with no explicit size
+                        // decodes at the intrinsic size — so a prefetch
+                        // "hit" could miss in memory and re-decode. An
+                        // explicit memoryCacheKey (the tile URL) aligns
+                        // prefetch and display at EVERY size, including
+                        // pinch-zoomed sizes up to 512 px, where a fixed
+                        // .size(256, 256) would cap the decode instead.
+                        // The radar prefetch is disk-only (memory
+                        // DISABLED, Fix 3), so it writes no memory entry
+                        // to align — the entry this matches is the
+                        // satellite prefetch's (memory ENABLED below),
+                        // and it also makes loop-wrap display hits
+                        // size-independent.
                         key(forecastRetryGen) {
                             // Outgoing frame, fading out (Fix 2): no
                             // settlement callbacks — its tiles must not
@@ -932,6 +1159,7 @@ fun RadarScreen(
                                 AsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(prevRadarUrl)
+                                        .memoryCacheKey(prevRadarUrl)
                                         .crossfade(false)
                                         .memoryCachePolicy(CachePolicy.ENABLED)
                                         .diskCachePolicy(CachePolicy.ENABLED)
@@ -946,6 +1174,7 @@ fun RadarScreen(
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
                                     .data(radarUrl)
+                                    .memoryCacheKey(radarUrl)
                                     .crossfade(true)
                                     .memoryCachePolicy(CachePolicy.ENABLED)
                                     .diskCachePolicy(CachePolicy.ENABLED)
@@ -1152,8 +1381,15 @@ fun RadarScreen(
                         RetroPanel(
                             shape = RetroShapes.medium,
                             modifier = Modifier.clickable {
-                                forecastRetryGen++
+                                // Cheap retry (Fix 12): see the
+                                // auto-retry effect — the tick, not
+                                // the generation, so no AsyncImage
+                                // is recreated and no in-flight tile
+                                // is cancelled.
+                                forecastCheapRetryTick++
                                 forecastAutoRetries = 0
+                                forecastTileOk = 0
+                                forecastTileErr = 0
                             }
                         ) {
                             Text(
@@ -1481,7 +1717,16 @@ fun RadarScreen(
 
                     Slider(
                         value = safeFrameIndex.toFloat(),
-                        onValueChange = { onScrubFrame(it.toInt()) },
+                        onValueChange = {
+                            // Fix 14: the loop pauses while the
+                            // finger is down (isScrubbing) and the
+                            // map holds the last ready frame until
+                            // this target's tiles settle.
+                            isScrubbing = true
+                            onScrubFrame(it.toInt())
+                        },
+                        onValueChangeStart = { isScrubbing = true },
+                        onValueChangeFinished = { isScrubbing = false },
                         valueRange = 0f..(frameCount - 1).coerceAtLeast(1).toFloat(),
                         steps = (frameCount - 2).coerceAtLeast(0),
                         colors = SliderDefaults.colors(
