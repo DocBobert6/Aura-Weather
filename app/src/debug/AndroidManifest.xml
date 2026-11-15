@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only launcher entry for the Phase 1 MapLibre radar engine
+  activity (branch fix/radar-phase1-engine). This manifest merges
+  into DEBUG builds only, so the release APK gains no extra launcher
+  entry: the engine activity itself stays exported=false with no
+  intent filter, and still finishes immediately on non-debug builds
+  (BuildConfig.DEBUG check in onCreate).
+
+  Why an alias instead of an intent filter on the activity: the alias
+  is a separate component that exists only in debug builds, so the
+  main manifest — and therefore the release merged manifest — never
+  mentions a launcher entry for the engine at all. The activity is
+  production code (it becomes the radar screen at the Phase 5
+  cutover); only the standalone entry is debug-only.
+
+  Robert installs APKs himself and has no computer, so he cannot
+  launch the engine via adb; this icon ("Aura Radar Engine") is how
+  he runs the Phase 1 device gate (pan/zoom smooth, no navy gaps,
+  basemap loads, no blank areas on fast pans).
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity-alias
+            android:name=".ui.radar.engine.RadarEngineLauncher"
+            android:targetActivity=".ui.radar.engine.RadarEngineActivity"
+            android:exported="true"
+            android:label="@string/radar_engine_launcher_label"
+            android:icon="@mipmap/ic_launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+    </application>
+</manifest>

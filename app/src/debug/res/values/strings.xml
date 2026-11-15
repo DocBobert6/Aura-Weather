@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only strings (Phase 1 engine launcher entry). -->
+<resources>
+    <string name="radar_engine_launcher_label">Aura Radar Engine</string>
+</resources>
