@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -86,6 +87,8 @@ enum class EngineRange {
     Future48h
 }
 
+// The scrubber's custom thumb is an experimental Material3 API.
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RadarEngineScreen(
     mapView: MapView,
