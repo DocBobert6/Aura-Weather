@@ -66,9 +66,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import com.example.AuraWeatherApp
 import com.example.data.mapper.gibsTileUrl
 import com.example.data.mapper.gibsTimestamp
 import com.example.data.mapper.RadarRange
@@ -334,11 +334,13 @@ fun RadarScreen(
         // GIBS grid is a tile set like radar, not a single image. The
         // grid is capped (tilesX <= 9, tilesY <= 11) and Coil bounds the
         // network concurrency, so this is a bounded burst, not a flood.
-        // The prefetch and the AsyncImage loads share the same
-        // ImageLoader, the same URLs, and explicit cache policies, so a
-        // prefetched tile is a cache hit for the screen (no network
-        // fetch on the second pass).
-        val prefetchLoader = context.imageLoader
+        // The prefetch and the AsyncImage loads share the same memory
+        // and disk caches and the same URLs, and explicit cache
+        // policies, so a prefetched tile is a cache hit for the screen
+        // (no network fetch on the second pass). They do NOT share an
+        // OkHttp client: prefetch runs on its own capped lane (AUDIT6
+        // section 9 Fix 1), display on the singleton's lane.
+        val prefetchLoader = (context.applicationContext as AuraWeatherApp).tilePrefetchLoader
         LaunchedEffect(selectedLayer, effectiveZoomLevel, centerLat, centerLon, selectedRange) {
             if (selectedLayer == RadarLayer.Reflectivity || selectedLayer == RadarLayer.LocalSite) {
                 if (selectedRange == RadarRange.Live) {
@@ -523,9 +525,9 @@ fun RadarScreen(
                         // report each tile, so a down IEM backend shows
                         // the "future radar unavailable" state instead of
                         // a blank void. Explicit cache policies: the
-                        // prefetch and the screen share the same
-                        // ImageLoader and URLs, so a prefetched tile is
-                        // a cache hit here. key(forecastRetryGen)
+                        // prefetch and the screen share the same caches
+                        // and URLs, so a prefetched tile is a cache hit
+                        // here. key(forecastRetryGen)
                         // recreates the request on a retry.
                         key(forecastRetryGen) {
                             AsyncImage(
