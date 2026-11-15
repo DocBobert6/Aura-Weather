@@ -34,6 +34,16 @@
             </intent-filter>
         </activity>
 
+        <!-- Phase 0 spike only (fix/radar-phase0-spikes): MapLibre direct
+             spike activity. No intent filter, not exported, debug-gated
+             at runtime; launch on device via adb (see the activity's
+             KDoc). Never lands on main. -->
+        <activity
+            android:name=".spike.maplibre.MapLibreSpikeActivity"
+            android:exported="false"
+            android:label="MapLibre Spike"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density" />
+
         <!-- 3.2 home-screen widget. The system must be able to deliver
              APPWIDGET_UPDATE to it, so it is exported. -->
         <receiver

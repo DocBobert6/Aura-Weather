@@ -109,6 +109,9 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation(libs.play.services.location)
+  // Phase 0 spike only (fix/radar-phase0-spikes): MapLibre Native 13.7.1
+  // direct (Vulkan single-backend). Never lands on main as-is.
+  implementation(libs.maplibre.android.sdk)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
