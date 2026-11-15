@@ -5,6 +5,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.roundToInt
 import kotlin.math.tan
@@ -19,6 +20,14 @@ import kotlin.math.tan
  * tilesY the loop runs dx in -halfX..halfX, dy in -halfY..halfY with
  * halfX = tilesX / 2, halfY = tilesY / 2, so the drawn width is
  * 2 * halfX + 1 (not tilesX). The prefetch uses the same bounds.
+ *
+ * Viewport-driven grid (AUDIT6 §9 Fix 4): the screen no longer draws
+ * that fixed centre-anchored grid. It computes a [TileRange] from the
+ * panned viewport ([viewportTileRange]) — the visible tiles plus a
+ * 1-tile margin (and +1 in the pan-velocity direction for prefetch) —
+ * and both rendering and prefetch use the range-based builders below,
+ * so a pan actually requests the newly visible tiles. The centre-based
+ * builders delegate to the range versions with identical output.
  */
 
 // IEM NEXRAD composite layer name for frame 0..9 (0 = 45m ago, 9 = LIVE).
@@ -65,6 +74,18 @@ fun iemTileUrl(layerName: String, zoom: Int, tileX: Int, tileY: Int): String =
     "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$layerName/$zoom/$tileX/$tileY.png"
 
 /**
+ * The tile range for a centre-based grid: the range the old code drew
+ * (centre tile +/- half tiles). The centre-based URL builders below
+ * delegate through it to the range-based builders, with identical
+ * output — it exists so the old call sites and tests keep passing.
+ */
+fun centreTileRange(centerTileX: Int, centerTileY: Int, tilesX: Int, tilesY: Int): TileRange {
+    val halfX = tilesX / 2
+    val halfY = tilesY / 2
+    return TileRange(centerTileX - halfX, centerTileX + halfX, centerTileY - halfY, centerTileY + halfY)
+}
+
+/**
  * The radar tile URLs to prefetch for a scrub: one list per loop frame
  * (index 0..9), each covering the visible tile grid centred on the
  * place. The caller enqueues the current frame's list first so the
@@ -79,20 +100,8 @@ fun radarPrefetchUrls(
     tilesX: Int,
     tilesY: Int
 ): List<List<String>> {
-    val centerTileX = lonToTileX(centerLon, zoom)
-    val centerTileY = latToTileY(centerLat, zoom)
-    val halfX = tilesX / 2
-    val halfY = tilesY / 2
-    return (0..9).map { frameIndex ->
-        val layerName = iemLayerNameFor(frameIndex)
-        buildList {
-            for (dx in -halfX..halfX) {
-                for (dy in -halfY..halfY) {
-                    add(iemTileUrl(layerName, zoom, centerTileX + dx, centerTileY + dy))
-                }
-            }
-        }
-    }
+    val range = centreTileRange(lonToTileX(centerLon, zoom), latToTileY(centerLat, zoom), tilesX, tilesY)
+    return radarPrefetchUrlsForRange(zoom, range)
 }
 
 // ---------------------------------------------------------------------------
@@ -242,17 +251,8 @@ fun radarFrameUrls(
     tilesX: Int,
     tilesY: Int
 ): List<String> {
-    val centerTileX = lonToTileX(centerLon, zoom)
-    val centerTileY = latToTileY(centerLat, zoom)
-    val halfX = tilesX / 2
-    val halfY = tilesY / 2
-    return buildList {
-        for (dx in -halfX..halfX) {
-            for (dy in -halfY..halfY) {
-                add(iemTileUrl(layerName, zoom, centerTileX + dx, centerTileY + dy))
-            }
-        }
-    }
+    val range = centreTileRange(lonToTileX(centerLon, zoom), latToTileY(centerLat, zoom), tilesX, tilesY)
+    return radarFrameUrlsForRange(layerName, zoom, range)
 }
 
 /**
@@ -380,17 +380,8 @@ fun satelliteTileUrls(
     tilesX: Int,
     tilesY: Int
 ): List<String> {
-    val centerTileX = lonToTileX(centerLon, zoom)
-    val centerTileY = latToTileY(centerLat, zoom)
-    val halfX = tilesX / 2
-    val halfY = tilesY / 2
-    return buildList {
-        for (dx in -halfX..halfX) {
-            for (dy in -halfY..halfY) {
-                add(gibsTileUrl(isVisible, gibsTime, zoom, centerTileX + dx, centerTileY + dy))
-            }
-        }
-    }
+    val range = centreTileRange(lonToTileX(centerLon, zoom), latToTileY(centerLat, zoom), tilesX, tilesY)
+    return satelliteTileUrlsForRange(isVisible, gibsTime, zoom, range)
 }
 
 /**
@@ -410,3 +401,185 @@ fun snappedTileSpan(originPx: Float, tileIndex: Int, stepPx: Float): Pair<Int, I
     val right = (originPx + (tileIndex + 1) * stepPx).roundToInt()
     return left to (right - left)
 }
+
+// ---------------------------------------------------------------------------
+// Viewport-driven tile manager (AUDIT6 §9 Fix 4, 2026-11-15): the tile
+// set used to be FIXED, centred on the place — panning only shifted
+// positions and never requested new tiles, so the newly visible area
+// stayed solid navy for ~10 s. The grid is now computed from the
+// PANNED VIEWPORT: the visible tiles plus a margin ring, recomputed
+// only when the pan settles (the screen transforms the existing tiles
+// during the drag and reconciles on gesture end). Pure Kotlin —
+// covered by RadarTilesTest, no Compose, no Android.
+// ---------------------------------------------------------------------------
+
+/** Margin ring around the viewport, in tiles (research §4: Leaflet
+ * keepBuffer 2, Slippery 128 px expansion — 1 tile here, because the
+ * grid cap below bounds the cost; the pan-velocity direction gets +1
+ * more for prefetch). A 1-tile ring covers any pan up to a full tile
+ * (256 px) with no gap at all during the drag. */
+const val VIEWPORT_TILE_MARGIN = 1
+
+/** Grid cap, unchanged from the old centre-based grid: at most 9 tiles
+ * wide and 11 tall, so a very large screen cannot fire hundreds of
+ * tile requests. */
+const val VIEWPORT_MAX_TILES_X = 9
+const val VIEWPORT_MAX_TILES_Y = 11
+
+/** How long after the last pan/zoom move the viewport counts as
+ * settled: the screen reconciles (recomputes the tile set and
+ * prefetches the new area) when the gesture has been still this long.
+ * Leaflet throttles tile updates to 200 ms while panning and loads on
+ * idle on mobile; 300 ms is the same idea with a little more settle. */
+const val PAN_SETTLE_DELAY_MS = 300L
+
+/** A pan smaller than this does not count as a pan direction: jitter
+ * and rounding noise must not add a velocity tile. */
+const val PAN_DIRECTION_THRESHOLD_PX = 8f
+
+/** The inclusive tile-coordinate rectangle the screen draws and
+ * prefetches. [width]/[height] are tile counts, not spans. */
+data class TileRange(val minX: Int, val maxX: Int, val minY: Int, val maxY: Int) {
+    val width: Int get() = maxX - minX + 1
+    val height: Int get() = maxY - minY + 1
+    val tileCount: Int get() = width * height
+    fun contains(tileX: Int, tileY: Int): Boolean =
+        tileX in minX..maxX && tileY in minY..maxY
+}
+
+/**
+ * The tile set for a viewport, from the map origin (the screen
+ * position of world x/y = 0 — the same origin the screen derives every
+ * tile's snapped edges from) and the screen size. A pan moves the
+ * origin, so the visible tiles move with it — unlike the old
+ * centre-anchored grid, which never moved at all.
+ *
+ * [marginTiles] extra tiles are loaded on every side; the pan-velocity
+ * direction ([velocityDx]/[velocityDy], -1/0/1 from [panDirection])
+ * gets one more tile, so tiles in the direction the user is moving are
+ * already loading when the gesture settles. The span is capped at
+ * [maxTilesX] x [maxTilesY] around the viewport centre tile and
+ * clamped to the valid tile coordinates for [zoom].
+ */
+fun viewportTileRange(
+    mapOriginXPx: Float,
+    mapOriginYPx: Float,
+    screenWidthPx: Float,
+    screenHeightPx: Float,
+    tileSizePx: Float,
+    zoom: Int,
+    marginTiles: Int = VIEWPORT_TILE_MARGIN,
+    velocityDx: Int = 0,
+    velocityDy: Int = 0,
+    maxTilesX: Int = VIEWPORT_MAX_TILES_X,
+    maxTilesY: Int = VIEWPORT_MAX_TILES_Y
+): TileRange {
+    val maxCoord = (1 shl zoom) - 1
+    val step = tileSizePx.coerceAtLeast(1f)
+    // First/last tile intersecting the viewport: floor, not truncation
+    // — a negative origin must round toward -infinity, not toward
+    // zero, or the tile left of the origin is dropped.
+    val firstX = floor((-mapOriginXPx) / step).toInt()
+    val lastX = floor((screenWidthPx - 1f - mapOriginXPx) / step).toInt()
+    val firstY = floor((-mapOriginYPx) / step).toInt()
+    val lastY = floor((screenHeightPx - 1f - mapOriginYPx) / step).toInt()
+    val centreX = Math.floorDiv(firstX + lastX, 2)
+    val centreY = Math.floorDiv(firstY + lastY, 2)
+    var minX = firstX - marginTiles - if (velocityDx < 0) 1 else 0
+    var maxX = lastX + marginTiles + if (velocityDx > 0) 1 else 0
+    var minY = firstY - marginTiles - if (velocityDy < 0) 1 else 0
+    var maxY = lastY + marginTiles + if (velocityDy > 0) 1 else 0
+    // Cap the span around the viewport centre tile, then clamp to the
+    // valid tile coordinates for this zoom.
+    if (maxX - minX + 1 > maxTilesX) {
+        minX = centreX - maxTilesX / 2
+        maxX = minX + maxTilesX - 1
+    }
+    if (maxY - minY + 1 > maxTilesY) {
+        minY = centreY - maxTilesY / 2
+        maxY = minY + maxTilesY - 1
+    }
+    return TileRange(
+        minX.coerceIn(0, maxCoord),
+        maxX.coerceIn(0, maxCoord),
+        minY.coerceIn(0, maxCoord),
+        maxY.coerceIn(0, maxCoord)
+    )
+}
+
+/** Pan direction from a cumulative pan delta: -1, 0 or 1 per axis.
+ * The screen passes the pan since the last settle (not the per-event
+ * delta, which is only a few pixels per pointer event), so a real
+ * drag always clears the threshold and jitter never does. */
+fun panDirection(deltaPx: Float): Int = when {
+    deltaPx > PAN_DIRECTION_THRESHOLD_PX -> 1
+    deltaPx < -PAN_DIRECTION_THRESHOLD_PX -> -1
+    else -> 0
+}
+
+/**
+ * The lower-zoom parent tile for a tile: the tile at [zoom] - 1 that
+ * contains it, plus which quadrant of the parent the child sits in
+ * ([offsetX]/[offsetY], 0 or 1). The screen draws the parent scaled
+ * 2x, shifted by -offset * tileSize and clipped to the child's box,
+ * underneath the child — so a tile still loading shows its parent's
+ * imagery instead of a hole, and a pan into unloaded area shows
+ * low-res map instead of navy void. Null at zoom 0 (no parent).
+ */
+data class ParentTile(val tileX: Int, val tileY: Int, val zoom: Int, val offsetX: Int, val offsetY: Int)
+
+fun parentTileFor(tileX: Int, tileY: Int, zoom: Int): ParentTile? {
+    if (zoom <= 0) return null
+    return ParentTile(
+        tileX = Math.floorDiv(tileX, 2),
+        tileY = Math.floorDiv(tileY, 2),
+        zoom = zoom - 1,
+        offsetX = Math.floorMod(tileX, 2),
+        offsetY = Math.floorMod(tileY, 2)
+    )
+}
+
+/** URL-set readiness (Fix 4): is every tile URL in [urls] settled
+ * (loaded or errored, in [settledUrls])? The loop gates on this, not
+ * on a per-frame count — a count cannot survive a pan, because tiles
+ * that left the viewport stay counted while newly visible tiles are
+ * still in flight. A set is exact across pans: tiles still visible
+ * keep their settled status, new tiles are not ready until they
+ * settle, departed tiles simply stop being asked about. */
+fun isTileSettled(urls: List<String>, settledUrls: Set<String>): Boolean =
+    urls.isNotEmpty() && urls.all { it in settledUrls }
+
+/** The tile URLs for ONE frame's layer across [range] — the
+ * viewport-driven form of [radarFrameUrls]. */
+fun radarFrameUrlsForRange(layerName: String, zoom: Int, range: TileRange): List<String> =
+    buildList {
+        for (tileX in range.minX..range.maxX) {
+            for (tileY in range.minY..range.maxY) {
+                add(iemTileUrl(layerName, zoom, tileX, tileY))
+            }
+        }
+    }
+
+/** The radar tile URLs to prefetch for a scrub across [range]: one
+ * list per loop frame (index 0..9). The viewport-driven form of
+ * [radarPrefetchUrls]. */
+fun radarPrefetchUrlsForRange(zoom: Int, range: TileRange): List<List<String>> =
+    (0..9).map { frameIndex ->
+        radarFrameUrlsForRange(iemLayerNameFor(frameIndex), zoom, range)
+    }
+
+/** The GIBS satellite tile URLs for [range] — the viewport-driven
+ * form of [satelliteTileUrls]. */
+fun satelliteTileUrlsForRange(
+    isVisible: Boolean,
+    gibsTime: String,
+    zoom: Int,
+    range: TileRange
+): List<String> =
+    buildList {
+        for (tileX in range.minX..range.maxX) {
+            for (tileY in range.minY..range.maxY) {
+                add(gibsTileUrl(isVisible, gibsTime, zoom, tileX, tileY))
+            }
+        }
+    }

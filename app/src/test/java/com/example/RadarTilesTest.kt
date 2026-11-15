@@ -15,6 +15,21 @@ import com.example.data.mapper.hrrrLayerName
 import com.example.data.mapper.iemTileUrl
 import com.example.data.mapper.radarFrameLabel
 import com.example.data.mapper.radarFrameUrls
+import com.example.data.mapper.PAN_DIRECTION_THRESHOLD_PX
+import com.example.data.mapper.PAN_SETTLE_DELAY_MS
+import com.example.data.mapper.ParentTile
+import com.example.data.mapper.TileRange
+import com.example.data.mapper.VIEWPORT_MAX_TILES_X
+import com.example.data.mapper.VIEWPORT_MAX_TILES_Y
+import com.example.data.mapper.VIEWPORT_TILE_MARGIN
+import com.example.data.mapper.centreTileRange
+import com.example.data.mapper.isTileSettled
+import com.example.data.mapper.panDirection
+import com.example.data.mapper.parentTileFor
+import com.example.data.mapper.radarFrameUrlsForRange
+import com.example.data.mapper.radarPrefetchUrlsForRange
+import com.example.data.mapper.satelliteTileUrlsForRange
+import com.example.data.mapper.viewportTileRange
 import com.example.data.mapper.radarRangeFrames
 import com.example.data.mapper.latToTileY
 import com.example.data.mapper.lonToTileX
@@ -509,5 +524,164 @@ class RadarTilesTest {
         val (left2, width2) = snappedTileSpan(-1234.25f, 69, 256f)
         assertEquals(left + width, left2)
         assertEquals(256, width2)
+    }
+
+    // ------------------------------------------------------------------
+    // AUDIT6 §9 Fix 4 — viewport-driven tile manager.
+    //
+    // The screen is 1080x1920 px, tile 256 px, zoom 8, centred on
+    // Cincinnati (39.1, -84.5). The map origin (screen position of
+    // world 0,0) is (-16845.24, -24063.05), computed independently in
+    // Python from the Mercator projection — not by calling the code
+    // under test. Visible tiles are X 65..70, Y 93..101; with the
+    // 1-tile margin the range is X 64..71, Y 92..102 (8 x 11 = 88).
+    // ------------------------------------------------------------------
+
+    private val screenW = 1080f
+    private val screenH = 1920f
+    private val originX = -16845.24f
+    private val originY = -24063.05f
+
+    @Test
+    fun testViewportTileRange_unpannedPhoneGrid() {
+        val range = viewportTileRange(originX, originY, screenW, screenH, 256f, zoom)
+        assertEquals(TileRange(64, 71, 92, 102), range)
+        assertEquals(8, range.width)
+        assertEquals(11, range.height)
+        assertEquals(88, range.tileCount)
+        assertTrue(range.contains(67, 97))
+    }
+
+    @Test
+    fun testViewportTileRange_panRightShiftsRangeLeft() {
+        // Panning the map 256 px right (one tile) moves the viewport
+        // one tile left in world coordinates: the range must follow.
+        val panned = viewportTileRange(originX + 256f, originY, screenW, screenH, 256f, zoom)
+        assertEquals(TileRange(63, 70, 92, 102), panned)
+    }
+
+    @Test
+    fun testViewportTileRange_panLeftShiftsRangeRight() {
+        val panned = viewportTileRange(originX - 300f, originY, screenW, screenH, 256f, zoom)
+        assertEquals(TileRange(65, 72, 92, 102), panned)
+    }
+
+    @Test
+    fun testViewportTileRange_noMarginIsExactlyVisible() {
+        val range = viewportTileRange(originX, originY, screenW, screenH, 256f, zoom, marginTiles = 0)
+        assertEquals(TileRange(65, 70, 93, 101), range)
+    }
+
+    @Test
+    fun testViewportTileRange_marginTwoIsCappedByGridCap() {
+        // Margin 2 would be 10 wide x 13 tall; the 9 x 11 grid cap
+        // trims it back around the viewport centre tile (67, 97).
+        val range = viewportTileRange(originX, originY, screenW, screenH, 256f, zoom, marginTiles = 2)
+        assertEquals(TileRange(63, 71, 92, 102), range)
+        assertEquals(VIEWPORT_MAX_TILES_X, range.width)
+        assertEquals(VIEWPORT_MAX_TILES_Y, range.height)
+    }
+
+    @Test
+    fun testViewportTileRange_velocityAddsOneTileInPanDirection() {
+        // Shorter screen (1080x1200) so the height is below the cap
+        // and the velocity tile is visible: visible Y 93..98, margin
+        // 1 gives 92..99; panning down adds one more row, 92..100.
+        val base = viewportTileRange(originX, originY, screenW, 1200f, 256f, zoom)
+        assertEquals(TileRange(64, 71, 92, 99), base)
+        val down = viewportTileRange(originX, originY, screenW, 1200f, 256f, zoom, velocityDy = 1)
+        assertEquals(TileRange(64, 71, 92, 100), down)
+        val up = viewportTileRange(originX, originY, screenW, 1200f, 256f, zoom, velocityDy = -1)
+        assertEquals(TileRange(64, 71, 91, 99), up)
+        val right = viewportTileRange(originX, originY, screenW, 1200f, 256f, zoom, velocityDx = 1)
+        assertEquals(TileRange(64, 72, 92, 99), right)
+    }
+
+    @Test
+    fun testViewportTileRange_hugeScreenIsCapped() {
+        // A 10000 px screen sees tiles X 65..104, Y 93..133; the cap
+        // trims to 9 x 11 around the viewport centre tile (84, 113).
+        val range = viewportTileRange(originX, originY, 10000f, 10000f, 256f, zoom)
+        assertEquals(TileRange(80, 88, 108, 118), range)
+        assertEquals(VIEWPORT_MAX_TILES_X, range.width)
+        assertEquals(VIEWPORT_MAX_TILES_Y, range.height)
+    }
+
+    @Test
+    fun testViewportTileRange_defaultMarginIsOne() {
+        assertEquals(1, VIEWPORT_TILE_MARGIN)
+        assertEquals(300L, PAN_SETTLE_DELAY_MS)
+    }
+
+    @Test
+    fun testCentreTileRange_matchesOldGrid() {
+        // The old centre-anchored grid: tilesX 6, tilesY 9 around
+        // centre tile (67, 97) is X 64..70, Y 93..101.
+        assertEquals(TileRange(64, 70, 93, 101), centreTileRange(67, 97, 6, 9))
+    }
+
+    @Test
+    fun testRadarFrameUrlsForRange_matchesCentreVersion() {
+        val range = centreTileRange(67, 97, tilesX, tilesY)
+        val viaRange = radarFrameUrlsForRange("nexrad-n0q-900913", zoom, range)
+        val viaCentre = radarFrameUrls("nexrad-n0q-900913", centerLat, centerLon, zoom, tilesX, tilesY)
+        assertEquals(viaCentre, viaRange)
+        assertEquals(63, viaRange.size)
+        assertEquals(63, viaRange.toSet().size)
+    }
+
+    @Test
+    fun testRadarPrefetchUrlsForRange_tenFramesSameGrid() {
+        val range = centreTileRange(67, 97, tilesX, tilesY)
+        val frames = radarPrefetchUrlsForRange(zoom, range)
+        assertEquals(10, frames.size)
+        for (urls in frames) assertEquals(63, urls.size)
+    }
+
+    @Test
+    fun testSatelliteTileUrlsForRange_matchesCentreVersion() {
+        val range = centreTileRange(67, 97, tilesX, tilesY)
+        val viaRange = satelliteTileUrlsForRange(true, "2026-11-14T02:30:00Z", zoom, range)
+        val viaCentre = satelliteTileUrls(true, "2026-11-14T02:30:00Z", centerLat, centerLon, zoom, tilesX, tilesY)
+        assertEquals(viaCentre, viaRange)
+    }
+
+    @Test
+    fun testParentTileFor_quadrants() {
+        // Tile (67, 97) at zoom 8 sits in the bottom-right quadrant
+        // of parent (33, 48) at zoom 7; (68, 96) is top-left of
+        // parent (34, 48).
+        assertEquals(ParentTile(33, 48, 7, 1, 1), parentTileFor(67, 97, 8))
+        assertEquals(ParentTile(34, 48, 7, 0, 0), parentTileFor(68, 96, 8))
+        assertEquals(ParentTile(0, 0, 4, 0, 0), parentTileFor(0, 0, 5))
+        assertEquals(ParentTile(0, 0, 4, 1, 1), parentTileFor(1, 1, 5))
+    }
+
+    @Test
+    fun testParentTileFor_noParentAtZoomZero() {
+        assertEquals(null, parentTileFor(0, 0, 0))
+    }
+
+    @Test
+    fun testIsTileSettled_urlSetReadiness() {
+        val urls = listOf("a", "b", "c")
+        assertTrue(isTileSettled(urls, setOf("a", "b", "c")))
+        assertTrue(isTileSettled(urls, setOf("a", "b", "c", "d")))
+        // One newly visible tile still in flight: not ready — this is
+        // the pan case a per-frame count gets wrong.
+        assertFalse(isTileSettled(urls, setOf("a", "b")))
+        assertFalse(isTileSettled(urls, emptySet()))
+        assertFalse(isTileSettled(emptyList(), setOf("a")))
+    }
+
+    @Test
+    fun testPanDirection_thresholdAndSign() {
+        assertEquals(0, panDirection(0f))
+        assertEquals(0, panDirection(5f))
+        assertEquals(0, panDirection(PAN_DIRECTION_THRESHOLD_PX))
+        assertEquals(1, panDirection(9f))
+        assertEquals(1, panDirection(500f))
+        assertEquals(-1, panDirection(-9f))
+        assertEquals(-1, panDirection(-500f))
     }
 }

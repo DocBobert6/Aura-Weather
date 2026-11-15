@@ -67,27 +67,33 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
+import coil.request.Disposable
 import coil.request.ImageRequest
 import com.example.AuraWeatherApp
+import com.example.data.mapper.PAN_SETTLE_DELAY_MS
+import com.example.data.mapper.ParentTile
+import com.example.data.mapper.TileRange
+import com.example.data.mapper.VIEWPORT_TILE_MARGIN
 import com.example.data.mapper.gibsTileUrl
 import com.example.data.mapper.gibsTimestamp
 import com.example.data.mapper.RadarRange
 import com.example.data.mapper.iemLayerNameFor
 import com.example.data.mapper.iemTileUrl
-import com.example.data.mapper.isFrameSettled
+import com.example.data.mapper.isTileSettled
 import com.example.data.mapper.lookAheadFrameIndices
 import com.example.data.mapper.loopDwellMs
 import com.example.data.mapper.loopNextIndex
 import com.example.data.mapper.loopPreloadCostText
+import com.example.data.mapper.panDirection
+import com.example.data.mapper.parentTileFor
 import com.example.data.mapper.RADAR_LOOP_WAIT_TIMEOUT_MS
-import com.example.data.mapper.radarFrameUrls
+import com.example.data.mapper.radarFrameUrlsForRange
+import com.example.data.mapper.radarPrefetchUrlsForRange
 import com.example.data.mapper.radarRangeFrames
-import com.example.data.mapper.latToTileY
-import com.example.data.mapper.lonToTileX
-import com.example.data.mapper.radarPrefetchUrls
-import com.example.data.mapper.satelliteTileUrls
+import com.example.data.mapper.satelliteTileUrlsForRange
 import com.example.data.mapper.satelliteZoomLevel
 import com.example.data.mapper.snappedTileSpan
+import com.example.data.mapper.viewportTileRange
 import com.example.domain.model.FullWeatherState
 import com.example.ui.RadarLayer
 import com.example.ui.designsystem.AuraBars
@@ -142,11 +148,41 @@ fun RadarScreen(
 
     val context = LocalContext.current
 
-    // Zoom level and pan offsets
+    // Zoom level and pan offsets. The pan offsets are keyed on the
+    // range and layer (AUDIT6 §9 Fix 4): the old unkeyed remember let
+    // a pan offset survive a layer/range switch, so the navy gap
+    // followed the user into satellite. A switch recentres the map.
     var zoomLevel by remember { mutableIntStateOf(8) }
-    var panOffsetX by remember { mutableFloatStateOf(0f) }
-    var panOffsetY by remember { mutableFloatStateOf(0f) }
+    var panOffsetX by remember(selectedRange, selectedLayer) { mutableFloatStateOf(0f) }
+    var panOffsetY by remember(selectedRange, selectedLayer) { mutableFloatStateOf(0f) }
     var userScale by remember { mutableFloatStateOf(1f) }
+
+    // Settled (reconciled) pan/scale — AUDIT6 §9 Fix 4: the tile SET
+    // follows the settled viewport, not the live drag. During a drag
+    // the live offsets only transform the existing tiles (the map
+    // moves under the finger with no refetch); 300 ms after the last
+    // move the settle effect below copies the live values here, and
+    // the grid + prefetch reconcile to the new viewport. The pan
+    // direction is the cumulative pan since the last settle, so the
+    // prefetch can add +1 tile in the direction the user is moving.
+    // The zoom +/- and recenter buttons reset these directly, so a
+    // tap recentres at once instead of waiting out the settle delay.
+    var settledPanOffsetX by remember(selectedRange, selectedLayer) { mutableFloatStateOf(0f) }
+    var settledPanOffsetY by remember(selectedRange, selectedLayer) { mutableFloatStateOf(0f) }
+    var settledUserScale by remember(selectedRange, selectedLayer) { mutableFloatStateOf(1f) }
+    var panDirectionX by remember(selectedRange, selectedLayer) { mutableIntStateOf(0) }
+    var panDirectionY by remember(selectedRange, selectedLayer) { mutableIntStateOf(0) }
+    var settledPanDirectionX by remember(selectedRange, selectedLayer) { mutableIntStateOf(0) }
+    var settledPanDirectionY by remember(selectedRange, selectedLayer) { mutableIntStateOf(0) }
+
+    // The viewport tile ranges, published up from the
+    // BoxWithConstraints scope (which owns the screen size) via
+    // SideEffect: the display range the grid draws, and the prefetch
+    // range (display + pan-velocity tile) the loop gates on. Null
+    // until the grid has reported once; isFrameReady falls back to
+    // the display counters until then.
+    var displayTileRange by remember { mutableStateOf<TileRange?>(null) }
+    var prefetchTileRange by remember { mutableStateOf<TileRange?>(null) }
 
     // The frames for the selected range (Build B), oldest first.
     // Live is the existing 10-frame loop; past ranges are the archived
@@ -216,6 +252,12 @@ fun RadarScreen(
     // frameTotalTiles is pushed up from the tile grid (BoxWithConstraints
     // scope) via SideEffect; the guard keeps the frame "not ready"
     // until the grid has reported its size at least once.
+    // Pan deliberately does NOT reset these counters (Fix 4): they are
+    // only the displayed frame's fallback — the loop gates on the
+    // URL-set prefetch readiness, which is exact across pans. A pan
+    // can inflate these counters by at most the tiles that left the
+    // viewport (one shifted column/row), so the fallback may call the
+    // displayed frame ready a few tiles early; the loop gate never does.
     var frameTileOk by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, safeFrameIndex, forecastRetryGen) { mutableIntStateOf(0) }
     var frameTileErr by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, safeFrameIndex, forecastRetryGen) { mutableIntStateOf(0) }
     var frameTotalTiles by remember { mutableIntStateOf(0) }
@@ -227,42 +269,65 @@ fun RadarScreen(
     // cannot say whether frame N+1 is ready while frame N is still
     // displayed. That is the crux of the old inversion: the loop
     // advanced first and then waited while the NEW frame sat at
-    // alpha 0. Readiness is therefore tracked PER FRAME INDEX, from
-    // the prefetch lane's completion listener (see prefetchRadarTile
-    // below): each frame's settled-tile count lives in this map and
-    // survives frame advances. Generation keys are the tile-set keys
-    // WITHOUT safeFrameIndex — a new grid (range/layer/zoom/centre/
-    // retry) starts empty; a frame advance must not reset it. The map
-    // is the loop's gate (the loop waits for N+1 here before
-    // advancing) and the alpha's source (a frame swapped in was
-    // already ready, so it never sits at alpha 0).
-    var prefetchSettledByFrame by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf<Map<Int, Int>>(emptyMap()) }
+    // alpha 0. Readiness is therefore tracked per tile URL, from the
+    // prefetch lane's completion listener (see prefetchRadarTile
+    // below): the settled set survives frame advances. Generation
+    // keys are the tile-set keys WITHOUT safeFrameIndex — a new grid
+    // (range/layer/zoom/centre/retry) starts empty; a frame advance
+    // must not reset it. The set is the loop's gate (the loop waits
+    // for N+1 here before advancing) and the alpha's source (a frame
+    // swapped in was already ready, so it never sits at alpha 0).
+    //
+    // URL-set, not per-frame counts (AUDIT6 §9 Fix 4): a count cannot
+    // survive a pan — tiles that left the viewport stay counted while
+    // newly visible tiles are still in flight, so a frame could read
+    // ready with a whole column missing. A set is exact across pans:
+    // tiles still visible keep their settled status, new tiles are
+    // not ready until they settle, departed tiles simply stop being
+    // asked about. The pan therefore changes WHAT isFrameReady asks
+    // about (the viewport range) without resetting the readiness of
+    // tiles that are still visible. The generation keys deliberately
+    // do NOT include the viewport: a pan must not clear this set.
+    var prefetchSettledUrls by remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableStateOf<Set<String>>(emptySet()) }
     // URLs already enqueued in this generation. The rolling
     // look-ahead re-runs on every frame advance and overlaps the
     // range-entry burst, and Coil 2.7.0 does NOT coalesce in-flight
     // requests (AUDIT6 §2.4) — without this guard the same tile
     // would be fetched twice and counted twice. One enqueue per URL
-    // per generation, so one listener fire per tile, so the counts
-    // in prefetchSettledByFrame are exact.
+    // per generation, so one listener fire per tile, so the settled
+    // set above is exact.
     val prefetchEnqueuedUrls = remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableSetOf<String>() }
+    // In-flight prefetch requests by URL, so the reconcile can cancel
+    // the ones that left the viewport (Fix 4): disposing a request
+    // also drops it from the enqueue guard and the settled set, so a
+    // tile that comes back into view is enqueued — and counted — again.
+    // Display (AsyncImage) requests need no map: a tile leaving the
+    // grid leaves composition, and Coil cancels its request.
+    val prefetchDisposables = remember(selectedRange, selectedLayer, effectiveZoomLevel, state.place.point.lat, state.place.point.lon, forecastRetryGen) { mutableMapOf<String, Disposable>() }
 
-    // One prefetch settlement for [frameIndex]: loaded or errored
-    // both count — a settled error is a known-missing tile, not a
-    // tile still in flight, and the loop must not wait on it forever.
+    // One prefetch settlement for [url]: loaded or errored both
+    // count — a settled error is a known-missing tile, not a tile
+    // still in flight, and the loop must not wait on it forever.
     // Called on the main thread: Coil's Listener callbacks are
     // @MainThread (verified against the coil-base 2.7.0 sources).
-    fun markPrefetchSettled(frameIndex: Int) {
-        prefetchSettledByFrame = prefetchSettledByFrame +
-            (frameIndex to ((prefetchSettledByFrame[frameIndex] ?: 0) + 1))
+    fun markPrefetchSettled(url: String) {
+        if (url !in prefetchSettledUrls) prefetchSettledUrls = prefetchSettledUrls + url
     }
 
-    // Is [frameIndex] ready to show? Prefetch settlement first; the
-    // displayed frame's own AsyncImages are the fallback, so a frame
-    // the prefetch never enqueued (a scrub target) still becomes
-    // ready when its tiles settle on screen, and a prefetch listener
-    // that never fires cannot wedge the loop or the alpha.
+    // Is [frameIndex] ready to show? Prefetch settlement first: every
+    // tile URL of that frame over the CURRENT viewport prefetch range
+    // must be settled. The displayed frame's own AsyncImages are the
+    // fallback, so a frame the prefetch never enqueued (a scrub
+    // target) still becomes ready when its tiles settle on screen,
+    // and a prefetch listener that never fires cannot wedge the loop
+    // or the alpha. Satellite has no loop and no frame list — its
+    // readiness is satSettled, not this function.
     fun isFrameReady(frameIndex: Int): Boolean {
-        if (isFrameSettled(prefetchSettledByFrame[frameIndex] ?: 0, frameTotalTiles)) return true
+        val range = prefetchTileRange
+        if (range != null && !isSatellite) {
+            val layer = frames.getOrNull(frameIndex)?.layerName ?: return false
+            if (isTileSettled(radarFrameUrlsForRange(layer, effectiveZoomLevel, range), prefetchSettledUrls)) return true
+        }
         return frameIndex == safeFrameIndex && frameReady
     }
     val displayedFrameReady = isFrameReady(safeFrameIndex)
@@ -380,6 +445,24 @@ fun RadarScreen(
         }
     }
 
+    // Pan settle (AUDIT6 §9 Fix 4): the tile set reconciles on gesture
+    // end, not per move. Every pan/zoom move restarts this effect's
+    // delay, so it only fires once the gesture has been still for
+    // PAN_SETTLE_DELAY_MS (300 ms) — then the settled offsets/scale/
+    // direction below become the viewport the grid and prefetch use.
+    // During the drag itself the live offsets only transform the
+    // existing tiles (see the gesture handler); nothing refetches.
+    LaunchedEffect(panOffsetX, panOffsetY, userScale) {
+        delay(PAN_SETTLE_DELAY_MS)
+        settledPanOffsetX = panOffsetX
+        settledPanOffsetY = panOffsetY
+        settledUserScale = userScale
+        settledPanDirectionX = panDirectionX
+        settledPanDirectionY = panDirectionY
+        panDirectionX = 0
+        panDirectionY = 0
+    }
+
     // Centre on the selected place. The location puck below marks it; there
     // are no hardcoded landmarks — the radar station's coordinates are not
     // part of the /points response, so it is named in the toolbar, not drawn.
@@ -401,34 +484,58 @@ fun RadarScreen(
         val screenWidthPx = constraints.maxWidth.toFloat()
         val screenHeightPx = constraints.maxHeight.toFloat()
 
-        // Tile coordinates at zoomLevel
-        val centerTileX = lonToTileX(centerLon, effectiveZoomLevel)
-        val centerTileY = latToTileY(centerLat, effectiveZoomLevel)
-
         // Base tile size in pixels (256 standard Mercator tile size, scaled by userScale)
         val tileSizePx = 256f * userScale
 
-        // How many tiles cover the screen (plus a margin for panning), so
-        // the map fills the available space instead of a central 3x3 rect
-        // with container background around it. Capped so a very large
-        // screen does not fire hundreds of tile requests.
-        val tilesX = ((screenWidthPx / tileSizePx).toInt() + 2).coerceIn(3, 9)
-        val tilesY = ((screenHeightPx / tileSizePx).toInt() + 2).coerceIn(3, 11)
-        val halfTilesX = tilesX / 2
-        val halfTilesY = tilesY / 2
-        // Tiles actually rendered: the loop runs -half..half on each axis.
-        val totalSatTiles = (2 * halfTilesX + 1) * (2 * halfTilesY + 1)
+        // Viewport-driven tile set (AUDIT6 §9 Fix 4): the grid is
+        // computed from the PANNED VIEWPORT, not the place. The map
+        // origin is the screen position of world x/y = 0; panning
+        // moves it, so the visible tiles move with it. The DISPLAY
+        // range uses the settled pan/scale (reconciled on gesture
+        // end) with a 1-tile margin ring, so a pan of up to a tile
+        // shows no gap at all during the drag. The PREFETCH range
+        // adds one more tile in the settled pan-velocity direction.
+        // Both are capped at 9 x 11 tiles, as the old grid was.
+        // Pixel centre of the central tile (moved up from below so
+        // the ranges can be computed before the prefetch effects).
+        val centerWorldX = lonToWorldPixel(centerLon, effectiveZoomLevel) * userScale
+        val centerWorldY = latToWorldPixel(centerLat, effectiveZoomLevel) * userScale
+        // Live origin: the transform during the drag. Tile POSITIONS
+        // always use this, so the map moves under the finger.
+        val mapOriginX = (screenWidthPx / 2f) - centerWorldX + panOffsetX
+        val mapOriginY = (screenHeightPx / 2f) - centerWorldY + panOffsetY
+        // Settled origin: the tile SET follows this one only.
+        val settledTileSizePx = 256f * settledUserScale
+        val settledMapOriginX = (screenWidthPx / 2f) - lonToWorldPixel(centerLon, effectiveZoomLevel) * settledUserScale + settledPanOffsetX
+        val settledMapOriginY = (screenHeightPx / 2f) - latToWorldPixel(centerLat, effectiveZoomLevel) * settledUserScale + settledPanOffsetY
+        val displayRange = viewportTileRange(
+            settledMapOriginX, settledMapOriginY, screenWidthPx, screenHeightPx,
+            settledTileSizePx, effectiveZoomLevel, marginTiles = VIEWPORT_TILE_MARGIN
+        )
+        val viewportPrefetchRange = viewportTileRange(
+            settledMapOriginX, settledMapOriginY, screenWidthPx, screenHeightPx,
+            settledTileSizePx, effectiveZoomLevel, marginTiles = VIEWPORT_TILE_MARGIN,
+            velocityDx = settledPanDirectionX, velocityDy = settledPanDirectionY
+        )
+        // Tiles actually rendered: the display range's tile count.
+        val totalTiles = displayRange.tileCount
 
-        // Push the rendered tile count up to the per-frame settlement
-        // state (fix 2): the loop's frame-ready gate needs the total
-        // the grid actually draws, which is only known here.
-        SideEffect { frameTotalTiles = totalSatTiles }
+        // Push the rendered tile set up to the per-frame settlement
+        // state (fix 2) and the loop's readiness gate (fixes 2-4):
+        // the loop's frame-ready gate needs the total the grid
+        // actually draws, and the URL-set readiness check needs the
+        // ranges themselves — both are only known here.
+        SideEffect {
+            frameTotalTiles = totalTiles
+            displayTileRange = displayRange
+            prefetchTileRange = viewportPrefetchRange
+        }
 
         // Safety: never leave the satellite loading overlay up forever.
         // If the tiles have not all settled in 12s, hide it anyway.
         LaunchedEffect(selectedLayer, effectiveZoomLevel) {
             delay(12000)
-            satSettled = totalSatTiles
+            satSettled = totalTiles
         }
 
         // Prefetch the loop for the visible tile grid (3.3, AUDIT6
@@ -437,13 +544,13 @@ fun RadarScreen(
         // loop; future ranges preload the visible window (current +
         // next 5 — loopPreloadWindowSize). The current frame is
         // enqueued first so the visible tiles are not queued behind
-        // the other frames. Runs on entry and when the layer, zoom,
-        // or centre changes — not on every frame advance, and not on
-        // pinch-zoom (the grid is captured when the effect last ran;
-        // a resize loads its new tiles on demand).
+        // the other frames. Runs on entry, when the layer, zoom, or
+        // centre changes, and when the panned viewport settles (Fix 4:
+        // the effect is keyed on the viewport prefetch range) — not on
+        // every frame advance, and not during a drag.
         // Satellite layers get the same treatment below (fix 4): the
         // GIBS grid is a tile set like radar, not a single image. The
-        // grid is capped (tilesX <= 9, tilesY <= 11) and Coil bounds the
+        // grid is capped (9 x 11 tiles) and Coil bounds the
         // network concurrency, so this is a bounded burst, not a flood.
         // The prefetch and the AsyncImage loads share the same disk
         // cache and the same URLs, so a prefetched tile is a disk hit
@@ -471,24 +578,59 @@ fun RadarScreen(
         // skipped — the saving is memory, not decode CPU.)
         // The listener is the per-frame readiness signal: it fires
         // on success or error (both count as settled) and marks the
-        // frame ready in prefetchSettledByFrame, which is what the
+        // tile's URL settled in prefetchSettledUrls, which is what the
         // loop gates on. Skipped if this URL was already enqueued in
         // this generation (see prefetchEnqueuedUrls).
-        fun prefetchRadarTile(url: String, frameIndex: Int) {
+        fun prefetchRadarTile(url: String) {
             if (!prefetchEnqueuedUrls.add(url)) return
-            prefetchLoader.enqueue(
+            val disposable = prefetchLoader.enqueue(
                 ImageRequest.Builder(context)
                     .data(url)
                     .memoryCachePolicy(CachePolicy.DISABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .listener(
-                        onSuccess = { _, _ -> markPrefetchSettled(frameIndex) },
-                        onError = { _, _ -> markPrefetchSettled(frameIndex) }
+                        onSuccess = { _, _ -> markPrefetchSettled(url) },
+                        onError = { _, _ -> markPrefetchSettled(url) }
                     )
                     .build()
             )
+            prefetchDisposables[url] = disposable
         }
-        LaunchedEffect(selectedLayer, effectiveZoomLevel, centerLat, centerLon, selectedRange) {
+        // One satellite tile into the prefetch lane: same tracking,
+        // memory cache on (Fix 3's disk-only rule is for the radar
+        // loop's 770 tiles; a satellite frame is one 77-tile image),
+        // no readiness listener — satellite readiness is satSettled.
+        fun prefetchSatelliteTile(url: String) {
+            if (!prefetchEnqueuedUrls.add(url)) return
+            val disposable = prefetchLoader.enqueue(
+                ImageRequest.Builder(context)
+                    .data(url)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .build()
+            )
+            prefetchDisposables[url] = disposable
+        }
+        // Cancel in-flight prefetches for tiles that left the wanted
+        // set (AUDIT6 §9 Fix 4, e.g. a fast pan away): the request is
+        // disposed, and the URL is dropped from the enqueue guard and
+        // the settled set, so a tile that comes back into view is
+        // enqueued — and counted — again. A disposed request that had
+        // already completed into the disk cache is harmless: the
+        // re-enqueue is a disk hit, not a network fetch.
+        fun cancelPrefetchOutside(wanted: Set<String>) {
+            val iterator = prefetchDisposables.iterator()
+            while (iterator.hasNext()) {
+                val (url, disposable) = iterator.next()
+                if (url !in wanted) {
+                    disposable.dispose()
+                    iterator.remove()
+                    prefetchEnqueuedUrls.remove(url)
+                    if (url in prefetchSettledUrls) prefetchSettledUrls = prefetchSettledUrls - url
+                }
+            }
+        }
+        LaunchedEffect(selectedLayer, effectiveZoomLevel, centerLat, centerLon, selectedRange, viewportPrefetchRange) {
             if (selectedLayer == RadarLayer.Reflectivity || selectedLayer == RadarLayer.LocalSite) {
                 if (selectedRange == RadarRange.Live) {
                     // Whole-loop preload (Fix 3): all 10 LIVE frames
@@ -496,7 +638,14 @@ fun RadarScreen(
                     // the visible tiles are not queued behind the
                     // other nine. Disk-only (see prefetchRadarTile),
                     // ~25 MB first load, then disk-cached.
-                    val frames = radarPrefetchUrls(centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY)
+                    // Viewport-driven (Fix 4): the loop is prefetched
+                    // over the panned viewport range, not the place —
+                    // a pan settle re-runs this effect, and the
+                    // enqueue guard means only the newly visible
+                    // tiles are actually enqueued; tiles that left
+                    // the viewport are cancelled above.
+                    val frames = radarPrefetchUrlsForRange(effectiveZoomLevel, viewportPrefetchRange)
+                    cancelPrefetchOutside(frames.flatten().toSet())
                     val current = frames.getOrElse(safeFrameIndex) { emptyList() }
                     val ordered = listOf(safeFrameIndex to current) +
                         frames.mapIndexedNotNull { index, urls ->
@@ -504,7 +653,7 @@ fun RadarScreen(
                         }
                     for ((frameIndex, frameUrls) in ordered) {
                         for (url in frameUrls) {
-                            prefetchRadarTile(url, frameIndex)
+                            prefetchRadarTile(url)
                         }
                     }
                 } else {
@@ -522,12 +671,13 @@ fun RadarScreen(
                     // transparent PNGs) — stated in the loading state.
                     val burstIndices = listOf(safeFrameIndex) +
                         lookAheadFrameIndices(safeFrameIndex, frameCount)
-                    for (index in burstIndices) {
-                        val layer = frames.getOrNull(index)?.layerName ?: continue
-                        val urls = radarFrameUrls(layer, centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY)
-                        for (url in urls) {
-                            prefetchRadarTile(url, index)
-                        }
+                    val wanted = burstIndices.flatMapTo(mutableSetOf()) { index ->
+                        val layer = frames.getOrNull(index)?.layerName ?: return@flatMapTo emptyList<String>()
+                        radarFrameUrlsForRange(layer, effectiveZoomLevel, viewportPrefetchRange)
+                    }
+                    cancelPrefetchOutside(wanted)
+                    for (url in wanted) {
+                        prefetchRadarTile(url)
                     }
                 }
             } else if (isSatellite) {
@@ -536,18 +686,13 @@ fun RadarScreen(
                 // visible grid on layer/zoom/centre change so the
                 // overlay clears fast instead of tile-by-tile. One
                 // bounded burst (~77 tiles on a phone grid).
-                val urls = satelliteTileUrls(
+                val urls = satelliteTileUrlsForRange(
                     selectedLayer == RadarLayer.SatelliteVis,
-                    gibsTime, centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY
+                    gibsTime, effectiveZoomLevel, viewportPrefetchRange
                 )
+                cancelPrefetchOutside(urls.toSet())
                 for (url in urls) {
-                    prefetchLoader.enqueue(
-                        ImageRequest.Builder(context)
-                            .data(url)
-                            .memoryCachePolicy(CachePolicy.ENABLED)
-                            .diskCachePolicy(CachePolicy.ENABLED)
-                            .build()
-                    )
+                    prefetchSatelliteTile(url)
                 }
             }
         }
@@ -566,7 +711,7 @@ fun RadarScreen(
         // a frame is free — prefetchRadarTile enqueues each URL once
         // per generation, so a re-run only enqueues the newly entered
         // frame at the window's far end.
-        LaunchedEffect(selectedRange, selectedLayer, effectiveZoomLevel, centerLat, centerLon, safeFrameIndex) {
+        LaunchedEffect(selectedRange, selectedLayer, effectiveZoomLevel, centerLat, centerLon, safeFrameIndex, viewportPrefetchRange) {
             if (selectedRange == RadarRange.Live) return@LaunchedEffect
             if (selectedLayer != RadarLayer.Reflectivity && selectedLayer != RadarLayer.LocalSite) return@LaunchedEffect
             // Wrap around the end of the loop (L-4): at the last frames
@@ -574,25 +719,16 @@ fun RadarScreen(
             // before the loop wraps onto it instead of downloading on
             // demand and stuttering once per cycle. This effect is keyed
             // on safeFrameIndex, so the wrap prefetch runs as soon as the
-            // playhead reaches the last frame.
+            // playhead reaches the last frame. Viewport-driven (Fix 4):
+            // the look-ahead covers the panned viewport range too.
             for (index in lookAheadFrameIndices(safeFrameIndex, frameCount)) {
                 val layer = frames.getOrNull(index)?.layerName ?: continue
-                val urls = radarFrameUrls(layer, centerLat, centerLon, effectiveZoomLevel, tilesX, tilesY)
+                val urls = radarFrameUrlsForRange(layer, effectiveZoomLevel, viewportPrefetchRange)
                 for (url in urls) {
-                    prefetchRadarTile(url, index)
+                    prefetchRadarTile(url)
                 }
             }
         }
-
-        // Pixel center of the central tile
-        val centerWorldX = lonToWorldPixel(centerLon, effectiveZoomLevel) * userScale
-        val centerWorldY = latToWorldPixel(centerLat, effectiveZoomLevel) * userScale
-
-        // Map origin: the screen position of world x/y = 0. Every tile's
-        // snapped edges (below) are derived from this one origin, so
-        // adjacent tiles share edges exactly.
-        val mapOriginX = (screenWidthPx / 2f) - centerWorldX + panOffsetX
-        val mapOriginY = (screenHeightPx / 2f) - centerWorldY + panOffsetY
 
         Box(
             modifier = Modifier
@@ -606,14 +742,25 @@ fun RadarScreen(
                         userScale = (userScale * zoom).coerceIn(0.75f, 2.0f)
                         panOffsetX += pan.x
                         panOffsetY += pan.y
+                        // Pan direction for the prefetch velocity tile
+                        // (Fix 4): from the cumulative pan since the
+                        // last settle, not the per-event delta — a real
+                        // drag always clears the threshold, jitter
+                        // never does. The tile SET does not change
+                        // here: the live offsets only transform the
+                        // existing tiles until the settle effect fires.
+                        panDirectionX = panDirection(panOffsetX - settledPanOffsetX)
+                        panDirectionY = panDirection(panOffsetY - settledPanOffsetY)
                     }
                 }
         ) {
-            // Render the tiles that cover the screen, centered on the place.
-            for (dx in -halfTilesX..halfTilesX) {
-                for (dy in -halfTilesY..halfTilesY) {
-                    val tileX = centerTileX + dx
-                    val tileY = centerTileY + dy
+            // Render the tiles that cover the panned viewport (Fix 4):
+            // the settled display range, not the fixed centre-anchored
+            // grid. Tile POSITIONS still use the live map origin, so
+            // a drag transforms the tiles smoothly and the set only
+            // reconciles on settle.
+            for (tileX in displayRange.minX..displayRange.maxX) {
+                for (tileY in displayRange.minY..displayRange.maxY) {
 
                     // Snapped tile edges (fix 4): each tile's left/top
                     // edge is rounded once from the common map origin
@@ -636,6 +783,26 @@ fun RadarScreen(
                             gibsTileUrl(false, gibsTime, effectiveZoomLevel, tileX, tileY)
                     }
 
+                    // Parent-tile fallback (Fix 4): the lower-zoom
+                    // parent for this tile, drawn scaled 2x underneath
+                    // (see ParentTileUnderlay) so a tile still loading
+                    // shows low-res imagery instead of a hole. The
+                    // parent URLs are the same tile services at zoom-1.
+                    val parent = parentTileFor(tileX, tileY, effectiveZoomLevel)
+                    val parentBasemapUrl = parent?.let {
+                        "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/${it.zoom}/${it.tileY}/${it.tileX}"
+                    }
+                    val parentRadarUrl = parent?.let {
+                        when (selectedLayer) {
+                            RadarLayer.Reflectivity, RadarLayer.LocalSite ->
+                                iemTileUrl(iemLayerName, it.zoom, it.tileX, it.tileY)
+                            RadarLayer.SatelliteVis ->
+                                gibsTileUrl(true, gibsTime, it.zoom, it.tileX, it.tileY)
+                            RadarLayer.SatelliteIr ->
+                                gibsTileUrl(false, gibsTime, it.zoom, it.tileX, it.tileY)
+                        }
+                    }
+
                     // Outgoing frame's tile (Fix 2 two-slot swap): the
                     // layer the loop just left, rendered underneath
                     // during the 150ms crossfade. Null when no swap is
@@ -655,7 +822,20 @@ fun RadarScreen(
                                 with(LocalDensity.current) { tileWidthPx.toDp() },
                                 with(LocalDensity.current) { tileHeightPx.toDp() }
                             )
+                            // The parent underlays below are drawn 2x
+                            // and shifted, so they overflow this box —
+                            // clip them to the tile (Fix 4).
+                            .clipToBounds()
                     ) {
+                        // Parent basemap underlay (Fix 4): low-res map
+                        // under the basemap, so a tile still loading
+                        // shows map instead of a hole. No settlement
+                        // callbacks — parents are fallback imagery,
+                        // not the frame's tiles.
+                        if (parent != null && parentBasemapUrl != null) {
+                            ParentTileUnderlay(parentBasemapUrl, parent, tileSizePx)
+                        }
+
                         // 1. Esri World Dark Gray Base (dark, keyless). CARTO dark_all now returns an
                         // "API KEY REQUIRED" watermark tile, so it cannot be used.
                         AsyncImage(
@@ -668,6 +848,12 @@ fun RadarScreen(
                             contentScale = ContentScale.FillBounds,
                             modifier = Modifier.fillMaxSize()
                         )
+
+                        // Parent radar/satellite underlay (Fix 4):
+                        // low-res layer imagery under the layer tile.
+                        if (parent != null && parentRadarUrl != null) {
+                            ParentTileUnderlay(parentRadarUrl, parent, tileSizePx)
+                        }
 
                         // 2. Real IEM NEXRAD Composite Radar Tile (Transparent PNG when no rain!)
                         // Satellite layers report each tile as it settles
@@ -789,7 +975,7 @@ fun RadarScreen(
         // A spinner + "LOADING SATELLITE..." over the map says it is
         // loading, not broken. The Esri basemap stays visible underneath
         // as the placeholder for unloaded regions.
-        if (isSatellite && satSettled < totalSatTiles) {
+        if (isSatellite && satSettled < totalTiles) {
             Box(
                 modifier = Modifier.align(Alignment.Center),
                 contentAlignment = Alignment.Center
@@ -1053,6 +1239,11 @@ fun RadarScreen(
                         userScale = 1f
                         panOffsetX = 0f
                         panOffsetY = 0f
+                        // Recentre the settled viewport at once (Fix 4)
+                        // instead of waiting out the settle delay.
+                        settledPanOffsetX = 0f
+                        settledPanOffsetY = 0f
+                        settledUserScale = 1f
                     }
                 },
                 containerColor = RetroTokens.Panel,
@@ -1071,6 +1262,9 @@ fun RadarScreen(
                         userScale = 1f
                         panOffsetX = 0f
                         panOffsetY = 0f
+                        settledPanOffsetX = 0f
+                        settledPanOffsetY = 0f
+                        settledUserScale = 1f
                     }
                 },
                 containerColor = RetroTokens.Panel,
@@ -1087,6 +1281,9 @@ fun RadarScreen(
                     panOffsetX = 0f
                     panOffsetY = 0f
                     userScale = 1f
+                    settledPanOffsetX = 0f
+                    settledPanOffsetY = 0f
+                    settledUserScale = 1f
                 },
                 containerColor = RetroTokens.Panel,
             ) {
@@ -1276,6 +1473,39 @@ private fun LegendColorPill(label: String, color: Color) {
             text = label.uppercase(),
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
             color = RetroTokens.TextPrimary
+        )
+    }
+}
+
+// Parent-tile underlay (AUDIT6 §9 Fix 4): the lower-zoom parent tile,
+// drawn at 2x tile size and shifted so the child's quadrant of the
+// parent lands exactly on the child's box. The tile Box clips it (it
+// has clipToBounds). No crossfade, no settlement callbacks — it is
+// fallback imagery while the child loads, and the child covers it
+// completely once it arrives (the basemap is opaque; the radar parent
+// is the same data at lower resolution, so it reads as a soft version
+// of the child, not a ghost).
+@Composable
+private fun ParentTileUnderlay(parentUrl: String, parent: ParentTile, tileSizePx: Float) {
+    val context = LocalContext.current
+    Box(
+        modifier = Modifier
+            .offset { IntOffset((-parent.offsetX * tileSizePx).roundToInt(), (-parent.offsetY * tileSizePx).roundToInt()) }
+            .size(
+                with(LocalDensity.current) { (tileSizePx * 2f).toDp() },
+                with(LocalDensity.current) { (tileSizePx * 2f).toDp() }
+            )
+    ) {
+        AsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(parentUrl)
+                .crossfade(false)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .build(),
+            contentDescription = null,
+            contentScale = ContentScale.FillBounds,
+            modifier = Modifier.fillMaxSize()
         )
     }
 }
