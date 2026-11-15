@@ -356,13 +356,70 @@ fun loopPreloadCostText(range: RadarRange): String = when (range) {
  * Band13 clean-infrared layer (matrix set Level6, matrices 0..5).
  * [gibsTime] is the full UTC timestamp from gibsTimestamp; [zoom]
  * must already be the layer-clamped effective zoom (see
- * satelliteZoomLevel) — an unclamped zoom 404s/400s. */
+ * satelliteZoomLevel) — an unclamped zoom 404s/400s.
+ * Tile size is 256 px, not 512: the GIBS GetCapabilities (checked
+ * 2026-11-15) defines every TileMatrixSet at 256x256 — no 512 px
+ * matrix set exists for either GOES layer — and a live tile fetch
+ * returns a 256x256 PNG, so there is no 512 px variant to switch
+ * to. The seam defence stays the parent underlay + whole-frame
+ * fade-in (RadarScreen, Fix 9), not larger tiles. */
 fun gibsTileUrl(isVisible: Boolean, gibsTime: String, zoom: Int, tileX: Int, tileY: Int): String =
     if (isVisible) {
         "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/$gibsTime/GoogleMapsCompatible_Level7/$zoom/$tileY/$tileX.png"
     } else {
         "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_Band13_Clean_Infrared/default/$gibsTime/GoogleMapsCompatible_Level6/$zoom/$tileY/$tileX.png"
     }
+
+// ---------------------------------------------------------------------------
+// Satellite loading (AUDIT6 §9 Fix 9, 2026-11-15): a layer switch used
+// to invalidate everything (the zoom clamp changes every URL), the
+// 12 s overlay cap restarted on every switch, and the frame assembled
+// tile by tile behind the overlay. The screen now holds the satellite
+// layer at alpha 0 until the whole frame has settled (or the per-visit
+// cap below fires) and fades it in whole; the Fix 4 parent underlay
+// shows low-res imagery underneath meanwhile. Pure Kotlin — covered
+// by RadarTilesTest, no Compose, no Android.
+// ---------------------------------------------------------------------------
+
+/** Overlay cap for satellite: 12 s per satellite VISIT, not per
+ * layer switch. The visit starts when the user enters satellite
+ * (either layer) and ends when they leave it; switching layers or
+ * zooming within the visit must not restart the timer, or the
+ * overlay can stay up indefinitely. Unchanged from the old cap's
+ * 12 s — only the restart is fixed. */
+const val SATELLITE_OVERLAY_CAP_MS = 12000L
+
+/** Milliseconds left before the per-visit satellite overlay cap
+ * fires, from a visit that started at [visitStartMs] (uptime ms)
+ * as of [nowMs]. Zero when the visit never started (0) or the cap
+ * has already elapsed — the screen delays by this, never longer,
+ * so a recomposition cannot stretch the cap. */
+fun satelliteCapRemainingMs(visitStartMs: Long, nowMs: Long, capMs: Long = SATELLITE_OVERLAY_CAP_MS): Long {
+    if (visitStartMs <= 0L) return 0L
+    return (capMs - (nowMs - visitStartMs)).coerceAtLeast(0L)
+}
+
+/** Is the satellite frame ready to show whole? [settledTiles] tiles
+ * (loaded or errored — a settled error is a known-missing tile, not
+ * a tile still in flight) out of [totalTiles] drawn. A frame with no
+ * tiles drawn yet is never ready. Same shape as [isFrameSettled];
+ * kept separate so the satellite gate reads as a satellite gate. */
+fun isSatelliteFrameSettled(settledTiles: Int, totalTiles: Int): Boolean =
+    totalTiles > 0 && settledTiles >= totalTiles
+
+/**
+ * Honest data cost of one satellite layer switch, for the loading
+ * state (AUDIT6 §9 Fix 9). From the audit's probe (appendix): the
+ * visible grid downloads ~6.0 MB and the IR grid ~5.2 MB, re-fetched
+ * on every layer switch and on every new GOES timestamp. Star4000-safe:
+ * capitals, digits, spaces and periods only. No Wi-Fi-only gate —
+ * the rule is honest cost, not a gate.
+ */
+fun satelliteCostText(isVisible: Boolean): String = if (isVisible) {
+    "SATELLITE USES MORE DATA. ABOUT 6 MB PER SWITCH."
+} else {
+    "SATELLITE USES MORE DATA. ABOUT 5 MB PER SWITCH."
+}
 
 /**
  * The GIBS satellite tile URLs for the visible grid centred on the

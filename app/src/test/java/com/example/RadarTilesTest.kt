@@ -3,6 +3,7 @@ package com.example
 import com.example.data.mapper.gibsTileUrl
 import com.example.data.mapper.iemLayerNameFor
 import com.example.data.mapper.isFrameSettled
+import com.example.data.mapper.isSatelliteFrameSettled
 import com.example.data.mapper.lookAheadFrameIndices
 import com.example.data.mapper.loopDwellMs
 import com.example.data.mapper.loopNextIndex
@@ -10,6 +11,7 @@ import com.example.data.mapper.loopPreloadCostText
 import com.example.data.mapper.RADAR_LOOP_DWELL_MS
 import com.example.data.mapper.RADAR_LOOP_END_PAUSE_MS
 import com.example.data.mapper.RADAR_LOOP_WAIT_TIMEOUT_MS
+import com.example.data.mapper.SATELLITE_OVERLAY_CAP_MS
 import com.example.data.mapper.RadarRange
 import com.example.data.mapper.hrrrLayerName
 import com.example.data.mapper.iemTileUrl
@@ -28,6 +30,8 @@ import com.example.data.mapper.panDirection
 import com.example.data.mapper.parentTileFor
 import com.example.data.mapper.radarFrameUrlsForRange
 import com.example.data.mapper.radarPrefetchUrlsForRange
+import com.example.data.mapper.satelliteCapRemainingMs
+import com.example.data.mapper.satelliteCostText
 import com.example.data.mapper.satelliteTileUrlsForRange
 import com.example.data.mapper.viewportTileRange
 import com.example.data.mapper.radarRangeFrames
@@ -437,6 +441,62 @@ class RadarTilesTest {
     fun testLoopPreloadCostText_star4000SafeCharsOnly() {
         for (range in RadarRange.entries) {
             val text = loopPreloadCostText(range)
+            assertTrue(text, text.matches(Regex("^[A-Z0-9 .]+$")))
+        }
+    }
+
+    @Test
+    fun testSatelliteOverlayCap_isTwelveSeconds() {
+        // The cap value is unchanged from the old per-switch cap —
+        // Fix 9 fixes only the restart, not the duration.
+        assertEquals(12000L, SATELLITE_OVERLAY_CAP_MS)
+    }
+
+    @Test
+    fun testSatelliteCapRemainingMs_fullAtVisitStart() {
+        assertEquals(12000L, satelliteCapRemainingMs(1000L, 1000L))
+    }
+
+    @Test
+    fun testSatelliteCapRemainingMs_countsDownFromVisitStart() {
+        assertEquals(7000L, satelliteCapRemainingMs(1000L, 6000L))
+        assertEquals(1L, satelliteCapRemainingMs(1000L, 12999L))
+        assertEquals(0L, satelliteCapRemainingMs(1000L, 13000L))
+    }
+
+    @Test
+    fun testSatelliteCapRemainingMs_zeroWhenElapsedOrNeverStarted() {
+        // Past the cap: no delay, the overlay clears at once.
+        assertEquals(0L, satelliteCapRemainingMs(1000L, 50000L))
+        // No visit started: the cap effect returns early.
+        assertEquals(0L, satelliteCapRemainingMs(0L, 5000L))
+    }
+
+    @Test
+    fun testIsSatelliteFrameSettled_allTiles() {
+        assertTrue(isSatelliteFrameSettled(77, 77))
+        // Defensive: a double-counted tile must not wedge readiness.
+        assertTrue(isSatelliteFrameSettled(78, 77))
+    }
+
+    @Test
+    fun testIsSatelliteFrameSettled_notYet() {
+        assertFalse(isSatelliteFrameSettled(76, 77))
+        assertFalse(isSatelliteFrameSettled(0, 77))
+        // No tiles drawn yet is never ready.
+        assertFalse(isSatelliteFrameSettled(0, 0))
+    }
+
+    @Test
+    fun testSatelliteCostText_honestCosts() {
+        assertEquals("SATELLITE USES MORE DATA. ABOUT 6 MB PER SWITCH.", satelliteCostText(true))
+        assertEquals("SATELLITE USES MORE DATA. ABOUT 5 MB PER SWITCH.", satelliteCostText(false))
+    }
+
+    @Test
+    fun testSatelliteCostText_star4000SafeCharsOnly() {
+        for (isVisible in listOf(true, false)) {
+            val text = satelliteCostText(isVisible)
             assertTrue(text, text.matches(Regex("^[A-Z0-9 .]+$")))
         }
     }

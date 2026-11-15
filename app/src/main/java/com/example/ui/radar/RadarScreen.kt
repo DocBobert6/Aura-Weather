@@ -1,5 +1,7 @@
 package com.example.ui.radar
 
+import android.os.SystemClock
+
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -42,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -79,6 +82,7 @@ import com.example.data.mapper.gibsTimestamp
 import com.example.data.mapper.RadarRange
 import com.example.data.mapper.iemLayerNameFor
 import com.example.data.mapper.iemTileUrl
+import com.example.data.mapper.isSatelliteFrameSettled
 import com.example.data.mapper.isTileSettled
 import com.example.data.mapper.lookAheadFrameIndices
 import com.example.data.mapper.loopDwellMs
@@ -90,6 +94,8 @@ import com.example.data.mapper.RADAR_LOOP_WAIT_TIMEOUT_MS
 import com.example.data.mapper.radarFrameUrlsForRange
 import com.example.data.mapper.radarPrefetchUrlsForRange
 import com.example.data.mapper.radarRangeFrames
+import com.example.data.mapper.satelliteCapRemainingMs
+import com.example.data.mapper.satelliteCostText
 import com.example.data.mapper.satelliteTileUrlsForRange
 import com.example.data.mapper.satelliteZoomLevel
 import com.example.data.mapper.snappedTileSpan
@@ -226,6 +232,30 @@ fun RadarScreen(
     // underneath as the placeholder for unloaded regions.
     var satSettled by remember(selectedLayer, effectiveZoomLevel) { mutableIntStateOf(0) }
 
+    // Satellite overlay cap, per VISIT (AUDIT6 §9 Fix 9): the old cap
+    // was LaunchedEffect(selectedLayer, effectiveZoomLevel) { delay(12000);
+    // satSettled = totalTiles } — every layer switch restarted the 12 s
+    // timer, so switching layers within 12 s kept the overlay up
+    // indefinitely. The cap now starts when the user ENTERS satellite
+    // (either satellite layer) and does not restart on a layer or zoom
+    // switch within that visit; leaving satellite resets it. This
+    // effect is keyed on isSatellite only, so a VIS-to-IR switch does
+    // not re-run it. The flag is separate from satSettled: the settled
+    // count stays the honest count of tiles that arrived, and the cap
+    // only ever hides the overlay / shows the layer, never fakes a
+    // settled tile.
+    var satCapExpired by remember { mutableStateOf(false) }
+    var satVisitStartMs by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(isSatellite) {
+        if (isSatellite) {
+            satVisitStartMs = SystemClock.uptimeMillis()
+            satCapExpired = false
+        } else {
+            satVisitStartMs = 0L
+            satCapExpired = false
+        }
+    }
+
     // Future-radar (HRRR) tile health (radar fix A): counts the current
     // range's radar tiles that loaded vs errored, for forecast ranges
     // only. A forecast range with no tiles at all would otherwise read
@@ -338,10 +368,22 @@ fun RadarScreen(
     // DISPLAYED frame's prefetch readiness (plus the display
     // fallback), not just its display counters — so a frame the loop
     // swapped in after gating on its readiness is already at full
-    // alpha the moment it appears. Satellite keeps the fixed 0.85
-    // alpha (its own loading overlay covers the wait).
+    // alpha the moment it appears.
+    // Satellite (AUDIT6 §9 Fix 9) gets the same gate instead of its
+    // old fixed 0.85 alpha: the layer stays at alpha 0 until the
+    // whole frame has settled (satSettled over the grid the screen
+    // draws — loaded or errored both count) and then fades in whole
+    // over 150ms, instead of assembling tile by tile behind the
+    // overlay. The Fix 4 parent underlay stays visible underneath
+    // meanwhile, so the wait shows low-res satellite imagery, never
+    // a hole. The per-visit 12 s cap (satCapExpired) is the
+    // backstop: after 12 s in satellite the layer shows whatever
+    // has arrived rather than waiting forever.
+    val satFrameReady = isSatellite && isSatelliteFrameSettled(satSettled, frameTotalTiles)
     val frameAlpha by animateFloatAsState(
-        targetValue = if (isSatellite) 0.85f else if (displayedFrameReady) 0.85f else 0f,
+        targetValue = if (isSatellite) {
+            if (satFrameReady || satCapExpired) 0.85f else 0f
+        } else if (displayedFrameReady) 0.85f else 0f,
         animationSpec = tween(durationMillis = 150),
         label = "radarFrameAlpha"
     )
@@ -532,10 +574,19 @@ fun RadarScreen(
         }
 
         // Safety: never leave the satellite loading overlay up forever.
-        // If the tiles have not all settled in 12s, hide it anyway.
-        LaunchedEffect(selectedLayer, effectiveZoomLevel) {
-            delay(12000)
-            satSettled = totalTiles
+        // The cap is per satellite VISIT (Fix 9): it fires 12 s after
+        // the user entered satellite and does NOT restart on a layer
+        // or zoom switch within the visit — the old effect was keyed
+        // on (selectedLayer, effectiveZoomLevel), so switching layers
+        // within 12 s restarted the timer and the overlay could stay
+        // up indefinitely. The remaining delay is computed from the
+        // visit start, so a recomposition cannot stretch it either.
+        // It sets only the cap flag — the settled count stays honest.
+        LaunchedEffect(satVisitStartMs) {
+            if (satVisitStartMs == 0L) return@LaunchedEffect
+            val remainingMs = satelliteCapRemainingMs(satVisitStartMs, SystemClock.uptimeMillis())
+            if (remainingMs > 0) delay(remainingMs)
+            satCapExpired = true
         }
 
         // Prefetch the loop for the visible tile grid (3.3, AUDIT6
@@ -973,29 +1024,48 @@ fun RadarScreen(
         // tiles are still arriving, the map is a blank navy void with no
         // feedback, and unloaded regions read as broken gray rectangles.
         // A spinner + "LOADING SATELLITE..." over the map says it is
-        // loading, not broken. The Esri basemap stays visible underneath
-        // as the placeholder for unloaded regions.
-        if (isSatellite && satSettled < totalTiles) {
+        // loading, not broken. The Fix 4 parent underlay is the
+        // placeholder underneath — low-res satellite imagery, never a
+        // hole — and the layer fades in whole the moment the frame is
+        // settled (Fix 9), at the same moment this overlay clears.
+        // The overlay clears on the whole-frame settled count, or on
+        // the per-visit 12 s cap — whichever comes first. The cap does
+        // not restart on a layer switch, so the overlay can never stay
+        // up indefinitely. The cost note is honest: a layer switch
+        // re-fetches the whole grid, about 6 MB visible / 5 MB IR
+        // (audit appendix) — no Wi-Fi-only gate, just the number.
+        if (isSatellite && !isSatelliteFrameSettled(satSettled, totalTiles) && !satCapExpired) {
             Box(
                 modifier = Modifier.align(Alignment.Center),
                 contentAlignment = Alignment.Center
             ) {
                 RetroPanel(shape = RetroShapes.medium) {
-                    Row(
+                    Column(
                         modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        CircularProgressIndicator(
-                            color = RetroTokens.Yellow,
-                            strokeWidth = 3.dp,
-                            modifier = Modifier.size(22.dp)
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                color = RetroTokens.Yellow,
+                                strokeWidth = 3.dp,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Text(
+                                text = "LOADING SATELLITE...",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = RetroTokens.TextPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "LOADING SATELLITE...",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = RetroTokens.TextPrimary
+                            text = satelliteCostText(selectedLayer == RadarLayer.SatelliteVis),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = RetroTokens.TextSecondary,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
