@@ -42,10 +42,11 @@ import com.example.ui.theme.AuraWeatherTheme
 import java.time.Instant
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.Channel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -557,7 +558,7 @@ class RadarEngineActivity : ComponentActivity() {
         try {
             for ((i, frame) in frames.withIndex()) {
                 val tileSet = TileSet("2.2.0", libreWxrTileTemplate(maps.host, frame.path))
-                    .apply { maxZoom = 7 }
+                    .apply { maxZoom = 7f }
                 val source = RasterSource(
                     radarLibreWxrFrameSourceId(i),
                     tileSet,
@@ -1230,7 +1231,7 @@ class RadarEngineActivity : ComponentActivity() {
                 }
                 // Poke-driven: a readiness change wakes the loop at once;
                 // the timeout is only the backstop.
-                withTimeoutOrNull(remaining) { tickerPoke.receive() }
+                withTimeoutOrNull<Unit>(remaining) { tickerPoke.receive() }
             }
         }
     }
