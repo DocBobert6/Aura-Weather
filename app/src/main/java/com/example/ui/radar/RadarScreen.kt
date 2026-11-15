@@ -57,6 +57,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -78,6 +79,7 @@ import com.example.data.mapper.PAN_SETTLE_DELAY_MS
 import com.example.data.mapper.ParentTile
 import com.example.data.mapper.TileRange
 import com.example.data.mapper.VIEWPORT_TILE_MARGIN
+import com.example.data.mapper.dragLayerTransform
 import com.example.data.mapper.gibsTileUrl
 import com.example.data.mapper.gibsTimestamp
 import com.example.data.mapper.RadarRange
@@ -136,6 +138,8 @@ import kotlin.math.tan
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
@@ -194,14 +198,17 @@ fun RadarScreen(
 
     // Settled (reconciled) pan/scale — AUDIT6 §9 Fix 4: the tile SET
     // follows the settled viewport, not the live drag. During a drag
-    // the live offsets only transform the existing tiles (the map
-    // moves under the finger with no refetch); 300 ms after the last
-    // move the settle effect below copies the live values here, and
-    // the grid + prefetch reconcile to the new viewport. The pan
-    // direction is the cumulative pan since the last settle, so the
-    // prefetch can add +1 tile in the direction the user is moving.
-    // The zoom +/- and recenter buttons reset these directly, so a
-    // tap recentres at once instead of waiting out the settle delay.
+    // the live offsets move ONLY the tile container's graphicsLayer
+    // (Bug 1 fix, 2026-11-15 — the layer transform is the exact tile
+    // math, see dragLayerTransform), so a pointer move updates layer
+    // properties in the draw phase and recomposes NOTHING; 300 ms
+    // after the last move the settle effect below copies the live
+    // values here, and the grid + prefetch reconcile to the new
+    // viewport. The pan direction is the cumulative pan since the
+    // last settle, so the prefetch can add +1 tile in the direction
+    // the user is moving. The zoom +/- and recenter buttons reset
+    // these directly, so a tap recentres at once instead of waiting
+    // out the settle delay.
     var settledPanOffsetX by remember(selectedRange, selectedLayer) { mutableFloatStateOf(0f) }
     var settledPanOffsetY by remember(selectedRange, selectedLayer) { mutableFloatStateOf(0f) }
     var settledUserScale by remember(selectedRange, selectedLayer) { mutableFloatStateOf(1f) }
@@ -891,22 +898,33 @@ fun RadarScreen(
         heldFrameIndex = safeFrameIndex
     }
 
-    // Pan settle (AUDIT6 §9 Fix 4): the tile set reconciles on gesture
-    // end, not per move. Every pan/zoom move restarts this effect's
-    // delay, so it only fires once the gesture has been still for
-    // PAN_SETTLE_DELAY_MS (300 ms) — then the settled offsets/scale/
-    // direction below become the viewport the grid and prefetch use.
-    // During the drag itself the live offsets only transform the
-    // existing tiles (see the gesture handler); nothing refetches.
-    LaunchedEffect(panOffsetX, panOffsetY, userScale) {
-        delay(PAN_SETTLE_DELAY_MS)
-        settledPanOffsetX = panOffsetX
-        settledPanOffsetY = panOffsetY
-        settledUserScale = userScale
-        settledPanDirectionX = panDirectionX
-        settledPanDirectionY = panDirectionY
-        panDirectionX = 0
-        panDirectionY = 0
+    // Pan settle (AUDIT6 §9 Fix 4, Bug 1 fix 2026-11-15): the tile
+    // set reconciles on gesture end, not per move. A snapshotFlow
+    // watches the live drag state and debounces it by
+    // PAN_SETTLE_DELAY_MS (300 ms), so it only fires once the gesture
+    // has been still that long — then the settled offsets/scale/
+    // direction become the viewport the grid and prefetch use. It is
+    // a flow, NOT a LaunchedEffect keyed on the live values: keying
+    // on them read the drag state during composition, so every
+    // pointer move recomposed the whole screen — the ~460-tile grid
+    // included — and the main thread saturated until gestures looked
+    // dead, first on satellite (big GIBS tiles, ~6 MB a switch) and
+    // then on every layer once the storm was going. During the drag
+    // itself the live offsets only move the tile container's
+    // graphicsLayer (see the gesture handler); nothing refetches,
+    // nothing recomposes.
+    LaunchedEffect(Unit) {
+        snapshotFlow { Triple(panOffsetX, panOffsetY, userScale) }
+            .debounce(PAN_SETTLE_DELAY_MS)
+            .collect { (x, y, scale) ->
+                settledPanOffsetX = x
+                settledPanOffsetY = y
+                settledUserScale = scale
+                settledPanDirectionX = panDirectionX
+                settledPanDirectionY = panDirectionY
+                panDirectionX = 0
+                panDirectionY = 0
+            }
     }
 
     // Centre on the selected place. The location puck below marks it; there
@@ -930,8 +948,12 @@ fun RadarScreen(
         val screenWidthPx = constraints.maxWidth.toFloat()
         val screenHeightPx = constraints.maxHeight.toFloat()
 
-        // Base tile size in pixels (256 standard Mercator tile size, scaled by userScale)
-        val tileSizePx = 256f * userScale
+        // Base tile size in pixels (256 standard Mercator tile size,
+        // scaled by the SETTLED scale — Bug 1 fix: the grid renders at
+        // the settled viewport only; the live drag is a graphicsLayer
+        // transform on the tile container below, so a pointer move
+        // never recomposes this grid).
+        val tileSizePx = 256f * settledUserScale
 
         // Viewport-driven tile set (AUDIT6 §9 Fix 4): the grid is
         // computed from the PANNED VIEWPORT, not the place. The map
@@ -944,12 +966,16 @@ fun RadarScreen(
         // Both are capped at 9 x 11 tiles, as the old grid was.
         // Pixel centre of the central tile (moved up from below so
         // the ranges can be computed before the prefetch effects).
-        val centerWorldX = lonToWorldPixel(centerLon, effectiveZoomLevel) * userScale
-        val centerWorldY = latToWorldPixel(centerLat, effectiveZoomLevel) * userScale
-        // Live origin: the transform during the drag. Tile POSITIONS
-        // always use this, so the map moves under the finger.
-        val mapOriginX = (screenWidthPx / 2f) - centerWorldX + panOffsetX
-        val mapOriginY = (screenHeightPx / 2f) - centerWorldY + panOffsetY
+        val centerWorldX = lonToWorldPixel(centerLon, effectiveZoomLevel) * settledUserScale
+        val centerWorldY = latToWorldPixel(centerLat, effectiveZoomLevel) * settledUserScale
+        // Settled origin (Bug 1 fix): tile POSITIONS use the settled
+        // viewport only. The live drag is applied by the graphicsLayer
+        // on the tile container below — the same on-screen result
+        // (the layer transform is the exact tile math, see
+        // dragLayerTransform), but a pointer move updates layer
+        // properties instead of recomposing this grid.
+        val mapOriginX = (screenWidthPx / 2f) - centerWorldX + settledPanOffsetX
+        val mapOriginY = (screenHeightPx / 2f) - centerWorldY + settledPanOffsetY
         // Settled origin: the tile SET follows this one only.
         val settledTileSizePx = 256f * settledUserScale
         val settledMapOriginX = (screenWidthPx / 2f) - lonToWorldPixel(centerLon, effectiveZoomLevel) * settledUserScale + settledPanOffsetX
@@ -1276,18 +1302,52 @@ fun RadarScreen(
                         // last settle, not the per-event delta — a real
                         // drag always clears the threshold, jitter
                         // never does. The tile SET does not change
-                        // here: the live offsets only transform the
-                        // existing tiles until the settle effect fires.
+                        // here: the live offsets only move the tile
+                        // container's graphicsLayer below (Bug 1 fix —
+                        // the layer transform is the exact tile math,
+                        // see dragLayerTransform) until the settle
+                        // effect fires; a pointer move recomposes
+                        // nothing.
                         panDirectionX = panDirection(panOffsetX - settledPanOffsetX)
                         panDirectionY = panDirection(panOffsetY - settledPanOffsetY)
                     }
                 }
         ) {
+            // Live-drag layer (Bug 1 fix, 2026-11-15): the tile grid,
+            // the MRMS overlay and the puck render at the SETTLED
+            // viewport, and this layer carries the live drag. The
+            // graphicsLayer block reads the live drag state in the
+            // draw phase, so a pointer move updates layer properties
+            // instead of recomposing the grid — the old code read the
+            // live offsets during composition, so every move
+            // recomposed the whole screen and the main thread
+            // saturated until gestures looked dead. The transform
+            // origin is the layer centre (the screen centre, the
+            // layer is full-size), matching the tile math's scale
+            // about the screen centre. The pointerInput above stays
+            // on the OUTER box, untransformed, so the detector keeps
+            // receiving screen-space pan deltas.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val drag = dragLayerTransform(
+                            panOffsetX, settledPanOffsetX,
+                            panOffsetY, settledPanOffsetY,
+                            userScale, settledUserScale
+                        )
+                        scaleX = drag.scale
+                        scaleY = drag.scale
+                        translationX = drag.translationX
+                        translationY = drag.translationY
+                    }
+            ) {
             // Render the tiles that cover the panned viewport (Fix 4):
             // the settled display range, not the fixed centre-anchored
-            // grid. Tile POSITIONS still use the live map origin, so
-            // a drag transforms the tiles smoothly and the set only
-            // reconciles on settle.
+            // grid. Tile POSITIONS use the settled map origin, and
+            // the container's graphicsLayer carries the live drag
+            // (Bug 1 fix) — a drag transforms the tiles smoothly with
+            // no recomposition, and the set only reconciles on settle.
             // The HELD frame's resolved observed-radar content (Fix
             // 6+7; Live only): the tile loop and the single-image
             // overlay below both read this, so a held MRMS frame draws
@@ -1560,7 +1620,9 @@ fun RadarScreen(
             // city labels stay on top of the echo exactly as on the
             // tiled path). Positioned from the bbox's lon/lat edges
             // through the same world-pixel math as the tiles, at the
-            // live pan/scale, so it tracks drags and pinch-zoom.
+            // settled pan/scale — the container's graphicsLayer
+            // carries the live drag, as for the tiles — so it tracks
+            // drags and pinch-zoom.
             // Whole-frame fade-in (Fix 2/3) works as for tiles:
             // frameAlpha is 0 until the image settles in the prefetch
             // lane, then 150 ms in. The crossfade (Fix 2) draws the
@@ -1577,10 +1639,10 @@ fun RadarScreen(
             val heldContent = heldResolved?.content
             if (!isSatellite && selectedRange == RadarRange.Live && heldContent is RadarFrameContent.SingleImage) {
                 val bbox = heldContent.bbox
-                val leftPx = mapOriginX + lonToWorldPixel(bbox.westLon, effectiveZoomLevel) * userScale
-                val topPx = mapOriginY + latToWorldPixel(bbox.northLat, effectiveZoomLevel) * userScale
-                val widthPx = (lonToWorldPixel(bbox.eastLon, effectiveZoomLevel) - lonToWorldPixel(bbox.westLon, effectiveZoomLevel)) * userScale
-                val heightPx = (latToWorldPixel(bbox.southLat, effectiveZoomLevel) - latToWorldPixel(bbox.northLat, effectiveZoomLevel)) * userScale
+                val leftPx = mapOriginX + lonToWorldPixel(bbox.westLon, effectiveZoomLevel) * settledUserScale
+                val topPx = mapOriginY + latToWorldPixel(bbox.northLat, effectiveZoomLevel) * settledUserScale
+                val widthPx = (lonToWorldPixel(bbox.eastLon, effectiveZoomLevel) - lonToWorldPixel(bbox.westLon, effectiveZoomLevel)) * settledUserScale
+                val heightPx = (latToWorldPixel(bbox.southLat, effectiveZoomLevel) - latToWorldPixel(bbox.northLat, effectiveZoomLevel)) * settledUserScale
                 Box(
                     modifier = Modifier
                         .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
@@ -1648,11 +1710,12 @@ fun RadarScreen(
                 }
             }
 
-            // Location Puck for the selected place
-            val userWorldX = lonToWorldPixel(centerLon, effectiveZoomLevel) * userScale
-            val userWorldY = latToWorldPixel(centerLat, effectiveZoomLevel) * userScale
-            val userScreenX = (screenWidthPx / 2f) + (userWorldX - centerWorldX) + panOffsetX
-            val userScreenY = (screenHeightPx / 2f) + (userWorldY - centerWorldY) + panOffsetY
+            // Location Puck for the selected place (settled position —
+            // the container's graphicsLayer carries the live drag).
+            val userWorldX = lonToWorldPixel(centerLon, effectiveZoomLevel) * settledUserScale
+            val userWorldY = latToWorldPixel(centerLat, effectiveZoomLevel) * settledUserScale
+            val userScreenX = (screenWidthPx / 2f) + (userWorldX - centerWorldX) + settledPanOffsetX
+            val userScreenY = (screenHeightPx / 2f) + (userWorldY - centerWorldY) + settledPanOffsetY
 
             Box(
                 modifier = Modifier
@@ -1676,6 +1739,7 @@ fun RadarScreen(
                     modifier = Modifier.size(4.dp)
                 ) {}
             }
+            } // Live-drag graphicsLayer container (Bug 1 fix)
         }
 
         // Satellite loading overlay (audit findings 1+2): while the GIBS

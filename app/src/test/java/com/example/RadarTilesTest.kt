@@ -29,6 +29,7 @@ import com.example.data.mapper.VIEWPORT_MAX_TILES_X
 import com.example.data.mapper.VIEWPORT_MAX_TILES_Y
 import com.example.data.mapper.VIEWPORT_TILE_MARGIN
 import com.example.data.mapper.centreTileRange
+import com.example.data.mapper.dragLayerTransform
 import com.example.data.mapper.isTileSettled
 import com.example.data.mapper.panDirection
 import com.example.data.mapper.parentTileFor
@@ -821,6 +822,54 @@ class RadarTilesTest {
         assertEquals(1, panDirection(500f))
         assertEquals(-1, panDirection(-9f))
         assertEquals(-1, panDirection(-500f))
+    }
+
+    // -- Bug 1 fix (2026-11-15): live-drag layer transform -----------
+    // The tile container renders at the settled viewport and the
+    // graphicsLayer carries the live drag, so a pointer move
+    // recomposes nothing. The transform must reproduce the tile math
+    // exactly, or the map would jump when the gesture settles.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun testDragLayerTransform_atRestIsIdentity() {
+        val t = dragLayerTransform(40f, 40f, -25f, -25f, 1.2f, 1.2f)
+        assertEquals(0f, t.translationX, 0.001f)
+        assertEquals(0f, t.translationY, 0.001f)
+        assertEquals(1f, t.scale, 0.001f)
+    }
+
+    @Test
+    fun testDragLayerTransform_purePanIsTheDelta() {
+        // No pinch: the layer just translates by the pan since settle.
+        val t = dragLayerTransform(-120f, 40f, 80f, -25f, 1f, 1f)
+        assertEquals(-160f, t.translationX, 0.001f)
+        assertEquals(105f, t.translationY, 0.001f)
+        assertEquals(1f, t.scale, 0.001f)
+    }
+
+    @Test
+    fun testDragLayerTransform_matchesLiveTileMath() {
+        // A tile's settled screen position, run through the layer
+        // transform, must land exactly on its live screen position —
+        // for a combined pan AND pinch, and a settled scale != 1.
+        // Screen centre 540 px; the place's world x at zoom 8 is
+        // arbitrary here, the identity must hold for any of them.
+        val screenCentre = 540f
+        val centerWorld = 16845f
+        val tileX = 68
+        val settledScale = 1.2f
+        val liveScale = 1.8f
+        val settledPanX = 40f
+        val livePanX = -120f
+        val settledLeft = screenCentre - centerWorld * settledScale +
+            settledPanX + tileX * 256f * settledScale
+        val liveLeft = screenCentre - centerWorld * liveScale +
+            livePanX + tileX * 256f * liveScale
+        val t = dragLayerTransform(livePanX, settledPanX, 0f, 0f, liveScale, settledScale)
+        assertEquals(1.5f, t.scale, 0.001f)
+        val transformed = screenCentre + (settledLeft - screenCentre) * t.scale + t.translationX
+        assertEquals(liveLeft, transformed, 0.01f)
     }
 
     // -- Multi-source observed radar (AUDIT6 §9 Fixes 6+7) ---------------
