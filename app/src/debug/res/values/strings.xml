@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launcher label for the debug-only Phase 0 MapLibre spike entry. -->
+    <string name="spike_launcher_label">Aura Radar Spike</string>
+</resources>

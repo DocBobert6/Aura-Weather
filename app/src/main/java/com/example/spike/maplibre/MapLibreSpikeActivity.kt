@@ -49,7 +49,9 @@ import org.maplibre.android.style.sources.TileSet
  * builds carry the code — that is how the release APK size is measured
  * — but the activity finishes immediately when not a debug build).
  *
- * Launch on a device (debug APK from CI):
+ * Launch on a device (debug APK from CI): tap the "Aura Radar Spike"
+ * launcher icon (debug-only activity-alias; see
+ * app/src/debug/AndroidManifest.xml), or via adb:
  *   adb shell am start -n com.docbobert6.auraweather/.spike.maplibre.MapLibreSpikeActivity
  *
  * What it proves on device (each probe logs to the on-screen log AND

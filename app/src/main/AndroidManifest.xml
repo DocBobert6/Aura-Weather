@@ -36,8 +36,11 @@
 
         <!-- Phase 0 spike only (fix/radar-phase0-spikes): MapLibre direct
              spike activity. No intent filter, not exported, debug-gated
-             at runtime; launch on device via adb (see the activity's
-             KDoc). Never lands on main. -->
+             at runtime. Debug builds get a launcher entry for it via the
+             activity-alias in app/src/debug/AndroidManifest.xml ("Aura
+             Radar Spike" icon) so Robert can run the device checks
+             without adb; the release APK has no such entry. Never lands
+             on main. -->
         <activity
             android:name=".spike.maplibre.MapLibreSpikeActivity"
             android:exported="false"

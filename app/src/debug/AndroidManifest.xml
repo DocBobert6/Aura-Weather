@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only launcher entry for the Phase 0 MapLibre spike activity
+  (branch fix/radar-phase0-spikes). This manifest merges into DEBUG
+  builds only, so the release APK gains no extra launcher entry and
+  no spike behaviour changes: the spike activity itself stays
+  exported=false with no intent filter, and still finishes immediately
+  on non-debug builds (BuildConfig.DEBUG check in onCreate).
+
+  Why an alias instead of an intent filter on the activity: the alias
+  is a separate component that exists only in debug builds, so the
+  main manifest — and therefore the release merged manifest — never
+  mentions a launcher entry for the spike at all.
+
+  Robert installs APKs himself and has no computer, so he cannot
+  launch the spike via adb; this icon ("Aura Radar Spike") is how he
+  runs the Phase 0 device checks (RADAR_PHASE0_MAPLIBRE.md §4).
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity-alias
+            android:name=".spike.maplibre.MapLibreSpikeLauncher"
+            android:targetActivity=".spike.maplibre.MapLibreSpikeActivity"
+            android:exported="true"
+            android:label="@string/spike_launcher_label"
+            android:icon="@mipmap/ic_launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+    </application>
+</manifest>
