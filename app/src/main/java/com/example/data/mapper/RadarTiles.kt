@@ -638,6 +638,39 @@ fun panDirection(deltaPx: Float): Int = when {
     else -> 0
 }
 
+/** The live-drag transform for the tile container (Bug 1 fix,
+ * 2026-11-15): the scale and translation a graphicsLayer applies to
+ * the grid rendered at the SETTLED viewport, so the map moves under
+ * the finger during a drag with no recomposition. [scale] is the live
+ * user scale over the settled one; [translationX]/[translationY] are
+ * the live pan minus the settled pan scaled by that factor. That
+ * factor is what makes the layer transform the EXACT tile math: a
+ * tile's settled screen position is centre + (world - centre) *
+ * settledScale + settledPan, and scaling that about the screen centre
+ * then translating by (livePan - settledPan * scale) lands it exactly
+ * on its live position — centre + (world - centre) * liveScale +
+ * livePan — for every tile, the MRMS overlay and the puck. At rest
+ * (live == settled) this is the identity. [settledUserScale] is never
+ * 0: the screen coerces the live scale to 0.75..2.0 on every write and
+ * the settled scale only ever copies it (or 1f). */
+data class DragLayerTransform(val translationX: Float, val translationY: Float, val scale: Float)
+
+fun dragLayerTransform(
+    panOffsetX: Float,
+    settledPanOffsetX: Float,
+    panOffsetY: Float,
+    settledPanOffsetY: Float,
+    userScale: Float,
+    settledUserScale: Float
+): DragLayerTransform {
+    val scale = userScale / settledUserScale
+    return DragLayerTransform(
+        translationX = panOffsetX - settledPanOffsetX * scale,
+        translationY = panOffsetY - settledPanOffsetY * scale,
+        scale = scale
+    )
+}
+
 /**
  * The lower-zoom parent tile for a tile: the tile at [zoom] - 1 that
  * contains it, plus which quadrant of the parent the child sits in
