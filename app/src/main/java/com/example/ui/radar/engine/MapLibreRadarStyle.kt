@@ -71,6 +71,57 @@ const val RADAR_ENGINE_MRMS_SLOT_A: String = "radar-mrms-a"
 const val RADAR_ENGINE_MRMS_SLOT_B: String = "radar-mrms-b"
 
 /**
+ * Pan margin trigger (Phase 2): the camera target has moved this far
+ * (degrees) from the generation centre when the loop refetches with a
+ * new bbox. 0.5° ≈ 55 km ≈ 1/9 of the visible viewport height at zoom
+ * 7; it sits inside the tightest slack the 1.5× image gives over the
+ * chrome-adjusted viewport (~0.65° vertically — the 7.5°-tall image
+ * over a ~6.2°-tall visible map), so a refetch always lands before a
+ * visible gap — and a small pan never refetches.
+ */
+const val RADAR_ENGINE_PAN_MARGIN_DEGREES: Double = 0.5
+
+/**
+ * Live slow/unavailable budget (Phase 2): a generation with NO ready
+ * frame after this long counts as stalled. A healthy cold MRMS loop
+ * primes in ~3 s (first frame) and completes in ~6 s wall (10 images
+ * in parallel at ~2.8 s median server render); 20 s is 3× past a
+ * healthy full load, and matches the forecast trigger's 20 s
+ * precedent ([FORECAST_SLOW_WAIT_MS] in RadarTiles.kt) — the same
+ * user-visible patience for both loops.
+ */
+const val RADAR_ENGINE_LIVE_SLOW_BUDGET_MS: Long = 20_000L
+
+/** Loop refresh cadence (Phase 2): frame list + MRMS extent re-resolve. */
+const val RADAR_ENGINE_LOOP_REFRESH_MS: Long = 5 * 60 * 1000L
+
+/**
+ * Per-metadata-fetch timeout (Phase 2): a hung MRMS service-info or
+ * LibreWXR maps call must not stall the loop behind it — the two
+ * metadata fetches run in parallel and each is bounded by this.
+ * 12 s is past a healthy metadata round-trip (~1 s) and inside the
+ * 20 s slow budget, so a hung metadata call still resolves to a
+ * fallback (or the unavailable state) inside the budget.
+ */
+const val RADAR_ENGINE_METADATA_TIMEOUT_MS: Long = 12_000L
+
+/**
+ * Has the camera target moved past the pan margin from the generation
+ * centre ([centreLat], [centreLon])? Either axis past
+ * [marginDegrees] counts — a diagonal pan clears the margin sooner,
+ * which is the safe direction (refetch early, never show a gap).
+ */
+fun panPastMargin(
+    centreLat: Double,
+    centreLon: Double,
+    targetLat: Double,
+    targetLon: Double,
+    marginDegrees: Double = RADAR_ENGINE_PAN_MARGIN_DEGREES
+): Boolean =
+    kotlin.math.abs(targetLat - centreLat) > marginDegrees ||
+        kotlin.math.abs(targetLon - centreLon) > marginDegrees
+
+/**
  * Esri dark-gray basemap — the app's own basemap
  * (`RadarScreen.kt:1313`). Esri tile order is `{z}/{y}/{x}` (not
  * `{z}/{x}/{y}`); the template keeps Esri's order and MapLibre
@@ -115,6 +166,20 @@ fun radarFutureFrameSourceId(index: Int): String = "radar-future-frame-$index"
 
 /** Raster layer id for future frame [index] (0..15 in the window). */
 fun radarFutureFrameLayerId(index: Int): String = "radar-future-frame-layer-$index"
+
+/**
+ * Raster source id for LibreWXR fallback loop frame [index] (0..9).
+ * LibreWXR sources are built at fallback time (their tile templates
+ * embed the per-frame `path` from the maps JSON, known only after
+ * metadata arrives) — unlike the IEM sources, whose layer names are
+ * static. See `RadarEngineActivity` for the build/teardown order
+ * (layer first, then source — a source still referenced by a layer
+ * cannot simply be removed).
+ */
+fun radarLibreWxrFrameSourceId(index: Int): String = "radar-librewxr-frame-$index"
+
+/** Raster layer id for LibreWXR fallback loop frame [index] (0..9). */
+fun radarLibreWxrFrameLayerId(index: Int): String = "radar-librewxr-frame-layer-$index"
 
 /** Raster layer id for an MRMS ImageSource slot. */
 fun radarMrmsLayerId(slotId: String): String = "radar-mrms-layer-$slotId"
@@ -261,6 +326,21 @@ fun expandBbox(bbox: RadarBbox, factor: Double): RadarBbox {
         northLat = centreLat + halfHeight
     )
 }
+
+/**
+ * The 1.0× MRMS bbox around a centre: 6° lon × 5° lat — the viewport
+ * at zoom 8, and exactly [RADAR_ENGINE_MRMS_BBOX_1X] around Cincinnati
+ * ([RADAR_ENGINE_CENTER_LAT], [RADAR_ENGINE_CENTER_LON]). The activity
+ * expands it by [RADAR_ENGINE_MRMS_BBOX_FACTOR] for the request, and
+ * re-derives it around the new camera target on a pan past the margin
+ * (a bbox change is a new generation: every MRMS URL changes).
+ */
+fun mrmsBboxForCentre(centreLat: Double, centreLon: Double): RadarBbox = RadarBbox(
+    westLon = centreLon - 3.0,
+    southLat = centreLat - 2.5,
+    eastLon = centreLon + 3.0,
+    northLat = centreLat + 2.5
+)
 
 /** `bbox` query-param form for MRMS `exportImage` (`bboxSR=4326`). */
 fun radarBboxToParam(bbox: RadarBbox): String =
