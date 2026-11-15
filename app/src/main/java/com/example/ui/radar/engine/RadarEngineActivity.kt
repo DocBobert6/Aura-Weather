@@ -1,0 +1,1747 @@
+package com.example.ui.radar.engine
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.os.Bundle
+import android.os.SystemClock
+import android.util.Log
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.lifecycleScope
+import com.example.BuildConfig
+import com.example.data.mapper.LIBRE_WXR_MAPS_URL
+import com.example.data.mapper.LIBRE_WXR_TILE_SIZE_512
+import com.example.data.mapper.LibreWxrFrame
+import com.example.data.mapper.LibreWxrMaps
+import com.example.data.mapper.LonLatBbox
+import com.example.data.mapper.MRMS_SERVICE_INFO_URL
+import com.example.data.mapper.RadarFrame
+import com.example.data.mapper.RadarRange
+import com.example.data.mapper.RadarSourceKind
+import com.example.data.mapper.centreFirstTileOffsets
+import com.example.data.mapper.fallbackAfter
+import com.example.data.mapper.gibsTimestamp
+import com.example.data.mapper.iemLayerNameFor
+import com.example.data.mapper.iemTileUrl
+import com.example.data.mapper.latToTileY
+import com.example.data.mapper.libreWxrLoopFrames
+import com.example.data.mapper.libreWxrTileTemplate
+import com.example.data.mapper.libreWxrTileUrl
+import com.example.data.mapper.lonToTileX
+import com.example.data.mapper.mrmsExportImageUrl
+import com.example.data.mapper.mrmsFrameTimesFromServiceInfoJson
+import com.example.data.mapper.mrmsLiveFrames
+import com.example.data.mapper.parseLibreWxrMaps
+import com.example.data.mapper.parseMrmsTimeExtent
+import com.example.data.mapper.radarFrameLabel
+import com.example.data.mapper.radarRangeFrames
+import com.example.ui.theme.AuraWeatherTheme
+import java.time.Instant
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import org.maplibre.android.MapLibre
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngQuad
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.RasterLayer
+import org.maplibre.android.style.layers.TransitionOptions
+import org.maplibre.android.style.sources.ImageSource
+import org.maplibre.android.style.sources.RasterSource
+import org.maplibre.android.style.sources.TileSet
+
+/**
+ * Phase 2 — the MapLibre map engine + the rebuilt radar loop.
+ *
+ * Debug-gated entry (the proven spike pattern): the activity finishes
+ * immediately on non-debug builds, and its launcher entry exists only
+ * in `app/src/debug/AndroidManifest.xml`, so the release APK gains no
+ * launcher entry and no engine behaviour. The old Radar tab is
+ * untouched — this screen runs beside it until the Phase 5 cutover.
+ *
+ * What this activity owns (the screen file is chrome only):
+ * - `MapView` in `AndroidView`, full lifecycle forwarding;
+ *   `MapLibre.getInstance` before creation.
+ * - The raster-only style (JSON from [buildRadarStyleJson]) + the
+ *   programmatically added sources, in draw order: 10 volatile live
+ *   IEM frame sources (shape (a), prefetch OFF), a bounded window of
+ *   volatile HRRR future sources (prefetch OFF), 2 MRMS ImageSource
+ *   slots (bitmaps via `setImage`, 150 ms opacity crossfade), and —
+ *   built at fallback time — 10 volatile LibreWXR 512 sources.
+ *   Volatile/prefetch are set in Kotlin at source creation — never
+ *   the `"volatile": true` JSON flag.
+ * - The loop itself, in two [RadarLoopStore]s (live + future window),
+ *   driven by ONE [CoalescingFetcher] and a dwell ticker:
+ *   metadata (MRMS + LibreWXR, in parallel) BEFORE the first
+ *   prefetch burst; source lock for the whole loop; no-timeout
+ *   advance (hold N and say so); 5-min refresh + on resume; a Live
+ *   slow/unavailable state with a retry that re-requests in-flight
+ *   work AND re-resolves metadata. The store is the source of truth
+ *   for loop state — this activity never keeps its own copy.
+ * - MRMS primary as wide-margin (1.5×) single images, decoded ON
+ *   DEMAND from fetched bytes (at most 2 bitmaps alive — the two
+ *   slots); `setUri` is never used for loop frames (it would
+ *   double-fetch and reintroduce the cache question).
+ * - Pan/zoom/rotate are MapLibre's own gestures (on by default);
+ *   the zoom/recenter buttons drive the camera directly. A pan past
+ *   the 0.5° margin (or a zoom outside 7..9, snapped back on settle)
+ *   re-resolves the MRMS loop with a new bbox; small pans are free.
+ * - Centre is Cincinnati (Robert's area) until the Phase 5 cutover
+ *   wires the screen to the place state.
+ *
+ * What Phase 2 deliberately does NOT do (later phases own it):
+ * - Satellite: the GIBS timestamp is still frozen at style build
+ *   (Phase 3 owns per-path probing and refresh).
+ * - Future ranges show only the first [RADAR_ENGINE_FUTURE_WINDOW]
+ *   frames (Phase 4 owns the full ranges through the frame store).
+ *   The future window runs through the same store class and ticker
+ *   as Live, with readiness proven by a centre 3×3 tile fetch per
+ *   frame (not the full grid — the future ranges were never the
+ *   complaint, and full-grid proving of 16 frames would cost ~1200
+ *   requests per range switch for no user-visible gain).
+ * - The loop never re-promotes to a higher source on refresh: a
+ *   fallback stays fallen-back until the user hits RETRY, which
+ *   re-resolves metadata and takes the best source available then.
+ *   (Re-promoting mid-session would swap palettes under a playing
+ *   loop — the source lock exists to prevent exactly that.)
+ *
+ * Readiness, and what proves it (the store never trusts the map):
+ * - MRMS: the fetcher's bytes in hand, blank-checked by the store
+ *   against the metadata extent (blank + in-extent = a ready, empty
+ *   clear-sky frame; blank + out-of-extent = a stale failure).
+ * - Tiled (LibreWXR / IEM / HRRR): the fetcher's tile bodies for the
+ *   viewport, centre-first. A frame is ready when every tile in its
+ *   proving set has settled AND at least one tile returned bytes; a
+ *   frame whose tiles ALL failed (or 404'd with none returned) is
+ *   failed, not ready. MapLibre's `addOnDidBecomeIdleListener` is
+ *   used ONLY as the pan-settle signal, and never marks a frame
+ *   ready — there is no public per-source load API in 13.7.1.
+ */
+class RadarEngineActivity : ComponentActivity() {
+
+    companion object {
+        private const val TAG = "RadarEngine"
+
+        /** Camera default: Cincinnati, OH (Robert's area). */
+        private val ENGINE_CENTER = LatLng(RADAR_ENGINE_CENTER_LAT, RADAR_ENGINE_CENTER_LON)
+
+        /** IEM/HRRR proving grid (256 px tiles): 7 x 11 = 77 tiles — the
+         *  old grid cap. Covers the viewport + margin at zoom 9, the
+         *  widest viewport in the 7..9 range, under either reading of
+         *  the viewport size (dp or physical px). */
+        private const val PROVING_TILES_X: Int = 7
+        private const val PROVING_TILES_Y: Int = 11
+
+        /** LibreWXR 512 proving grid at zoom−1: 5 x 7 = 35 tiles — the
+         *  same ground as the 7x11 256-grid, halved per axis (one 512
+         *  tile at z−1 covers the 2x2 256 tiles at z). */
+        private const val LIBRE_WXR_PROVING_TILES_X: Int = 4
+        private const val LIBRE_WXR_PROVING_TILES_Y: Int = 6
+
+        /** Future-range (HRRR) proving grid: centre 3x3 only (9 tiles)
+         *  — see the file header for why the future loop proves less. */
+        private const val FUTURE_PROVING_TILES_X: Int = 3
+        private const val FUTURE_PROVING_TILES_Y: Int = 3
+
+        /** Tiled look-ahead window: the current frame + this many ahead. */
+        private const val TILED_LOOK_AHEAD: Int = 5
+    }
+
+    private var mapView: MapView? = null
+    private var mapLibreMap: MapLibreMap? = null
+    private var loadedStyle: Style? = null
+
+    private val liveFrameLayers = mutableListOf<RasterLayer>()
+    private val futureFrameLayers = mutableListOf<RasterLayer>()
+    private val libreWxrFrameLayers = mutableListOf<RasterLayer>()
+    private var satVisLayer: RasterLayer? = null
+    private var satIrLayer: RasterLayer? = null
+    private var mrmsSourceA: ImageSource? = null
+    private var mrmsSourceB: ImageSource? = null
+    private var mrmsLayerA: RasterLayer? = null
+    private var mrmsLayerB: RasterLayer? = null
+
+    // -- The loop ----------------------------------------------------------
+
+    private val fetcher = CoalescingFetcher()
+    private val liveStore = RadarLoopStore()
+    private val futureStore = RadarLoopStore()
+
+    /** The frames the style's future sources were built from (with
+     *  their HRRR layer names). The store's frames carry no layer
+     *  names, so this list is the source of truth for rebuilds. */
+    private lateinit var futureSourceFrames: List<RadarFrame>
+    private var futureSourcesBuiltFor: List<RadarFrame>? = null
+
+    /** The LibreWXR frames of the current live generation (for the
+     *  source templates + proving URLs), in loop order. Empty unless
+     *  the live source is LIBRE_WXR. */
+    private var libreWxrLoopFrames: List<LibreWxrFrame> = emptyList()
+    private var libreWxrSourcesBuiltFor: List<LibreWxrFrame>? = null
+
+    /** Last good LibreWXR maps document (kept for a later fallback). */
+    private var libreWxrMaps: LibreWxrMaps? = null
+
+    /** Current MRMS metadata extent (epoch ms), or null before the
+     *  first successful metadata fetch. Drives `timeWithinExtent`. */
+    private var mrmsExtent: Pair<Long, Long>? = null
+
+    /** Fetched MRMS image bytes, keyed by frame valid time (epoch ms)
+     *  — NOT by index, so a refresh that carries readiness by valid
+     *  time keeps its bytes. [mrmsBytesBbox] is the bbox those bytes
+     *  were fetched for; a bbox change clears the map. */
+    private val mrmsBytes = mutableMapOf<Long, ByteArray>()
+    private var mrmsBytesBbox: RadarBbox? = null
+
+    /** The 1.5x MRMS bbox of the current live generation. */
+    private var mrmsBbox: RadarBbox =
+        expandBbox(RADAR_ENGINE_MRMS_BBOX_1X, RADAR_ENGINE_MRMS_BBOX_FACTOR)
+    private var mrmsQuad: LatLngQuad = quadFor(mrmsBbox)
+
+    /** Which loop frame index each MRMS slot's bitmap belongs to
+     *  (-1 = no bitmap yet). Bookkeeping only: the visible slot keeps
+     *  showing its bitmap across a generation change (hold) until a
+     *  new image is placed in a slot. */
+    private val slotFrameIndex = intArrayOf(-1, -1)
+
+    /** Which frame index is being decoded into each slot (-1 = idle). */
+    private val decodingFrame = intArrayOf(-1, -1)
+    private val decodingJobs = mutableMapOf<Int, Job>()
+
+    /** Which slot's layer is currently at opacity 1 (0 or 1). */
+    private var visibleSlot: Int = 0
+
+    /** Is an MRMS slot currently visible (either layer at opacity 1)? */
+    private var mrmsSlotsVisible: Boolean = false
+
+    /** Visible layer index per tiled family (-1 = none showing). */
+    private var visibleLiveIemIndex: Int = -1
+    private var visibleLibreWxrIndex: Int = -1
+    private var visibleFutureIndex: Int = -1
+
+    /** Camera the live generation's bbox was built on (pan-margin origin). */
+    private var liveGenerationCentre: LatLng? = null
+
+    /** Uptime ms each store's generation started (slow-budget origin). */
+    private var liveGenerationStartedAtMs: Long = 0L
+    private var futureGenerationStartedAtMs: Long = 0L
+
+    /** Generation id the slow budget already fired for, per store
+     *  (-1 = not fired): the budget action runs once per generation. */
+    private var liveSlowBudgetFiredGen: Long = -1L
+    private var futureSlowBudgetFiredGen: Long = -1L
+
+    /** Uptime ms the visible frame was shown (dwell origin). */
+    private var frameShownAtMs: Long = 0L
+
+    /** Uptime ms the last refresh completed (resume-refresh guard). */
+    private var lastRefreshMs: Long = 0L
+    private var refreshInFlight: Boolean = false
+    private var activityResumed: Boolean = false
+
+    /** Was the loop playing before the current scrub drag started? */
+    private var wasPlayingBeforeScrub: Boolean = false
+
+    /** Poke channel: readiness / play / scrub / range changes wake the ticker. */
+    private val tickerPoke = Channel<Unit>(Channel.CONFLATED)
+
+    // UI state (the screen file is chrome only; these are its inputs).
+    private var selectedLayer by mutableStateOf(EngineLayer.Radar)
+    private var selectedRange by mutableStateOf(EngineRange.Live)
+    private var uiFrames by mutableStateOf<List<RadarFrame>>(emptyList())
+    private var uiCurrentIndex by mutableStateOf(0)
+    private var uiIsPlaying by mutableStateOf(false)
+    private var uiPlayEnabled by mutableStateOf(false)
+    private var uiStatusText by mutableStateOf<String?>(null)
+    private var uiUnavailableText by mutableStateOf<String?>(null)
+    private var uiSourceLabel by mutableStateOf<String?>(null)
+    private var uiCostText by mutableStateOf<String?>(null)
+
+    private fun activeStore(): RadarLoopStore =
+        if (selectedRange == EngineRange.Live) liveStore else futureStore
+
+    private fun currentTarget(): LatLng =
+        mapLibreMap?.cameraPosition?.target ?: ENGINE_CENTER
+
+    private fun currentZoom(): Double =
+        mapLibreMap?.cameraPosition?.zoom ?: RADAR_ENGINE_ZOOM
+
+    private fun mrmsUrl(timeMs: Long): String = mrmsExportImageUrl(
+        LonLatBbox(mrmsBbox.westLon, mrmsBbox.southLat, mrmsBbox.eastLon, mrmsBbox.northLat),
+        timeMs,
+        RADAR_ENGINE_MRMS_IMAGE_WIDTH_PX,
+        RADAR_ENGINE_MRMS_IMAGE_HEIGHT_PX
+    )
+
+    private fun quadFor(bbox: RadarBbox): LatLngQuad = LatLngQuad(
+        LatLng(bbox.northLat, bbox.westLon),
+        LatLng(bbox.northLat, bbox.eastLon),
+        LatLng(bbox.southLat, bbox.eastLon),
+        LatLng(bbox.southLat, bbox.westLon)
+    )
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (!BuildConfig.DEBUG) {
+            // Release builds carry the engine code (it ships at the
+            // Phase 5 cutover), but the standalone entry never runs
+            // outside debug.
+            finish()
+            return
+        }
+        val now = Instant.now()
+        futureSourceFrames = radarRangeFrames(RadarRange.Future24h, now)
+            .take(RADAR_ENGINE_FUTURE_WINDOW)
+        frameShownAtMs = SystemClock.uptimeMillis()
+
+        MapLibre.getInstance(this)
+        val view = MapView(this)
+        mapView = view
+        view.onCreate(savedInstanceState)
+        view.addOnDidBecomeIdleListener { onMapIdle() }
+        view.getMapAsync { map ->
+            mapLibreMap = map
+            map.cameraPosition = CameraPosition.Builder()
+                .target(ENGINE_CENTER).zoom(RADAR_ENGINE_ZOOM).build()
+            // GIBS time is frozen at style build in Phase 1 (Phase 3
+            // owns per-path probing and refresh).
+            val gibsTime = gibsTimestamp(now)
+            map.setStyle(
+                Style.Builder().fromJson(buildRadarStyleJson(gibsTime, gibsTime)),
+                Style.OnStyleLoaded { style ->
+                    loadedStyle = style
+                    Log.i(TAG, "style loaded: raster-only JSON OK")
+                    addEngineSourcesAndLayers(style)
+                    syncSourcesForCurrentGeneration()
+                    applyLayerAndFrame()
+                    refreshUiState()
+                }
+            )
+        }
+        resolveLiveLoop()
+        startTicker()
+        startRefreshTimer()
+        setContent {
+            AuraWeatherTheme {
+                RadarEngineScreen(
+                    mapView = mapView!!,
+                    selectedLayer = selectedLayer,
+                    selectedRange = selectedRange,
+                    frames = uiFrames,
+                    currentFrameIndex = uiCurrentIndex,
+                    isPlaying = uiIsPlaying,
+                    playEnabled = uiPlayEnabled,
+                    statusText = uiStatusText,
+                    unavailableText = uiUnavailableText,
+                    sourceLabel = uiSourceLabel,
+                    costText = uiCostText,
+                    onSelectLayer = { selectLayer(it) },
+                    onSelectRange = { selectRange(it) },
+                    onPlayPause = { onPlayPause() },
+                    onRetry = { onRetry() },
+                    onScrubStart = { onScrubStart() },
+                    onScrubFrame = { scrubTo(it) },
+                    onScrubEnd = { onScrubEnd() },
+                    onZoomIn = { zoomByStep(+1) },
+                    onZoomOut = { zoomByStep(-1) },
+                    onRecenter = { recenter() }
+                )
+            }
+        }
+    }
+
+    // -- MapView lifecycle -------------------------------------------------
+
+    override fun onStart() {
+        super.onStart()
+        mapView?.onStart()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        mapView?.onResume()
+        activityResumed = true
+        pokeTicker()
+        // Refresh on resume when the loop is stale (5-min cadence);
+        // the entry resolution counts as a refresh, so the first
+        // onResume after onCreate does not refetch.
+        if (liveStore.generationId > 0L &&
+            SystemClock.uptimeMillis() - lastRefreshMs > RADAR_ENGINE_LOOP_REFRESH_MS
+        ) {
+            lifecycleScope.launch { refreshLoops() }
+        }
+    }
+
+    override fun onPause() {
+        activityResumed = false
+        super.onPause()
+        mapView?.onPause()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        mapView?.onStop()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        mapView?.onSaveInstanceState(outState)
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        mapView?.onLowMemory()
+    }
+
+    override fun onDestroy() {
+        fetcher.close()
+        super.onDestroy()
+        mapView?.onDestroy()
+    }
+
+    // -- Style setup ---------------------------------------------------------
+
+    private fun addEngineSourcesAndLayers(style: Style) {
+        // Shape (a): 10 per-frame volatile live sources + layers.
+        // Volatile = never persist to the ambient cache; prefetch
+        // delta 0 = no low-res parent prefetch on radar sources
+        // (Robert's data budget). Newest frame visible once ready.
+        try {
+            for (i in 0 until RADAR_ENGINE_FRAME_COUNT) {
+                val source = RasterSource(
+                    radarLiveFrameSourceId(i),
+                    TileSet("2.2.0", iemFrameTileTemplate(iemLayerNameFor(i))),
+                    256
+                )
+                source.isVolatile = true
+                source.prefetchZoomDelta = 0
+                style.addSource(source)
+                val layer = RasterLayer(radarLiveFrameLayerId(i), radarLiveFrameSourceId(i))
+                    .withProperties(
+                        PropertyFactory.rasterOpacity(0f)
+                    )
+                style.addLayer(layer)
+                liveFrameLayers.add(layer)
+            }
+            Log.i(TAG, "added $RADAR_ENGINE_FRAME_COUNT volatile live (IEM) frame sources")
+        } catch (e: Exception) {
+            Log.w(TAG, "adding live frame sources failed: ${e.javaClass.simpleName}: ${e.message}")
+        }
+
+        // Future window: one volatile source per HRRR frame in the
+        // window (first 16 of the range; Phase 4 owns the rest).
+        // The 24 h and 48 h ranges share this prefix (same HRRR run),
+        // so one window serves both range pills.
+        rebuildFutureSources(futureSourceFrames)
+
+        // MRMS two-slot ImageSources (wide-margin bbox, png32
+        // exportImage). Built with a 1x1 transparent bitmap — never a
+        // placeholder URI (setUri would fetch a throwaway image and
+        // show a stale frame); real bitmaps arrive via setImage once
+        // the loop resolves and the first frame's bytes land.
+        try {
+            val placeholder = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+            mrmsSourceA = ImageSource(
+                RADAR_ENGINE_MRMS_SLOT_A, mrmsQuad, placeholder
+            )
+            mrmsSourceB = ImageSource(
+                RADAR_ENGINE_MRMS_SLOT_B, mrmsQuad, placeholder
+            )
+            style.addSource(mrmsSourceA!!)
+            style.addSource(mrmsSourceB!!)
+            mrmsLayerA = RasterLayer(
+                radarMrmsLayerId(RADAR_ENGINE_MRMS_SLOT_A), RADAR_ENGINE_MRMS_SLOT_A
+            ).withProperties(PropertyFactory.rasterOpacity(0f))
+            mrmsLayerB = RasterLayer(
+                radarMrmsLayerId(RADAR_ENGINE_MRMS_SLOT_B), RADAR_ENGINE_MRMS_SLOT_B
+            ).withProperties(PropertyFactory.rasterOpacity(0f))
+            style.addLayer(mrmsLayerA!!)
+            style.addLayer(mrmsLayerB!!)
+            Log.i(TAG, "added MRMS ImageSources A/B, bbox ${radarBboxToParam(mrmsBbox)} (1.5x)")
+        } catch (e: Exception) {
+            Log.w(TAG, "adding MRMS sources failed: ${e.javaClass.simpleName}: ${e.message}")
+        }
+
+        // Basemap read-back (JSON-declared source, prefetch default ON).
+        try {
+            val basemap = style.getSourceAs<RasterSource>(RADAR_ENGINE_BASEMAP_SOURCE_ID)
+            satVisLayer = style.getLayer(RADAR_ENGINE_SAT_VIS_LAYER_ID) as? RasterLayer
+            satIrLayer = style.getLayer(RADAR_ENGINE_SAT_IR_LAYER_ID) as? RasterLayer
+            Log.i(
+                TAG,
+                "basemap read-back: isVolatile=${basemap?.isVolatile} " +
+                    "prefetchZoomDelta=${basemap?.prefetchZoomDelta}"
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "basemap read-back failed: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    /**
+     * Rebuild the future HRRR sources for [frames] (their layer names
+     * are the HRRR run's, so a new run means new sources). Deferred
+     * when the style is not loaded yet — the style-loaded callback
+     * re-runs this via [syncSourcesForCurrentGeneration]. No-op when
+     * the sources already match [frames].
+     */
+    private fun rebuildFutureSources(frames: List<RadarFrame>) {
+        futureSourceFrames = frames
+        val style = loadedStyle ?: return
+        if (frames == futureSourcesBuiltFor) return
+        try {
+            for ((i, layer) in futureFrameLayers.withIndex()) {
+                try {
+                    style.removeLayer(layer.id)
+                } catch (e: Exception) {
+                    Log.w(TAG, "removing future layer $i failed: ${e.javaClass.simpleName}")
+                }
+                try {
+                    style.removeSource(radarFutureFrameSourceId(i))
+                } catch (e: Exception) {
+                    Log.w(TAG, "removing future source $i failed: ${e.javaClass.simpleName}")
+                }
+            }
+            futureFrameLayers.clear()
+            visibleFutureIndex = -1
+            for ((i, frame) in frames.withIndex()) {
+                val source = RasterSource(
+                    radarFutureFrameSourceId(i),
+                    TileSet("2.2.0", hrrrFrameTileTemplate(frame.layerName)),
+                    256
+                )
+                source.isVolatile = true
+                source.prefetchZoomDelta = 0
+                style.addSource(source)
+                val layer = RasterLayer(radarFutureFrameLayerId(i), radarFutureFrameSourceId(i))
+                    .withProperties(PropertyFactory.rasterOpacity(0f))
+                style.addLayer(layer)
+                futureFrameLayers.add(layer)
+            }
+            futureSourcesBuiltFor = frames
+            Log.i(TAG, "added ${frames.size} volatile future (HRRR) frame sources")
+        } catch (e: Exception) {
+            Log.w(TAG, "adding future frame sources failed: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    /**
+     * LibreWXR fallback sources: 10 per-frame volatile raster sources
+     * at 512 px, maxzoom 7 — one 512 tile at zoom−1 covers exactly the
+     * 2x2 256 tiles at zoom (Phase 0 spike 5, MAD 0.0), so at map zoom
+     * 8–9 MapLibre overzooms the z7 tiles instead of ever requesting
+     * z8/z9 tiles from LibreWXR (~20 requests/frame instead of ~77).
+     * Built at fallback time: the templates embed the per-frame `path`
+     * from the maps JSON, known only after metadata arrives. Deferred
+     * when the style is not loaded yet; no-op when already built for
+     * these frames.
+     */
+    private fun buildLibreWxrSources(frames: List<LibreWxrFrame>) {
+        val style = loadedStyle ?: return
+        val maps = libreWxrMaps ?: return
+        if (frames == libreWxrSourcesBuiltFor) return
+        removeLibreWxrSources()
+        try {
+            for ((i, frame) in frames.withIndex()) {
+                val tileSet = TileSet("2.2.0", libreWxrTileTemplate(maps.host, frame.path))
+                    .apply { maxZoom = 7f }
+                val source = RasterSource(
+                    radarLibreWxrFrameSourceId(i),
+                    tileSet,
+                    LIBRE_WXR_TILE_SIZE_512
+                )
+                source.isVolatile = true
+                source.prefetchZoomDelta = 0
+                style.addSource(source)
+                val layer = RasterLayer(
+                    radarLibreWxrFrameLayerId(i), radarLibreWxrFrameSourceId(i)
+                ).withProperties(PropertyFactory.rasterOpacity(0f))
+                style.addLayer(layer)
+                libreWxrFrameLayers.add(layer)
+            }
+            libreWxrSourcesBuiltFor = frames
+            Log.i(TAG, "added ${frames.size} volatile LibreWXR 512 sources (maxzoom 7)")
+        } catch (e: Exception) {
+            Log.w(TAG, "adding LibreWXR sources failed: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    /** Remove the LibreWXR sources (layer first, then source — a source
+     *  still referenced by a layer cannot simply be removed). */
+    private fun removeLibreWxrSources() {
+        val style = loadedStyle ?: return
+        for ((i, layer) in libreWxrFrameLayers.withIndex()) {
+            try {
+                style.removeLayer(layer.id)
+            } catch (e: Exception) {
+                Log.w(TAG, "removing LibreWXR layer $i failed: ${e.javaClass.simpleName}")
+            }
+            try {
+                style.removeSource(radarLibreWxrFrameSourceId(i))
+            } catch (e: Exception) {
+                Log.w(TAG, "removing LibreWXR source $i failed: ${e.javaClass.simpleName}")
+            }
+        }
+        libreWxrFrameLayers.clear()
+        visibleLibreWxrIndex = -1
+        libreWxrSourcesBuiltFor = null
+    }
+
+    /** Build any generation-dependent sources the style load raced
+     *  ahead of (entry metadata resolving before the style loads). */
+    private fun syncSourcesForCurrentGeneration() {
+        if (liveStore.source == RadarSourceKind.LIBRE_WXR) {
+            buildLibreWxrSources(libreWxrLoopFrames)
+        }
+        rebuildFutureSources(futureSourceFrames)
+    }
+
+    // -- Layer / frame application (opacity only, no tile reload) -----------
+
+    private fun setOpacity(layer: RasterLayer?, opacity: Float) {
+        layer?.setRasterOpacityTransition(
+            TransitionOptions(RADAR_ENGINE_CROSSFADE_MS, 0)
+        )
+        layer?.withProperties(PropertyFactory.rasterOpacity(opacity))
+    }
+
+    private fun applyLayerAndFrame() {
+        if (loadedStyle == null) return
+        when (selectedLayer) {
+            EngineLayer.SatelliteVis, EngineLayer.SatelliteIr -> {
+                hideMrmsSlots()
+                visibleLiveIemIndex = hideTiledFamily(liveFrameLayers, visibleLiveIemIndex)
+                visibleLibreWxrIndex = hideTiledFamily(libreWxrFrameLayers, visibleLibreWxrIndex)
+                visibleFutureIndex = hideTiledFamily(futureFrameLayers, visibleFutureIndex)
+                setOpacity(satVisLayer, if (selectedLayer == EngineLayer.SatelliteVis) 1f else 0f)
+                setOpacity(satIrLayer, if (selectedLayer == EngineLayer.SatelliteIr) 1f else 0f)
+            }
+            EngineLayer.Radar -> {
+                setOpacity(satVisLayer, 0f)
+                setOpacity(satIrLayer, 0f)
+                refreshDisplay()
+            }
+        }
+    }
+
+    /** Turn off the one visible layer of a tiled family (-1 = none was
+     *  showing). The family's other layers are always already 0: only
+     *  one layer per family is ever at opacity 1. */
+    private fun hideTiledFamily(layers: List<RasterLayer>, visibleIndex: Int): Int {
+        if (visibleIndex in layers.indices) setOpacity(layers[visibleIndex], 0f)
+        return -1
+    }
+
+    private fun hideMrmsSlots() {
+        if (!mrmsSlotsVisible) return
+        setOpacity(mrmsLayerA, 0f)
+        setOpacity(mrmsLayerB, 0f)
+        mrmsSlotsVisible = false
+    }
+
+    /**
+     * Show the active store's current frame, if it is ready. An unready
+     * current frame is a HOLD: the previously visible frame stays
+     * exactly where it is (no jump, no blank) and the chrome says
+     * "waiting" — the store's state, read by [refreshUiState], is the
+     * signal. Families not in use are hidden (no-op when already hidden).
+     */
+    private fun refreshDisplay() {
+        if (loadedStyle == null) return
+        if (selectedLayer != EngineLayer.Radar) return
+        val store = activeStore()
+        if (store.frameCount() == 0) return
+        val index = store.currentIndex
+        when (selectedRange) {
+            EngineRange.Live -> when (store.source) {
+                RadarSourceKind.MRMS -> {
+                    visibleLiveIemIndex = hideTiledFamily(liveFrameLayers, visibleLiveIemIndex)
+                    visibleLibreWxrIndex = hideTiledFamily(libreWxrFrameLayers, visibleLibreWxrIndex)
+                    if (store.isReady(index)) showMrmsFrame(index)
+                }
+                RadarSourceKind.LIBRE_WXR -> {
+                    hideMrmsSlots()
+                    visibleLiveIemIndex = hideTiledFamily(liveFrameLayers, visibleLiveIemIndex)
+                    if (store.isReady(index)) {
+                        visibleLibreWxrIndex = showTiledFrame(
+                            libreWxrFrameLayers, visibleLibreWxrIndex, index
+                        )
+                    }
+                }
+                RadarSourceKind.IEM -> {
+                    hideMrmsSlots()
+                    visibleLibreWxrIndex = hideTiledFamily(libreWxrFrameLayers, visibleLibreWxrIndex)
+                    if (store.isReady(index)) {
+                        visibleLiveIemIndex = showTiledFrame(
+                            liveFrameLayers, visibleLiveIemIndex, index
+                        )
+                    }
+                }
+                null -> Unit
+            }
+            else -> {
+                hideMrmsSlots()
+                visibleLiveIemIndex = hideTiledFamily(liveFrameLayers, visibleLiveIemIndex)
+                visibleLibreWxrIndex = hideTiledFamily(libreWxrFrameLayers, visibleLibreWxrIndex)
+                if (store.isReady(index)) {
+                    visibleFutureIndex = showTiledFrame(
+                        futureFrameLayers, visibleFutureIndex, index
+                    )
+                }
+            }
+        }
+    }
+
+    /** Crossfade a tiled family to [index]; returns the new visible index. */
+    private fun showTiledFrame(
+        layers: List<RasterLayer>,
+        visibleIndex: Int,
+        index: Int
+    ): Int {
+        if (index !in layers.indices) return visibleIndex
+        if (visibleIndex == index) return visibleIndex
+        if (visibleIndex in layers.indices) setOpacity(layers[visibleIndex], 0f)
+        setOpacity(layers[index], 1f)
+        frameShownAtMs = SystemClock.uptimeMillis()
+        return index
+    }
+
+    // -- MRMS two-slot display (decode on demand, at most 2 bitmaps) ------
+
+    /** Show MRMS frame [index] (it is ready — callers check). */
+    private fun showMrmsFrame(index: Int) {
+        if (!liveStore.isReady(index)) return
+        if (slotFrameIndex[visibleSlot] == index) return // already showing
+        val idle = 1 - visibleSlot
+        if (slotFrameIndex[idle] == index) {
+            crossfadeMrmsTo(idle)
+            return
+        }
+        if (decodingFrame[idle] == index) return // decode in flight; its completion crossfades
+        decodeMrmsFrameIntoSlot(index, idle)
+    }
+
+    private fun crossfadeMrmsTo(slot: Int) {
+        val showLayer = if (slot == 0) mrmsLayerA else mrmsLayerB
+        val hideLayer = if (slot == 0) mrmsLayerB else mrmsLayerA
+        setOpacity(showLayer, 1f)
+        setOpacity(hideLayer, 0f)
+        visibleSlot = slot
+        mrmsSlotsVisible = true
+        frameShownAtMs = SystemClock.uptimeMillis()
+    }
+
+    /**
+     * Decode frame [index]'s held bytes into [slot], off the main
+     * thread. On completion the bitmap is placed with `setImage`
+     * (never `setUri`) at the generation's quad, and the loop
+     * crossfades to it if it is still the frame under the playhead.
+     * A decode for a superseded frame is dropped, never shown: the
+     * slot only ever receives the bitmap of the frame it was decoded
+     * for, and a slot that became visible for another frame meanwhile
+     * is left alone.
+     */
+    private fun decodeMrmsFrameIntoSlot(index: Int, slot: Int) {
+        val timeMs = liveStore.frameValidTime(index)?.toEpochMilli() ?: return
+        val bytes = mrmsBytes[timeMs] ?: return
+        decodingJobs[slot]?.cancel()
+        val generationId = liveStore.generationId
+        decodingFrame[slot] = index
+        decodingJobs[slot] = lifecycleScope.launch(Dispatchers.Default) {
+            try {
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    ?: return@launch
+                withContext(Dispatchers.Main) {
+                    if (liveStore.generationId != generationId) return@withContext
+                    val source = if (slot == 0) mrmsSourceA else mrmsSourceB
+                    if (source == null) return@withContext
+                    if (slot == visibleSlot && slotFrameIndex[slot] != index) {
+                        // This slot became visible for another frame
+                        // while decoding; do not swap the visible image.
+                        return@withContext
+                    }
+                    source.setCoordinates(mrmsQuad)
+                    source.setImage(bitmap)
+                    slotFrameIndex[slot] = index
+                    if (liveStore.currentIndex == index &&
+                        liveStore.source == RadarSourceKind.MRMS
+                    ) {
+                        crossfadeMrmsTo(slot)
+                    }
+                }
+            } finally {
+                if (decodingFrame[slot] == index) decodingFrame[slot] = -1
+            }
+        }
+    }
+
+    /**
+     * Eager-decode [index] into the idle slot (its bitmap is then
+     * waiting when the playhead reaches it, so the advance is just a
+     * crossfade). Only when the frame is ready and no slot holds it.
+     */
+    private fun maybeDecodeMrmsFrame(index: Int) {
+        if (liveStore.source != RadarSourceKind.MRMS) return
+        if (!liveStore.isReady(index)) return
+        if (slotFrameIndex.contains(index)) return
+        decodeMrmsFrameIntoSlot(index, 1 - visibleSlot)
+    }
+
+    // -- Loop resolution (metadata, generation, fallback) ------------------
+
+    private data class LoopMetadata(
+        val mrmsTimesMs: List<Long>,
+        val mrmsExtent: Pair<Long, Long>?,
+        val libreWxrMaps: LibreWxrMaps?
+    )
+
+    /**
+     * Fetch both metadata documents IN PARALLEL (never sequential — a
+     * hung MRMS call must not stall LibreWXR behind it), each bounded
+     * by [RADAR_ENGINE_METADATA_TIMEOUT_MS]. A timeout or failure
+     * yields an empty result for that source; the caller falls through
+     * to the next source in [DEFAULT_RADAR_SOURCE_ORDER] order.
+     */
+    private suspend fun fetchLoopMetadata(generationId: Long): LoopMetadata {
+        return coroutineScope {
+            val mrmsJson = async {
+                withTimeoutOrNull(RADAR_ENGINE_METADATA_TIMEOUT_MS) {
+                    fetcher.fetchText(MRMS_SERVICE_INFO_URL, generationId)
+                }
+            }
+            val lwJson = async {
+                withTimeoutOrNull(RADAR_ENGINE_METADATA_TIMEOUT_MS) {
+                    fetcher.fetchText(LIBRE_WXR_MAPS_URL, generationId)
+                }
+            }
+            val mrms = mrmsJson.await()
+            val lw = lwJson.await()
+            LoopMetadata(
+                mrmsTimesMs = mrms?.let { mrmsFrameTimesFromServiceInfoJson(it) } ?: emptyList(),
+                mrmsExtent = mrms?.let { parseMrmsTimeExtent(it) },
+                libreWxrMaps = lw?.let { parseLibreWxrMaps(it) }
+            )
+        }
+    }
+
+    /** The LibreWXR observed-loop frames from a maps document: past
+     *  frames only (nowcast is server-side advection, never observed
+     *  radar), pruned per [libreWxrLoopFrames], newest 10. */
+    private fun libreWxrLoopFramesFromMaps(maps: LibreWxrMaps): List<LibreWxrFrame> =
+        libreWxrLoopFrames(maps).filter { !it.isNowcast }
+            .takeLast(RADAR_ENGINE_FRAME_COUNT)
+
+    private fun libreWxrLoopFrameLabel(
+        frame: LibreWxrFrame,
+        isNewest: Boolean,
+        now: Instant
+    ): String =
+        if (isNewest) "LIVE NOW"
+        else radarFrameLabel(Instant.ofEpochSecond(frame.timeEpochSec), now)
+
+    private fun loopFramesForLibreWxr(
+        frames: List<LibreWxrFrame>,
+        now: Instant
+    ): List<LoopFrame> =
+        frames.mapIndexed { i, frame ->
+            LoopFrame(
+                Instant.ofEpochSecond(frame.timeEpochSec),
+                libreWxrLoopFrameLabel(frame, i == frames.lastIndex, now)
+            )
+        }
+
+    /** Entry resolution: MRMS when its extent yields frames, else
+     *  LibreWXR when its maps yield past frames, else the IEM
+     *  skeleton (terminal fallback — always 10 frames). */
+    private fun resolveLiveLoop() {
+        lifecycleScope.launch {
+            val meta = fetchLoopMetadata(liveStore.generationId)
+            meta.libreWxrMaps?.let { libreWxrMaps = it }
+            val now = Instant.now()
+            val lwFrames = meta.libreWxrMaps?.let { libreWxrLoopFramesFromMaps(it) }
+                ?: emptyList()
+            val (source, frames) = when {
+                meta.mrmsTimesMs.isNotEmpty() -> {
+                    meta.mrmsExtent?.let { mrmsExtent = it }
+                    RadarSourceKind.MRMS to
+                        mrmsLiveFrames(meta.mrmsTimesMs, now)
+                            .map { LoopFrame(it.validTime, it.label) }
+                }
+                lwFrames.isNotEmpty() -> {
+                    libreWxrLoopFrames = lwFrames
+                    RadarSourceKind.LIBRE_WXR to loopFramesForLibreWxr(lwFrames, now)
+                }
+                else -> {
+                    RadarSourceKind.IEM to
+                        radarRangeFrames(RadarRange.Live, now)
+                            .map { LoopFrame(it.validTime, it.label) }
+                }
+            }
+            val oldGen = liveStore.generationId
+            val res = liveStore.resolveGeneration(source, frames) ?: return@launch
+            fetcher.endGeneration(oldGen)
+            onLiveGenerationResolved(res)
+            Log.i(TAG, "live loop resolved: $source, ${frames.size} frames (generation ${res.generationId})")
+        }
+    }
+
+    /**
+     * Side effects of a live generation resolving: bbox (from the
+     * current camera target), byte/slot bookkeeping, the fallback's
+     * sources, and the first fetch burst. The store already holds the
+     * generation; this only wires it to the map.
+     */
+    private fun onLiveGenerationResolved(res: GenerationResolution) {
+        liveGenerationStartedAtMs = SystemClock.uptimeMillis()
+        liveSlowBudgetFiredGen = -1L
+        lastRefreshMs = SystemClock.uptimeMillis()
+        val target = currentTarget()
+        liveGenerationCentre = target
+        frameShownAtMs = SystemClock.uptimeMillis()
+        if (res.source == RadarSourceKind.MRMS) {
+            val newBbox = expandBbox(
+                mrmsBboxForCentre(target.latitude, target.longitude),
+                RADAR_ENGINE_MRMS_BBOX_FACTOR
+            )
+            if (newBbox != mrmsBytesBbox) {
+                // New area: the held bytes are for the old bbox.
+                mrmsBytes.clear()
+            }
+            mrmsBbox = newBbox
+            mrmsQuad = quadFor(newBbox)
+            mrmsBytesBbox = newBbox
+            slotFrameIndex[0] = -1
+            slotFrameIndex[1] = -1
+            decodingFrame[0] = -1
+            decodingFrame[1] = -1
+            decodingJobs.values.forEach { it.cancel() }
+            decodingJobs.clear()
+        }
+        if (res.source == RadarSourceKind.LIBRE_WXR) {
+            buildLibreWxrSources(libreWxrLoopFrames)
+        } else {
+            removeLibreWxrSources()
+        }
+        when (res.source) {
+            RadarSourceKind.MRMS -> {
+                for (i in 0 until res.frameCount) requestMrmsFrame(i, res.generationId)
+            }
+            RadarSourceKind.LIBRE_WXR, RadarSourceKind.IEM -> {
+                requestTiledFramesAhead(liveStore) { i -> liveProvingUrls(i) }
+            }
+        }
+        refreshDisplay()
+        refreshUiState()
+        pokeTicker()
+    }
+
+    /**
+     * The store went UNAVAILABLE: try the next source DOWN the order
+     * (whole-loop re-resolution, zero carry-over). Nothing left to
+     * try means the chrome shows UNAVAILABLE + RETRY.
+     */
+    private fun handleLiveUnavailable() {
+        val store = liveStore
+        if (store.state != LiveLoopState.UNAVAILABLE) return
+        val current = store.source ?: return
+        val next = fallbackAfter(current) ?: run {
+            Log.w(TAG, "live loop unavailable: no source left after $current")
+            refreshUiState()
+            return
+        }
+        val now = Instant.now()
+        val (frames, lwFrames) = when (next) {
+            RadarSourceKind.LIBRE_WXR -> {
+                val maps = libreWxrMaps
+                if (maps == null) {
+                    Log.w(TAG, "live loop unavailable: LibreWXR maps not in hand, cannot fall back")
+                    refreshUiState()
+                    return
+                }
+                val lw = libreWxrLoopFramesFromMaps(maps)
+                if (lw.isEmpty()) {
+                    Log.w(TAG, "live loop unavailable: LibreWXR has no past frames")
+                    refreshUiState()
+                    return
+                }
+                loopFramesForLibreWxr(lw, now) to lw
+            }
+            RadarSourceKind.IEM -> {
+                radarRangeFrames(RadarRange.Live, now)
+                    .map { LoopFrame(it.validTime, it.label) } to emptyList()
+            }
+            RadarSourceKind.MRMS -> return // never fall back UP
+        }
+        if (next == RadarSourceKind.LIBRE_WXR) libreWxrLoopFrames = lwFrames
+        val oldGen = store.generationId
+        val res = store.fallbackTo(next, frames) ?: run {
+            refreshUiState()
+            return
+        }
+        fetcher.endGeneration(oldGen)
+        onLiveGenerationResolved(res)
+        Log.i(TAG, "live loop fell back to $next (${frames.size} frames)")
+    }
+
+    // -- Frame fetching ------------------------------------------------------
+
+    /**
+     * Request MRMS frame [index]: reuse held bytes for this valid time
+     * when the bbox is unchanged (a re-resolution after a retry costs
+     * no network), else fetch the image through the fetcher. The
+     * store's blank check runs on the bytes: a known-blank image for
+     * an out-of-extent time is a stale failure, never a ready frame.
+     */
+    private fun requestMrmsFrame(index: Int, generationId: Long) {
+        if (liveStore.generationId != generationId) return
+        if (liveStore.isReady(index)) return
+        val timeMs = liveStore.frameValidTime(index)?.toEpochMilli() ?: return
+        val held = mrmsBytes[timeMs]
+        if (held != null) {
+            liveStore.requestFrame(index, generationId)
+            markMrmsReady(index, generationId, timeMs, held)
+            return
+        }
+        liveStore.requestFrame(index, generationId)
+        val url = mrmsUrl(timeMs)
+        lifecycleScope.launch {
+            when (val result = fetcher.fetch(url, generationId)) {
+                is FetchResult.Success -> {
+                    if (liveStore.generationId == generationId) {
+                        mrmsBytes[timeMs] = result.bytes
+                        mrmsBytesBbox = mrmsBbox
+                    }
+                    markMrmsReady(index, generationId, timeMs, result.bytes)
+                }
+                else -> {
+                    liveStore.markFrameFailed(index, generationId)
+                    onFrameSettled(liveStore, index)
+                }
+            }
+        }
+    }
+
+    private fun markMrmsReady(
+        index: Int,
+        generationId: Long,
+        timeMs: Long,
+        bytes: ByteArray
+    ) {
+        val withinExtent = mrmsExtent?.let { timeMs in it.first..it.second } ?: true
+        val outcome = liveStore.markFrameReady(index, generationId, bytes, withinExtent)
+        if (outcome == FrameMarkOutcome.REJECTED_BLANK_STALE) {
+            mrmsBytes.remove(timeMs)
+            Log.i(TAG, "MRMS frame $index: blank image for out-of-extent time — stale, failed")
+        }
+        onFrameSettled(liveStore, index)
+    }
+
+    /** Request one tiled frame's proving set through the fetcher. */
+    private fun requestTiledFrame(
+        store: RadarLoopStore,
+        index: Int,
+        generationId: Long,
+        urls: List<String>
+    ) {
+        if (store.generationId != generationId) return
+        if (store.isReady(index)) return
+        if (urls.isEmpty()) {
+            store.markFrameFailed(index, generationId)
+            onFrameSettled(store, index)
+            return
+        }
+        store.requestFrame(index, generationId)
+        lifecycleScope.launch {
+            val results = urls.map { url ->
+                async { fetcher.fetch(url, generationId) }
+            }.awaitAll()
+            if (store.generationId != generationId) return@launch
+            val bytesSeen = results.count { it is FetchResult.Success }
+            // Ready when every tile settled AND at least one returned
+            // bytes: a 404 / exhausted failure is a known-missing tile
+            // (the map draws a hole), but a frame with NO bytes at all
+            // has nothing to show and is failed, not ready.
+            if (bytesSeen > 0) {
+                store.markFrameReady(index, generationId)
+            } else {
+                store.markFrameFailed(index, generationId)
+            }
+            onFrameSettled(store, index)
+        }
+    }
+
+    /**
+     * Prove the current frame + the look-ahead window for a tiled
+     * store ([urlsFor] builds the proving URLs per index). Only
+     * NOT_REQUESTED frames are issued: already in-flight / ready /
+     * failed frames are left alone (a retry re-issues them via
+     * [RadarLoopStore.retry] + [requestLiveFrame]).
+     */
+    private fun requestTiledFramesAhead(
+        store: RadarLoopStore,
+        urlsFor: (Int) -> List<String>
+    ) {
+        if (store.frameCount() == 0) return
+        for (step in 0..TILED_LOOK_AHEAD) {
+            val i = (store.currentIndex + step) % store.frameCount()
+            if (store.fetchState(i) == FrameFetchState.NOT_REQUESTED) {
+                requestTiledFrame(store, i, store.generationId, urlsFor(i))
+            }
+        }
+    }
+
+    /** Request one live frame, whatever the live source is (used by the
+     *  retry path, which re-issues in-flight/queued AND failed frames:
+     *  the fetcher collapses a duplicate of an in-flight URL to the
+     *  same request, so a re-issue never double-fetches). */
+    private fun requestLiveFrame(index: Int, generationId: Long) {
+        if (liveStore.generationId != generationId) return
+        if (liveStore.isReady(index)) return
+        when (liveStore.source) {
+            RadarSourceKind.MRMS -> requestMrmsFrame(index, generationId)
+            RadarSourceKind.LIBRE_WXR, RadarSourceKind.IEM ->
+                requestTiledFrame(liveStore, index, generationId, liveProvingUrls(index))
+            null -> Unit
+        }
+    }
+
+    /** The proving URLs for live tiled frame [index] (centre-first). */
+    private fun liveProvingUrls(index: Int): List<String> = when (liveStore.source) {
+        RadarSourceKind.LIBRE_WXR -> {
+            val frame = libreWxrLoopFrames.getOrNull(index) ?: return emptyList()
+            libreWxrProvingUrls(frame)
+        }
+        RadarSourceKind.IEM -> iemProvingUrls(iemLayerNameFor(index))
+        else -> emptyList()
+    }
+
+    private fun provingUrlsFor(store: RadarLoopStore, index: Int): List<String> =
+        if (store === liveStore) liveProvingUrls(index)
+        else {
+            val frame = futureSourceFrames.getOrNull(index) ?: return emptyList()
+            hrrrProvingUrls(frame.layerName)
+        }
+
+    private fun currentTileZoom(): Int =
+        currentZoom().toInt().coerceIn(0, 22)
+
+    private fun iemProvingUrls(layerName: String): List<String> {
+        val target = currentTarget()
+        val zoom = currentTileZoom()
+        val centreX = lonToTileX(target.longitude, zoom)
+        val centreY = latToTileY(target.latitude, zoom)
+        return centreFirstTileOffsets(PROVING_TILES_X, PROVING_TILES_Y).map { (dx, dy) ->
+            iemTileUrl(layerName, zoom, centreX + dx, centreY + dy)
+        }
+    }
+
+    private fun libreWxrProvingUrls(frame: LibreWxrFrame): List<String> {
+        val maps = libreWxrMaps ?: return emptyList()
+        val target = currentTarget()
+        val zoom = (currentTileZoom() - 1).coerceAtLeast(0)
+        val centreX = lonToTileX(target.longitude, zoom)
+        val centreY = latToTileY(target.latitude, zoom)
+        return centreFirstTileOffsets(
+            LIBRE_WXR_PROVING_TILES_X, LIBRE_WXR_PROVING_TILES_Y
+        ).map { (dx, dy) ->
+            libreWxrTileUrl(
+                maps.host, frame.path, zoom, centreX + dx, centreY + dy,
+                tileSizePx = LIBRE_WXR_TILE_SIZE_512
+            )
+        }
+    }
+
+    private fun hrrrProvingUrls(layerName: String): List<String> {
+        val target = currentTarget()
+        val zoom = currentTileZoom()
+        val centreX = lonToTileX(target.longitude, zoom)
+        val centreY = latToTileY(target.latitude, zoom)
+        return centreFirstTileOffsets(FUTURE_PROVING_TILES_X, FUTURE_PROVING_TILES_Y)
+            .map { (dx, dy) ->
+                iemTileUrl(layerName, zoom, centreX + dx, centreY + dy)
+            }
+    }
+
+    // -- Readiness changes ---------------------------------------------------
+
+    /**
+     * Called after any frame settles (ready or failed) in [store].
+     * Starts playback when the loop primes, eager-decodes the next
+     * MRMS frame, runs the fallback chain from UNAVAILABLE, and wakes
+     * the ticker + the chrome. Never called for a stale generation
+     * (the store's generation guard already ignored those marks).
+     */
+    private fun onFrameSettled(store: RadarLoopStore, index: Int) {
+        if (store.state == LiveLoopState.PRIMED && !store.isPaused) {
+            store.startPlayback()
+        }
+        if (store === liveStore && store.source == RadarSourceKind.MRMS &&
+            store === activeStore() && store.isReady(index)
+        ) {
+            if (index == store.currentIndex) {
+                maybeDecodeMrmsFrame(index)
+            } else if (index == store.nextIndex() &&
+                slotFrameIndex.contains(store.currentIndex)
+            ) {
+                maybeDecodeMrmsFrame(index)
+            }
+        }
+        if (store.state == LiveLoopState.UNAVAILABLE) {
+            if (store === liveStore) {
+                handleLiveUnavailable()
+            }
+        } else if (store === activeStore()) {
+            if (store.isReady(store.currentIndex)) refreshDisplay()
+            pokeTicker()
+        }
+        refreshUiState()
+    }
+
+    // -- Ticker (dwell, no-timeout advance, slow budget) --------------------
+
+    private fun startTicker() {
+        lifecycleScope.launch {
+            while (isActive) {
+                if (activityResumed) tickLoop()
+                val store = activeStore()
+                val remaining = when {
+                    !activityResumed -> 1000L
+                    store.isPaused -> 1000L
+                    store.state == LiveLoopState.LOADING ||
+                        store.state == LiveLoopState.UNAVAILABLE ||
+                        store.state == LiveLoopState.WAITING_NEXT -> 1000L
+                    else -> {
+                        val elapsed = SystemClock.uptimeMillis() - frameShownAtMs
+                        (store.dwellMsFor(store.currentIndex) - elapsed).coerceAtLeast(50L)
+                    }
+                }
+                // Poke-driven: a readiness change wakes the loop at once;
+                // the timeout is only the backstop.
+                withTimeoutOrNull<Unit>(remaining) { tickerPoke.receive() }
+            }
+        }
+    }
+
+    private fun tickLoop() {
+        if (selectedLayer != EngineLayer.Radar) return
+        val store = activeStore()
+        if (store.frameCount() == 0) return
+        checkSlowBudget(store)
+        // The loop has primed but the playhead sits on a frame that
+        // never became ready (frames settle in random order): move it
+        // to the newest ready frame instead of holding on a blank map.
+        // Only in PRIMED — a scrub to an unready frame leaves the
+        // state as WAITING_NEXT/LOADING, never PRIMED, so a user's
+        // scrub target is never yanked away.
+        if (store.state == LiveLoopState.PRIMED &&
+            !store.isReady(store.currentIndex) && store.readyCount() > 0
+        ) {
+            val newestReady = (store.frameCount() - 1 downTo 0)
+                .firstOrNull { store.isReady(it) }
+            if (newestReady != null && newestReady != store.currentIndex) {
+                store.scrubTo(newestReady)
+                frameShownAtMs = SystemClock.uptimeMillis()
+                refreshDisplay()
+                refreshUiState()
+                return
+            }
+        }
+        val elapsed = SystemClock.uptimeMillis() - frameShownAtMs
+        when (val outcome = store.tryAdvance(elapsed)) {
+            is AdvanceOutcome.Advanced -> onFrameAdvanced(store, outcome.toIndex)
+            is AdvanceOutcome.Hold -> refreshUiState()
+        }
+    }
+
+    private fun onFrameAdvanced(store: RadarLoopStore, toIndex: Int) {
+        refreshDisplay()
+        if (store.source == RadarSourceKind.MRMS) {
+            val next = store.nextIndex()
+            if (store.isReady(next)) maybeDecodeMrmsFrame(next)
+        } else {
+            requestTiledFramesAhead(store) { i -> provingUrlsFor(store, i) }
+        }
+        refreshUiState()
+    }
+
+    /**
+     * The slow budget (20 s, [RADAR_ENGINE_LIVE_SLOW_BUDGET_MS]): a
+     * generation with NO ready frame after 20 s counts as stalled. A
+     * healthy cold MRMS loop primes in ~3 s and completes in ~6 s, so
+     * 20 s is 3x past healthy and matches the forecast trigger's 20 s
+     * precedent. The attempted frames are marked failed (a late
+     * completion can still revive the loop — the store flips
+     * UNAVAILABLE back to PRIMED on a ready frame), then the fallback
+     * chain runs. Fires once per generation.
+     */
+    private fun checkSlowBudget(store: RadarLoopStore) {
+        if (store.state != LiveLoopState.LOADING) return
+        if (store.readyCount() > 0) return
+        val startedAt = if (store === liveStore) liveGenerationStartedAtMs
+            else futureGenerationStartedAtMs
+        if (startedAt == 0L) return
+        if (SystemClock.uptimeMillis() - startedAt < RADAR_ENGINE_LIVE_SLOW_BUDGET_MS) return
+        val firedGen = if (store === liveStore) liveSlowBudgetFiredGen
+            else futureSlowBudgetFiredGen
+        if (firedGen == store.generationId) return
+        if (store === liveStore) liveSlowBudgetFiredGen = store.generationId
+        else futureSlowBudgetFiredGen = store.generationId
+        val gen = store.generationId
+        var anyAttempted = false
+        for (i in 0 until store.frameCount()) {
+            when (store.fetchState(i)) {
+                FrameFetchState.IN_FLIGHT, FrameFetchState.FAILED -> {
+                    anyAttempted = true
+                    store.markFrameFailed(i, gen)
+                }
+                else -> Unit
+            }
+        }
+        if (!anyAttempted) {
+            Log.w(TAG, "slow budget: no frame ever requested for generation $gen")
+            return
+        }
+        Log.w(TAG, "slow budget: no frame ready in 20 s, generation $gen marked failed")
+        if (store === liveStore) handleLiveUnavailable()
+        refreshUiState()
+    }
+
+    // -- Refresh (5-min timer + on resume) ---------------------------------
+
+    private fun startRefreshTimer() {
+        lifecycleScope.launch {
+            while (isActive) {
+                delay(RADAR_ENGINE_LOOP_REFRESH_MS)
+                if (activityResumed) refreshLoops()
+            }
+        }
+    }
+
+    private suspend fun refreshLoops() {
+        if (refreshInFlight) return
+        refreshInFlight = true
+        try {
+            refreshLiveLoop()
+            if (futureStore.generationId > 0L) refreshFutureLoop()
+            lastRefreshMs = SystemClock.uptimeMillis()
+        } finally {
+            refreshInFlight = false
+        }
+    }
+
+    /**
+     * Re-resolve the live frame list + MRMS extent. Readiness carries
+     * by valid time for MRMS ([RadarLoopStore.refreshFrames]); an empty
+     * or backwards-moving list HOLDS the previous frames — never blanks
+     * the loop. A tiled (LibreWXR) refresh is a re-resolution: its URLs
+     * embed the frame time, so a changed list means new sources. IEM
+     * needs no refresh (its layer names are relative — the same 10
+     * sources always show the current loop).
+     */
+    private suspend fun refreshLiveLoop() {
+        val store = liveStore
+        if (store.generationId == 0L) return
+        val meta = fetchLoopMetadata(store.generationId)
+        meta.libreWxrMaps?.let { libreWxrMaps = it }
+        when (store.source) {
+            RadarSourceKind.MRMS -> {
+                val extent = meta.mrmsExtent
+                if (meta.mrmsTimesMs.isEmpty() || extent == null) {
+                    store.markMetadataFailed()
+                    Log.w(TAG, "refresh: MRMS metadata failed — loop keeps playing old frames")
+                    return
+                }
+                mrmsExtent = extent
+                val newFrames = mrmsLiveFrames(meta.mrmsTimesMs, Instant.now())
+                    .map { LoopFrame(it.validTime, it.label) }
+                when (val result = store.refreshFrames(newFrames, System.currentTimeMillis())) {
+                    is RefreshResult -> when (result.outcome) {
+                        RefreshOutcome.APPLIED -> {
+                            Log.i(TAG, "refresh: MRMS list applied, ${result.carriedReady} frames carried ready")
+                            for (i in newFrames.indices) {
+                                if (!store.isReady(i)) requestMrmsFrame(i, store.generationId)
+                            }
+                        }
+                        RefreshOutcome.HELD_PREVIOUS_EMPTY ->
+                            Log.i(TAG, "refresh: new MRMS list empty — previous frames held")
+                        RefreshOutcome.HELD_PREVIOUS_REGRESSED ->
+                            Log.i(TAG, "refresh: MRMS extent regressed (${result.regression}) — previous frames held")
+                        RefreshOutcome.NO_CHANGE, RefreshOutcome.NO_GENERATION -> Unit
+                    }
+                }
+            }
+            RadarSourceKind.LIBRE_WXR -> {
+                val maps = meta.libreWxrMaps ?: run {
+                    store.markMetadataFailed()
+                    Log.w(TAG, "refresh: LibreWXR maps failed — loop keeps playing old frames")
+                    return
+                }
+                val lwFrames = libreWxrLoopFramesFromMaps(maps)
+                if (lwFrames.isEmpty()) {
+                    Log.w(TAG, "refresh: LibreWXR has no past frames — previous frames held")
+                    return
+                }
+                if (lwFrames.map { it.timeEpochSec } ==
+                    libreWxrLoopFrames.map { it.timeEpochSec }
+                ) return // no change
+                libreWxrLoopFrames = lwFrames
+                reresolveLiveGeneration(
+                    RadarSourceKind.LIBRE_WXR,
+                    loopFramesForLibreWxr(lwFrames, Instant.now())
+                )
+            }
+            RadarSourceKind.IEM, null -> Unit
+        }
+        refreshUiState()
+        pokeTicker()
+    }
+
+    /** Re-resolve the live generation, preserving the user's pause and
+     *  the playhead's frame (by valid time) when it survives. */
+    private fun reresolveLiveGeneration(source: RadarSourceKind, frames: List<LoopFrame>) {
+        val store = liveStore
+        val wasPaused = store.isPaused
+        val oldTime = store.currentFrame()?.validTime
+        val oldGen = store.generationId
+        val res = store.resolveGeneration(source, frames) ?: return
+        fetcher.endGeneration(oldGen)
+        if (wasPaused) store.setPaused(true)
+        oldTime?.let { t ->
+            val idx = store.frames.indexOfFirst { it.validTime == t }
+            if (idx >= 0) store.scrubTo(idx)
+        }
+        onLiveGenerationResolved(res)
+    }
+
+    private suspend fun refreshFutureLoop() {
+        val store = futureStore
+        if (store.generationId == 0L) return
+        val frames = radarRangeFrames(RadarRange.Future24h, Instant.now())
+            .take(RADAR_ENGINE_FUTURE_WINDOW)
+        if (frames == futureSourceFrames) return
+        rebuildFutureSources(frames)
+        val wasPaused = store.isPaused
+        val oldTime = store.currentFrame()?.validTime
+        val oldGen = store.generationId
+        val res = store.resolveGeneration(
+            RadarSourceKind.IEM,
+            frames.map { LoopFrame(it.validTime, it.label) }
+        ) ?: return
+        fetcher.endGeneration(oldGen)
+        if (wasPaused) store.setPaused(true)
+        oldTime?.let { t ->
+            val idx = store.frames.indexOfFirst { it.validTime == t }
+            if (idx >= 0) store.scrubTo(idx)
+        }
+        futureGenerationStartedAtMs = SystemClock.uptimeMillis()
+        futureSlowBudgetFiredGen = -1L
+        requestTiledFramesAhead(store) { i -> provingUrlsFor(store, i) }
+        refreshDisplay()
+        refreshUiState()
+        pokeTicker()
+    }
+
+    // -- Pan / zoom settle ---------------------------------------------------
+
+    /**
+     * Map-idle settle (NOT a readiness signal — readiness is proven
+     * only by the fetcher). Two jobs: clamp the gesture zoom to the
+     * engine range (the +/- buttons already clamp; a pinch can exceed
+     * it, and the fixed 1.5x bbox is sized for 7..9), and re-resolve
+     * the MRMS loop when the camera target moved past the 0.5° pan
+     * margin. Tiled sources need no re-resolution on pan: their URLs
+     * do not embed the bbox, and MapLibre fetches the new area itself.
+     */
+    private fun onMapIdle() {
+        val map = mapLibreMap ?: return
+        if (loadedStyle == null) return
+        val camera = map.cameraPosition
+        val target = camera.target ?: ENGINE_CENTER
+        if (camera.zoom < RADAR_ENGINE_ZOOM_MIN || camera.zoom > RADAR_ENGINE_ZOOM_MAX) {
+            val clamped = camera.zoom.coerceIn(
+                RADAR_ENGINE_ZOOM_MIN.toDouble(), RADAR_ENGINE_ZOOM_MAX.toDouble()
+            )
+            map.cameraPosition = CameraPosition.Builder()
+                .target(target).zoom(clamped)
+                .bearing(camera.bearing).tilt(camera.tilt).build()
+            return // the clamp move fires another idle; the pan check runs then
+        }
+        if (selectedLayer != EngineLayer.Radar || selectedRange != EngineRange.Live) return
+        if (liveStore.generationId == 0L) return
+        if (liveStore.source != RadarSourceKind.MRMS) return
+        val centre = liveGenerationCentre ?: return
+        if (panPastMargin(centre.latitude, centre.longitude, target.latitude, target.longitude)) {
+            Log.i(TAG, "pan past margin (target ${target.latitude}, ${target.longitude}) — new generation")
+            reresolveLiveForBbox()
+        }
+    }
+
+    /** Re-resolve the MRMS loop with the same frames but a new bbox
+     *  (every MRMS URL changes, so it is a new generation — readiness
+     *  resets, the old image holds until the new one decodes). */
+    private fun reresolveLiveForBbox() {
+        val store = liveStore
+        if (store.generationId == 0L) return
+        if (store.source != RadarSourceKind.MRMS) return
+        val frames = store.frames.toList()
+        val wasPaused = store.isPaused
+        val oldTime = store.currentFrame()?.validTime
+        val oldGen = store.generationId
+        val res = store.resolveGeneration(RadarSourceKind.MRMS, frames) ?: return
+        fetcher.endGeneration(oldGen)
+        if (wasPaused) store.setPaused(true)
+        oldTime?.let { t ->
+            val idx = store.frames.indexOfFirst { it.validTime == t }
+            if (idx >= 0) store.scrubTo(idx)
+        }
+        onLiveGenerationResolved(res)
+        Log.i(TAG, "live loop re-resolved for new bbox (generation ${res.generationId})")
+    }
+
+    // -- UI callbacks --------------------------------------------------------
+
+    private fun selectLayer(layer: EngineLayer) {
+        selectedLayer = layer
+        if (layer != EngineLayer.Radar) clampZoomForSatellite()
+        applyLayerAndFrame()
+        frameShownAtMs = SystemClock.uptimeMillis()
+        refreshUiState()
+        pokeTicker()
+    }
+
+    private fun selectRange(range: EngineRange) {
+        selectedRange = range
+        if (range == EngineRange.Live) {
+            if (liveStore.generationId == 0L) resolveLiveLoop()
+        } else {
+            if (futureStore.generationId == 0L) resolveFutureLoop()
+        }
+        applyLayerAndFrame()
+        frameShownAtMs = SystemClock.uptimeMillis()
+        refreshUiState()
+        pokeTicker()
+    }
+
+    /** Resolve the future window on first visit (fresh HRRR run). */
+    private fun resolveFutureLoop() {
+        val frames = radarRangeFrames(RadarRange.Future24h, Instant.now())
+            .take(RADAR_ENGINE_FUTURE_WINDOW)
+        rebuildFutureSources(frames)
+        val oldGen = futureStore.generationId
+        val res = futureStore.resolveGeneration(
+            RadarSourceKind.IEM,
+            frames.map { LoopFrame(it.validTime, it.label) }
+        ) ?: return
+        fetcher.endGeneration(oldGen)
+        futureGenerationStartedAtMs = SystemClock.uptimeMillis()
+        futureSlowBudgetFiredGen = -1L
+        frameShownAtMs = SystemClock.uptimeMillis()
+        // Start at the nearest forecast (frame 0), like Phase 1 — the
+        // store starts at the newest frame, which is ~4 h out.
+        futureStore.scrubTo(0)
+        requestTiledFramesAhead(futureStore) { i -> provingUrlsFor(futureStore, i) }
+        refreshDisplay()
+        refreshUiState()
+        pokeTicker()
+    }
+
+    private fun onPlayPause() {
+        val store = activeStore()
+        when {
+            store.isPaused -> store.setPaused(false)
+            store.state == LiveLoopState.PRIMED -> store.startPlayback()
+            store.state == LiveLoopState.PLAYING ||
+                store.state == LiveLoopState.WAITING_NEXT -> store.setPaused(true)
+            else -> Unit // LOADING / UNAVAILABLE: the button is disabled
+        }
+        pokeTicker()
+        refreshUiState()
+    }
+
+    /**
+     * RETRY: re-resolve metadata and take the best source available
+     * now (the path back UP to MRMS after an outage), or — when the
+     * loop and the frame list are unchanged — re-request everything
+     * not ready, current first (a retry that only re-requests failures
+     * is a no-op for a stalled queue). Future ranges retry their own
+     * store (HRRR is their only source).
+     */
+    private fun onRetry() {
+        if (selectedRange != EngineRange.Live) {
+            val store = futureStore
+            if (store.generationId == 0L) return
+            val plan = store.retry()
+            Log.i(TAG, "retry (future): re-requesting ${plan.frameIndices.size} frames")
+            for (i in plan.frameIndices) {
+                requestTiledFrame(store, i, plan.generationId, provingUrlsFor(store, i))
+            }
+            refreshUiState()
+            pokeTicker()
+            return
+        }
+        lifecycleScope.launch {
+            val store = liveStore
+            val meta = fetchLoopMetadata(store.generationId)
+            meta.libreWxrMaps?.let { libreWxrMaps = it }
+            val now = Instant.now()
+            val lwFrames = meta.libreWxrMaps?.let { libreWxrLoopFramesFromMaps(it) }
+                ?: emptyList()
+            val (bestSource, bestFrames) = when {
+                meta.mrmsTimesMs.isNotEmpty() -> {
+                    meta.mrmsExtent?.let { mrmsExtent = it }
+                    RadarSourceKind.MRMS to
+                        mrmsLiveFrames(meta.mrmsTimesMs, now)
+                            .map { LoopFrame(it.validTime, it.label) }
+                }
+                lwFrames.isNotEmpty() -> {
+                    libreWxrLoopFrames = lwFrames
+                    RadarSourceKind.LIBRE_WXR to loopFramesForLibreWxr(lwFrames, now)
+                }
+                else -> {
+                    RadarSourceKind.IEM to
+                        radarRangeFrames(RadarRange.Live, now)
+                            .map { LoopFrame(it.validTime, it.label) }
+                }
+            }
+            val sameSource = store.source == bestSource
+            val sameFrames = store.frames.map { it.validTime } ==
+                bestFrames.map { it.validTime }
+            if (store.generationId == 0L || !sameSource || !sameFrames) {
+                val oldGen = store.generationId
+                val res = store.resolveGeneration(bestSource, bestFrames) ?: return@launch
+                fetcher.endGeneration(oldGen)
+                onLiveGenerationResolved(res)
+                Log.i(TAG, "retry: fresh generation on $bestSource")
+            } else {
+                val plan = store.retry()
+                Log.i(TAG, "retry: re-requesting ${plan.frameIndices.size} frames")
+                for (i in plan.frameIndices) requestLiveFrame(i, plan.generationId)
+            }
+            refreshUiState()
+            pokeTicker()
+        }
+    }
+
+    private fun onScrubStart() {
+        val store = activeStore()
+        wasPlayingBeforeScrub = !store.isPaused &&
+            (store.state == LiveLoopState.PLAYING || store.state == LiveLoopState.WAITING_NEXT)
+        store.setPaused(true)
+        pokeTicker()
+        refreshUiState()
+    }
+
+    private fun scrubTo(index: Int) {
+        val store = activeStore()
+        if (store.scrubTo(index)) {
+            frameShownAtMs = SystemClock.uptimeMillis()
+            refreshDisplay()
+            if (store.source != RadarSourceKind.MRMS) {
+                requestTiledFramesAhead(store) { i -> provingUrlsFor(store, i) }
+            }
+            refreshUiState()
+            pokeTicker()
+        }
+    }
+
+    private fun onScrubEnd() {
+        val store = activeStore()
+        if (wasPlayingBeforeScrub) store.setPaused(false)
+        pokeTicker()
+        refreshUiState()
+    }
+
+    // -- Chrome state --------------------------------------------------------
+
+    private fun sourceLabel(kind: RadarSourceKind): String = when (kind) {
+        RadarSourceKind.MRMS -> "MRMS"
+        RadarSourceKind.LIBRE_WXR -> "LIBREWXR"
+        RadarSourceKind.IEM -> "IEM"
+    }
+
+    private fun refreshUiState() {
+        val store = activeStore()
+        val frames = store.frames.map { RadarFrame(it.validTime, "", it.label) }
+        uiFrames = frames
+        uiCurrentIndex = store.currentIndex.coerceIn(0, (frames.size - 1).coerceAtLeast(0))
+        uiIsPlaying = !store.isPaused &&
+            (store.state == LiveLoopState.PLAYING || store.state == LiveLoopState.WAITING_NEXT)
+        uiPlayEnabled = store.state == LiveLoopState.PRIMED ||
+            store.state == LiveLoopState.PLAYING ||
+            store.state == LiveLoopState.WAITING_NEXT
+        uiStatusText = when (store.state) {
+            LiveLoopState.LOADING -> "LOADING LOOP…"
+            LiveLoopState.WAITING_NEXT -> "WAITING FOR NEXT FRAME…"
+            else -> null
+        }
+        uiUnavailableText = if (store.state == LiveLoopState.UNAVAILABLE) {
+            if (selectedRange == EngineRange.Live) "LIVE RADAR UNAVAILABLE"
+            else "FORECAST RADAR UNAVAILABLE"
+        } else {
+            null
+        }
+        uiSourceLabel = when {
+            selectedLayer != EngineLayer.Radar -> null
+            selectedRange != EngineRange.Live -> "HRRR"
+            else -> store.source?.let { sourceLabel(it) }
+        }
+        val bytes = fetcher.totalBytesFetched(store.generationId)
+        uiCostText = if (bytes > 0) loopLoadCostText(bytes) else null
+    }
+
+    private fun pokeTicker() {
+        tickerPoke.trySend(Unit)
+    }
+
+    // -- Camera (MapLibre gestures handle pan/zoom/rotate; these are the
+    //   +/- and recenter buttons, driving the camera directly) -------------
+
+    private fun zoomByStep(delta: Int) {
+        val map = mapLibreMap ?: return
+        val current = map.cameraPosition
+        val minZoom = if (selectedLayer == EngineLayer.Radar) {
+            RADAR_ENGINE_ZOOM_MIN
+        } else {
+            // Satellite: down to z5, the IR native max; overzoom past
+            // the native max renders scaled tiles, so the top stays 9.
+            5
+        }.toDouble()
+        val newZoom = (current.zoom + delta)
+            .coerceIn(minZoom, RADAR_ENGINE_ZOOM_MAX.toDouble())
+        map.cameraPosition = CameraPosition.Builder()
+            .target(current.target).zoom(newZoom)
+            .bearing(current.bearing).tilt(current.tilt).build()
+    }
+
+    private fun clampZoomForSatellite() {
+        val map = mapLibreMap ?: return
+        val maxZoom = satelliteMaxZoom(selectedLayer == EngineLayer.SatelliteVis).toDouble()
+        val current = map.cameraPosition
+        if (current.zoom > maxZoom) {
+            map.cameraPosition = CameraPosition.Builder()
+                .target(current.target).zoom(maxZoom)
+                .bearing(current.bearing).tilt(current.tilt).build()
+        }
+    }
+
+    private fun recenter() {
+        val map = mapLibreMap ?: return
+        map.cameraPosition = CameraPosition.Builder()
+            .target(ENGINE_CENTER).zoom(RADAR_ENGINE_ZOOM)
+            .bearing(0.0).tilt(0.0).build()
+    }
+}

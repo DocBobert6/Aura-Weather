@@ -46,6 +46,14 @@ const val LIBRE_WXR_MAPS_URL: String = "$LIBRE_WXR_BASE_URL/public/weather-maps.
 const val LIBRE_WXR_TILE_SIZE: Int = 256
 
 /**
+ * 512 px tile size (Phase 2 fallback source, Phase 0 spike 5): one
+ * 512 tile at zoom−1 covers exactly the 2×2 256 tiles at zoom
+ * (pixel-compared MAD 0.0), so a frame drops from ~77 requests to
+ * ~20 at roughly equal total bytes.
+ */
+const val LIBRE_WXR_TILE_SIZE_512: Int = 512
+
+/**
  * Colour scheme 2 = NEXRAD Level III (RainViewer scheme numbering).
  * Chosen because it is the US NEXRAD palette — the same family as the
  * fixed NWS scale MRMS serves — so the loop looks consistent when it
@@ -109,7 +117,10 @@ data class LibreWxrMaps(
 /**
  * One LibreWXR tile URL. [host] and [path] come from the maps JSON —
  * never hardcode the `/v2/radar/{time}` prefix; the service owns it.
- * Pattern: `{host}{path}/256/{z}/{x}/{y}/{color}/{options}.png`.
+ * Pattern: `{host}{path}/{tileSizePx}/{z}/{x}/{y}/{color}/{options}.png`.
+ * [tileSizePx] is 256 by default (the app grid); 512 requests the
+ * zoom−1 parent tile (Phase 2 fallback source — see
+ * [LIBRE_WXR_TILE_SIZE_512]).
  *
  * Example (verified live): `libreWxrTileUrl("https://api.librewxr.net",
  * "/v2/radar/1794716400", 6, 16, 24)` =
@@ -122,9 +133,27 @@ fun libreWxrTileUrl(
     tileX: Int,
     tileY: Int,
     colorScheme: Int = LIBRE_WXR_COLOR_SCHEME,
-    options: String = LIBRE_WXR_TILE_OPTIONS
+    options: String = LIBRE_WXR_TILE_OPTIONS,
+    tileSizePx: Int = LIBRE_WXR_TILE_SIZE
 ): String =
-    "$host$path/$LIBRE_WXR_TILE_SIZE/$zoom/$tileX/$tileY/$colorScheme/$options.png"
+    "$host$path/$tileSizePx/$zoom/$tileX/$tileY/$colorScheme/$options.png"
+
+/**
+ * MapLibre tile-URL template for one LibreWXR frame: the same URL
+ * shape as [libreWxrTileUrl], with MapLibre's `{z}` / `{x}` / `{y}`
+ * placeholders in place of the tile coordinates (MapLibre substitutes
+ * them per tile at request time). Default [tileSizePx] is 512: the
+ * Phase 2 fallback source requests 512 px tiles at zoom−1 (see
+ * [LIBRE_WXR_TILE_SIZE_512]) and caps the source's maxzoom at 7, so
+ * MapLibre overzooms the z7 tiles at map zoom 8–9 instead of ever
+ * requesting z8/z9 tiles from LibreWXR.
+ */
+fun libreWxrTileTemplate(
+    host: String,
+    path: String,
+    tileSizePx: Int = LIBRE_WXR_TILE_SIZE_512
+): String =
+    "$host$path/$tileSizePx/{z}/{x}/{y}/$LIBRE_WXR_COLOR_SCHEME/$LIBRE_WXR_TILE_OPTIONS.png"
 
 /**
  * The tile URLs for ONE LibreWXR frame across the visible grid — the

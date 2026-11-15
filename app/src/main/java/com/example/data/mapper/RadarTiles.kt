@@ -86,6 +86,34 @@ fun centreTileRange(centerTileX: Int, centerTileY: Int, tilesX: Int, tilesY: Int
 }
 
 /**
+ * Tile offsets (dx, dy) for a centre-based grid of [tilesX] x [tilesY]
+ * (the same grid as [centreTileRange]: dx in -halfX..halfX, dy in
+ * -halfY..halfY), ordered CENTRE FIRST — rings outward by Chebyshev
+ * distance, then by Manhattan distance, then dx, then dy — so a
+ * fetcher that launches requests in this order proves the visible
+ * centre of a frame before its margin ring (research §3.2.7:
+ * centre-first fetch order). Deterministic: the same grid always
+ * yields the same order. (0, 0) is always first; the last entries are
+ * the grid's corners.
+ */
+fun centreFirstTileOffsets(tilesX: Int, tilesY: Int): List<Pair<Int, Int>> {
+    val halfX = tilesX / 2
+    val halfY = tilesY / 2
+    return buildList {
+        for (dx in -halfX..halfX) {
+            for (dy in -halfY..halfY) {
+                add(dx to dy)
+            }
+        }
+    }.sortedWith(
+        compareBy<Pair<Int, Int>> { maxOf(kotlin.math.abs(it.first), kotlin.math.abs(it.second)) }
+            .thenBy { kotlin.math.abs(it.first) + kotlin.math.abs(it.second) }
+            .thenBy { it.first }
+            .thenBy { it.second }
+    )
+}
+
+/**
  * The radar tile URLs to prefetch for a scrub: one list per loop frame
  * (index 0..9), each covering the visible tile grid centred on the
  * place. The caller enqueues the current frame's list first so the
