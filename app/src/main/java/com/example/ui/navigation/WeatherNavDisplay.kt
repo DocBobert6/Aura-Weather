@@ -38,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.example.data.mapper.RadarFrame
 import com.example.data.mapper.pressureDescriptor
 import com.example.data.mapper.visibilityDescriptor
 import com.example.data.mapper.RadarRange
@@ -105,6 +106,11 @@ fun WeatherNavDisplay(
     selectedRadarLayer: RadarLayer,
     selectedRadarRange: RadarRange,
     currentRadarFrameIndex: Int,
+    // Fix 13 (AUDIT6 §9): the ViewModel-owned frame list, shared with
+    // RadarScreen so the ViewModel and the screen never compute their
+    // own lists from different `now`s. Null keeps the screen's own
+    // frozen list (previews / callers without a ViewModel).
+    radarFrames: List<RadarFrame>? = null,
     isRadarPlaying: Boolean,
     regionalPoints: List<RegionalPoint> = emptyList(),
     musicEnabled: Boolean = false,
@@ -221,6 +227,7 @@ fun WeatherNavDisplay(
                             selectedRadarLayer = selectedRadarLayer,
                             selectedRadarRange = selectedRadarRange,
                             currentRadarFrameIndex = currentRadarFrameIndex,
+                            radarFrames = radarFrames,
                             isRadarPlaying = isRadarPlaying,
                             onNavigate = onNavigate,
                             tickerVisible = tickerVisible,
@@ -264,6 +271,7 @@ fun WeatherNavDisplay(
                     selectedRadarLayer = selectedRadarLayer,
                     selectedRadarRange = selectedRadarRange,
                     currentRadarFrameIndex = currentRadarFrameIndex,
+                    radarFrames = radarFrames,
                     isRadarPlaying = isRadarPlaying,
                     onNavigate = onNavigate,
                     tickerVisible = tickerVisible,
@@ -602,6 +610,7 @@ private fun ScreenContent(
     selectedRadarLayer: RadarLayer,
     selectedRadarRange: RadarRange,
     currentRadarFrameIndex: Int,
+    radarFrames: List<RadarFrame>? = null,
     isRadarPlaying: Boolean,
     onNavigate: (ScreenDestination) -> Unit,
     tickerVisible: Boolean,
@@ -667,6 +676,7 @@ private fun ScreenContent(
             onSelectRange = onSelectRadarRange,
             onTogglePlay = onToggleRadarPlay,
             onScrubFrame = onScrubRadarFrame,
+            radarFrames = radarFrames,
             tickerVisible = tickerVisible
         )
 

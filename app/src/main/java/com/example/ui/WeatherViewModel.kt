@@ -94,6 +94,30 @@ class WeatherViewModel(
     private val _currentRadarFrameIndex = MutableStateFlow(9) // 0..9 (9 = most recent "now")
     val currentRadarFrameIndex = _currentRadarFrameIndex.asStateFlow()
 
+    /**
+     * Fix 13 (AUDIT6 §9): the ViewModel OWNS the radar frame list.
+     * It is computed ONCE per range selection (setRadarRange, and here
+     * at init for Live) from a single `now` — never recomputed with a
+     * fresh `now` on every frame-index call. The old code recomputed
+     * radarRangeFrames(range, Instant.now()) inside setRadarFrameIndex,
+     * while the screen froze its list at range-switch time: after
+     * ~15 min the ViewModel's list shrank (its front advances) below
+     * the screen's frozen count, and the loop's advance was clamped to
+     * the same index forever — a silent stall on long sessions. The
+     * owned list never shrinks mid-range (frame counts only shrink as
+     * `now` advances, and this list's `now` is fixed at selection),
+     * so the coercion below can no longer trap the playhead. The
+     * screen can consume this list directly through RadarScreen's
+     * optional `radarFrames` parameter (plumbing in
+     * WeatherNavDisplay/MainActivity still to do — the seam is built
+     * here); until then the screen's frozen list and this list agree
+     * on count, because both are computed once at range entry.
+     */
+    private val _radarFrames = MutableStateFlow(
+        radarRangeFrames(RadarRange.Live, java.time.Instant.now())
+    )
+    val radarFrames = _radarFrames.asStateFlow()
+
     private val _isRadarPlaying = MutableStateFlow(true)
     val isRadarPlaying = _isRadarPlaying.asStateFlow()
 
@@ -261,15 +285,19 @@ class WeatherViewModel(
         _selectedRadarRange.value = range
         // Reset to the frame closest to now: the last (most recent)
         // frame for past/live, the first (nearest) frame for future.
+        // The list is computed ONCE here, from this one `now`, and
+        // owned until the next range selection (Fix 13).
         val frames = radarRangeFrames(range, java.time.Instant.now())
+        _radarFrames.value = frames
         _currentRadarFrameIndex.value = if (range.isForecast) 0 else (frames.size - 1).coerceAtLeast(0)
     }
 
     fun setRadarFrameIndex(index: Int) {
-        // Coerce to the current range's frame count, not the live 0..9:
-        // past ranges have 49/73 frames, future ranges ~75-99.
-        val max = (radarRangeFrames(_selectedRadarRange.value, java.time.Instant.now()).size - 1)
-            .coerceAtLeast(0)
+        // Coerce to the OWNED frame list's count (Fix 13), not the
+        // live 0..9 and not a freshly recomputed list: future ranges
+        // have ~75-99 frames, and a fresh `now` here used to shrink
+        // the max below the screen's frozen count and stall the loop.
+        val max = (_radarFrames.value.size - 1).coerceAtLeast(0)
         _currentRadarFrameIndex.value = index.coerceIn(0, max)
     }
 
