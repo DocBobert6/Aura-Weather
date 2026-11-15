@@ -109,6 +109,10 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation(libs.play.services.location)
+  // Phase 1 radar rebuild: MapLibre Native 13.7.1 direct (Vulkan
+  // single-backend — NEVER the dual-backend AAR). NOT the Compose
+  // wrapper (it cannot set volatile/prefetch in its released source).
+  implementation(libs.maplibre.android.sdk)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
