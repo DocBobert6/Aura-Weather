@@ -2150,11 +2150,18 @@ fun RadarScreen(
                             // Fix 14: the loop pauses while the
                             // finger is down (isScrubbing) and the
                             // map holds the last ready frame until
-                            // this target's tiles settle.
+                            // this target's tiles settle. There is no
+                            // onValueChangeStart on Material3's Slider
+                            // in this BOM (CI run 43680813930 failed
+                            // on it) — onValueChange sets the flag
+                            // from the first move, and
+                            // onValueChangeFinished clears it on
+                            // release, which is enough: the held frame
+                            // still protects the display even if the
+                            // loop advances once before the first move.
                             isScrubbing = true
                             onScrubFrame(it.toInt())
                         },
-                        onValueChangeStart = { isScrubbing = true },
                         onValueChangeFinished = { isScrubbing = false },
                         valueRange = 0f..(frameCount - 1).coerceAtLeast(1).toFloat(),
                         steps = (frameCount - 2).coerceAtLeast(0),
