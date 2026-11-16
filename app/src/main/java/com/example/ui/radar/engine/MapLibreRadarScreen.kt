@@ -156,6 +156,9 @@ fun RadarEngineScreen(
     // the chrome no longer pads for it — the content Box already
     // ends above the ticker, so the ticker needs no clearance here.
     tickerVisible: Boolean = false,
+    // 90s CRT filter: on by default (Settings toggle). Read once by
+    // the caller — the layer itself holds no per-frame state.
+    crtFilterEnabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val isSatellite = selectedLayer != EngineLayer.Radar
@@ -182,6 +185,14 @@ fun RadarEngineScreen(
             factory = { mapView },
             modifier = Modifier.fillMaxSize()
         )
+
+        // 90s CRT filter: the whole map gets the treatment, the chrome
+        // below stays crisp above it. Screen-space, so it covers the
+        // whole map on pan and zoom; touch passes straight through
+        // (the layer has no pointer handling of any kind).
+        if (crtFilterEnabled) {
+            CrtFilterLayer(modifier = Modifier.fillMaxSize())
+        }
 
         // Top floating pill cluster: station pill + frame label pill,
         // then the layer chooser as a pill segmented control.

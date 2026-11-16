@@ -43,6 +43,7 @@ import org.maplibre.android.maps.MapView
 fun RadarEngineTab(
     place: Place?,
     tickerVisible: Boolean = false,
+    crtFilterEnabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     if (place == null) {
@@ -116,6 +117,7 @@ fun RadarEngineTab(
         onZoomOut = { controller.zoomByStep(-1) },
         onRecenter = { controller.recenter() },
         tickerVisible = tickerVisible,
+        crtFilterEnabled = crtFilterEnabled,
         modifier = modifier
     )
 }

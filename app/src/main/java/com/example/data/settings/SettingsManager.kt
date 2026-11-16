@@ -20,6 +20,7 @@ class SettingsManager(private val context: Context) {
         val KEY_SELECTED_PLACE_ID = stringPreferencesKey("selected_place_id")
         val KEY_PIRATE_WEATHER_API_KEY = stringPreferencesKey("pirate_weather_api_key")
         val KEY_MUSIC_ENABLED = booleanPreferencesKey("music_enabled")
+        val KEY_CRT_FILTER_ENABLED = booleanPreferencesKey("crt_filter_enabled")
         val KEY_PIRATE_WEATHER_WORKING = booleanPreferencesKey("pirate_weather_working")
         val KEY_PIRATE_WEATHER_ATTEMPTED = booleanPreferencesKey("pirate_weather_attempted")
         val KEY_ALERTS_ENABLED = booleanPreferencesKey("alerts_enabled")
@@ -61,6 +62,13 @@ class SettingsManager(private val context: Context) {
     // Background music (Home toggle): off by default, remembered across launches.
     val musicEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[KEY_MUSIC_ENABLED] ?: false
+    }
+
+    // 90s CRT filter on the radar map: on by default — Robert asked
+    // for the filter; the Settings toggle turns it off without a
+    // rebuild. Same DataStore pattern as the music toggle.
+    val crtFilterEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_CRT_FILTER_ENABLED] ?: true
     }
 
     // 3.1 alert notifications: off by default — the user opts in via the
@@ -120,6 +128,12 @@ class SettingsManager(private val context: Context) {
     suspend fun setMusicEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[KEY_MUSIC_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setCrtFilterEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_CRT_FILTER_ENABLED] = enabled
         }
     }
 
