@@ -10,6 +10,9 @@ import com.example.ui.radar.engine.RADAR_ENGINE_MRMS_BBOX_1X
 import com.example.ui.radar.engine.RADAR_ENGINE_MRMS_BBOX_FACTOR
 import com.example.ui.radar.engine.RADAR_ENGINE_NAVY_BG
 import com.example.ui.radar.engine.RADAR_ENGINE_SAT_IR_LAYER_ID
+import com.example.ui.radar.engine.RADAR_ENGINE_ZOOM
+import com.example.ui.radar.engine.RADAR_ENGINE_ZOOM_MAX
+import com.example.ui.radar.engine.RADAR_ENGINE_ZOOM_MIN
 import com.example.ui.radar.engine.RADAR_ENGINE_SAT_VIS_LAYER_ID
 import com.example.ui.radar.engine.RadarBbox
 import com.example.ui.radar.engine.buildRadarStyleJson
@@ -110,6 +113,24 @@ class MapLibreRadarStyleTest {
     fun `satellite native max zoom is 6 visible and 5 IR`() {
         assertEquals(6, satelliteMaxZoom(true))
         assertEquals(5, satelliteMaxZoom(false))
+    }
+
+    // Bottom-chrome + auto-zoom fixes (2026-11-15): the radar zoom
+    // floor is 5, the satellite floor — the old floor of 7 was also
+    // the opening zoom, so a pinch-out on radar could never move
+    // (onMapIdle snapped it back to 7 on settle). The bound is now
+    // enforced by the map's own min/max zoom preferences, so a
+    // zoom-out stops at the floor during the gesture and stays there.
+    @Test
+    fun `radar zoom range is 5 to 9, matching the satellite floor`() {
+        assertEquals(5, RADAR_ENGINE_ZOOM_MIN)
+        assertEquals(9, RADAR_ENGINE_ZOOM_MAX)
+    }
+
+    @Test
+    fun `default zoom sits inside the radar zoom range`() {
+        assertTrue(RADAR_ENGINE_ZOOM >= RADAR_ENGINE_ZOOM_MIN)
+        assertTrue(RADAR_ENGINE_ZOOM <= RADAR_ENGINE_ZOOM_MAX)
     }
 
     @Test

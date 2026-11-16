@@ -4,7 +4,6 @@ import android.app.Application
 import androidx.glance.appwidget.updateAll
 import coil.ImageLoader
 import coil.ImageLoaderFactory
-import coil.imageLoader
 import com.example.core.HttpClients
 import com.example.data.work.AlertNotifier
 import com.example.data.work.AlertScheduler
@@ -31,20 +30,6 @@ class AuraWeatherApp : Application(), ImageLoaderFactory {
         ImageLoader.Builder(this)
             .okHttpClient(HttpClients.tileDisplayClient())
             .build()
-
-    // The prefetch lane (5/host): a second ImageLoader on its own
-    // OkHttpClient, so a 462-request switch burst cannot queue behind
-    // — or in front of — the frame on screen. It shares the
-    // singleton's memory and disk caches, so a prefetched tile is a
-    // cache hit for the display loader (no second network fetch).
-    // Lazy: built once, on first prefetch, from the live singleton.
-    val tilePrefetchLoader: ImageLoader by lazy {
-        ImageLoader.Builder(this)
-            .okHttpClient(HttpClients.tilePrefetchClient())
-            .memoryCache(imageLoader.memoryCache)
-            .diskCache(imageLoader.diskCache)
-            .build()
-    }
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 

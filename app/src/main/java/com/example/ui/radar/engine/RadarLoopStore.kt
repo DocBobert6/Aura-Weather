@@ -40,7 +40,7 @@ import java.time.Instant
  *    advance — when the next frame is not ready. There is no wait
  *    budget and no skip: the loop holds frame N and the chrome
  *    says "waiting" (state [LiveLoopState.WAITING_NEXT]). The old
- *    2 s `RADAR_LOOP_WAIT_TIMEOUT_MS` advance is gone by design
+ *    2 s wait-timeout advance is gone by design
  *    (it was shorter than one median MRMS image fetch, 2.77 s).
  * 4. **Dwell + end pause.** [dwellMsFor] reuses
  *    [loopDwellMs]: 750 ms per frame, 2,250 ms on the newest frame

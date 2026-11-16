@@ -5,8 +5,8 @@ package com.example.ui.radar.engine
  *
  * Pure Kotlin: no Android, no MapLibre, no Compose imports — compiled
  * and unit-tested locally with kotlinc + JUnit (see
- * MapLibreRadarStyleTest); the engine activity
- * ([RadarEngineActivity]) consumes these builders.
+ * MapLibreRadarStyleTest); the engine controller
+ * ([RadarEngineController]) consumes these builders.
  *
  * Shape (from the Phase 0 spikes, RADAR_PHASE0_MAPLIBRE.md):
  * - Raster-only style JSON: version 8, navy background, Esri basemap,
@@ -105,9 +105,8 @@ const val RADAR_ENGINE_PAN_MARGIN_DEGREES: Double = 0.5
  * frame after this long counts as stalled. A healthy cold MRMS loop
  * primes in ~3 s (first frame) and completes in ~6 s wall (10 images
  * in parallel at ~2.8 s median server render); 20 s is 3× past a
- * healthy full load, and matches the forecast trigger's 20 s
- * precedent ([FORECAST_SLOW_WAIT_MS] in RadarTiles.kt) — the same
- * user-visible patience for both loops.
+ * healthy full load, and matches the old forecast trigger's 20 s
+ * precedent — the same user-visible patience for both loops.
  */
 const val RADAR_ENGINE_LIVE_SLOW_BUDGET_MS: Long = 20_000L
 
@@ -154,8 +153,20 @@ const val RADAR_ENGINE_CENTER_LAT: Double = 39.1
 const val RADAR_ENGINE_CENTER_LON: Double = -84.5
 const val RADAR_ENGINE_ZOOM: Double = 7.0
 
-/** Zoom-button range on radar layers (the old screen's 7..9). */
-const val RADAR_ENGINE_ZOOM_MIN: Int = 7
+/**
+ * Zoom range on every layer, radar and satellite alike (5..9). The
+ * radar floor used to be 7 (the old screen's 7..9) — but 7 is also
+ * the opening zoom, so a pinch-out on radar could never move: every
+ * settle snapped the camera back to 7 (the controller enforced it
+ * in onMapIdle). The floor is now 5, the satellite floor: the tiled
+ * sources render at any zoom, and the MRMS single image simply
+ * covers a smaller fraction of a wider viewport below 7 — the loop
+ * keeps playing inside it. The bound is enforced by the map's own
+ * min/max zoom preferences (set in [RadarEngineController.start]),
+ * so a pinch-out stops at the floor during the gesture itself —
+ * never a post-settle snap-back.
+ */
+const val RADAR_ENGINE_ZOOM_MIN: Int = 5
 const val RADAR_ENGINE_ZOOM_MAX: Int = 9
 
 /** MRMS image size (px): the viewport size, not a fixed 512. */
@@ -191,7 +202,7 @@ fun radarFutureFrameLayerId(index: Int): String = "radar-future-frame-layer-$ind
  * LibreWXR sources are built at fallback time (their tile templates
  * embed the per-frame `path` from the maps JSON, known only after
  * metadata arrives) — unlike the IEM sources, whose layer names are
- * static. See `RadarEngineActivity` for the build/teardown order
+ * static. See `RadarEngineController` for the build/teardown order
  * (layer first, then source — a source still referenced by a layer
  * cannot simply be removed).
  */
@@ -226,7 +237,7 @@ fun hrrrFrameTileTemplate(layerName: String): String =
 
 /**
  * GIBS WMTS tile-URL template for one satellite layer. GIBS order is
- * `{z}/{y}/{x}` (as in the canonical `gibsTileUrl`); [gibsTime] is the
+ * `{z}/{y}/{x}` (y before x, unlike XYZ); [gibsTime] is the
  * full UTC timestamp — the initial fallback value at style build, or
  * the probed WMS scan time when the activity rebuilds the source for
  * the WMTS fallback (Phase 3).

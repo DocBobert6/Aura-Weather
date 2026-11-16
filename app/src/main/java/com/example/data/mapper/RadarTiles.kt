@@ -2,32 +2,21 @@ package com.example.data.mapper
 
 import java.time.Duration
 import java.time.Instant
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import kotlin.math.cos
-import kotlin.math.floor
 import kotlin.math.ln
-import kotlin.math.roundToInt
 import kotlin.math.tan
 
 /**
- * Pure radar tile math + prefetch URL building (3.3). No Android, no
- * Coil — plain JUnit tests cover it (RadarTilesTest), and the radar
- * screen calls it for both rendering and prefetching, so the prefetch
- * covers exactly the grid the screen draws.
- *
- * The tile grid is the one the screen renders: for a grid of tilesX x
- * tilesY the loop runs dx in -halfX..halfX, dy in -halfY..halfY with
- * halfX = tilesX / 2, halfY = tilesY / 2, so the drawn width is
- * 2 * halfX + 1 (not tilesX). The prefetch uses the same bounds.
- *
- * Viewport-driven grid (AUDIT6 §9 Fix 4): the screen no longer draws
- * that fixed centre-anchored grid. It computes a [TileRange] from the
- * panned viewport ([viewportTileRange]) — the visible tiles plus a
- * 1-tile margin (and +1 in the pan-velocity direction for prefetch) —
- * and both rendering and prefetch use the range-based builders below,
- * so a pan actually requests the newly visible tiles. The centre-based
- * builders delegate to the range versions with identical output.
+ * Pure radar helpers kept for the MapLibre engine (Phase 5 cutover).
+ * No Android, no Coil — plain JUnit tests cover them
+ * (RadarTilesTest). The engine uses these for frame lists
+ * ([radarRangeFrames], [mrmsLiveFrames]), frame labels
+ * ([radarFrameLabel]), tile coordinates ([lonToTileX], [latToTileY]),
+ * IEM layer names / tile URLs ([iemLayerNameFor], [iemTileUrl]),
+ * proving grids ([centreFirstTileOffsets]) and loop timing
+ * ([loopNextIndex], [loopDwellMs]). The old tile-grid builders,
+ * prefetch URL builders, settlement gates and cost estimates for the
+ * retired Compose tile screen were deleted with it.
  */
 
 // IEM NEXRAD composite layer name for frame 0..9 (0 = 45m ago, 9 = LIVE).
@@ -56,39 +45,14 @@ fun latToTileY(lat: Double, zoom: Int): Int {
     return y.toInt()
 }
 
-/**
- * Effective zoom for a GIBS satellite layer. The matrix-set names count
- * levels, not the max matrix: GoogleMapsCompatible_Level7 holds
- * matrices 0..6 (visible/GeoColor) and Level6 holds 0..5 (infrared/
- * Band13). The radar zoom runs 7..9, so clamping to the set's level
- * count (7 / 6) requests a matrix that does not exist - GeoColor 404s,
- * Band13 400s - and both layers render blank. [isVisible] selects the
- * visible (GeoColor) layer; false is IR.
- */
-fun satelliteZoomLevel(isVisible: Boolean, zoom: Int): Int =
-    minOf(zoom, if (isVisible) 6 else 5)
-
-// One IEM NEXRAD composite tile URL. This is the exact URL the radar
-// screen's AsyncImage loads, so a prefetched tile is a cache hit for it.
+// One IEM NEXRAD composite tile URL. The engine builds proving URLs
+// from this, and the MapLibre raster source requests the same shape.
 fun iemTileUrl(layerName: String, zoom: Int, tileX: Int, tileY: Int): String =
     "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$layerName/$zoom/$tileX/$tileY.png"
 
 /**
- * The tile range for a centre-based grid: the range the old code drew
- * (centre tile +/- half tiles). The centre-based URL builders below
- * delegate through it to the range-based builders, with identical
- * output — it exists so the old call sites and tests keep passing.
- */
-fun centreTileRange(centerTileX: Int, centerTileY: Int, tilesX: Int, tilesY: Int): TileRange {
-    val halfX = tilesX / 2
-    val halfY = tilesY / 2
-    return TileRange(centerTileX - halfX, centerTileX + halfX, centerTileY - halfY, centerTileY + halfY)
-}
-
-/**
  * Tile offsets (dx, dy) for a centre-based grid of [tilesX] x [tilesY]
- * (the same grid as [centreTileRange]: dx in -halfX..halfX, dy in
- * -halfY..halfY), ordered CENTRE FIRST — rings outward by Chebyshev
+ * (dx in -halfX..halfX, dy in -halfY..halfY), ordered CENTRE FIRST — rings outward by Chebyshev
  * distance, then by Manhattan distance, then dx, then dy — so a
  * fetcher that launches requests in this order proves the visible
  * centre of a frame before its margin ring (research §3.2.7:
@@ -113,32 +77,6 @@ fun centreFirstTileOffsets(tilesX: Int, tilesY: Int): List<Pair<Int, Int>> {
     )
 }
 
-/**
- * The radar tile URLs to prefetch for a scrub: one list per loop frame
- * (index 0..9), each covering the visible tile grid centred on the
- * place. The caller enqueues the current frame's list first so the
- * visible tiles are not queued behind the other nine frames, then the
- * rest. Satellite layers are a single image and need no prefetch, so
- * this only ever builds IEM composite URLs.
- */
-fun radarPrefetchUrls(
-    centerLat: Double,
-    centerLon: Double,
-    zoom: Int,
-    tilesX: Int,
-    tilesY: Int
-): List<List<String>> {
-    val range = centreTileRange(lonToTileX(centerLon, zoom), latToTileY(centerLat, zoom), tilesX, tilesY)
-    return radarPrefetchUrlsForRange(zoom, range)
-}
-
-// ---------------------------------------------------------------------------
-// Radar ranges (Build B): future 24/48h from HRRR simulated reflectivity,
-// served by the same IEM tile service the live loop already uses.
-// The past 24/48/72h ranges were removed at Robert's direction
-// (2026-11-09); only LIVE and the two future ranges remain.
-// ---------------------------------------------------------------------------
-
 /** A radar time range the loop can show. Forecast ranges are model output. */
 enum class RadarRange(val title: String, val isForecast: Boolean) {
     Live("LIVE", false),
@@ -158,13 +96,6 @@ enum class RadarRange(val title: String, val isForecast: Boolean) {
 
 /** One frame of a radar range: its valid time, the IEM layer name, and a short label. */
 data class RadarFrame(val validTime: Instant, val layerName: String, val label: String)
-
-// IEM layer timestamps are UTC, YYYYMMDDHHMI.
-private val iemTimeFormat: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyyMMddHHmm").withZone(ZoneOffset.UTC)
-
-fun iemTimestamp(instant: Instant): String = iemTimeFormat.format(instant)
-
 
 /**
  * HRRR simulated-reflectivity layer. FXXXX is the FORECAST MINUTE
@@ -224,8 +155,8 @@ fun radarFrameLabel(validTime: Instant, now: Instant): String {
  * Future: HRRR steps every 15 min for the first 18h from the run,
  * then hourly — so Future 24h is ~75 frames and Future 48h ~99.
  * The loop is a scrubber, not a prefetch-everything list: only the
- * current frame's tiles are prefetched for ranges (see
- * radarFrameUrls), the rest load on demand.
+ * current frame's tiles are fetched for a range; the rest load on
+ * demand.
  *
  * Future 72h is NOT offered: HRRR caps at 48h from the run.
  */
@@ -243,7 +174,6 @@ fun radarRangeFrames(range: RadarRange, now: Instant): List<RadarFrame> {
         RadarRange.Future48h -> futureFrames(now, hours = 48)
     }
 }
-
 
 private fun futureFrames(now: Instant, hours: Int): List<RadarFrame> {
     // HRRR run: the latest hourly run, allowing ~1h for publish.
@@ -266,59 +196,6 @@ private fun futureFrames(now: Instant, hours: Int): List<RadarFrame> {
     return frames
 }
 
-/**
- * The tile URLs for ONE frame's layer across the visible grid. Ranges
- * prefetch only the current frame (not all 49-99 frames), so a range
- * switch is a bounded burst and the rest load on demand via Coil.
- */
-fun radarFrameUrls(
-    layerName: String,
-    centerLat: Double,
-    centerLon: Double,
-    zoom: Int,
-    tilesX: Int,
-    tilesY: Int
-): List<String> {
-    val range = centreTileRange(lonToTileX(centerLon, zoom), latToTileY(centerLat, zoom), tilesX, tilesY)
-    return radarFrameUrlsForRange(layerName, zoom, range)
-}
-
-/**
- * Rolling look-ahead indices for the radar loop (AUDIT5 L-4): the
- * next [ahead] frame indices after [currentFrameIndex], wrapping
- * around the end of the loop so the last frames prefetch frame 0, 1,
- * ... instead of nothing. The loop itself advances with
- * `(index + 1) % frameCount`, so the prefetch must wrap the same way
- * or every wrap stutters on an on-demand download.
- *
- * Default [ahead] is 5 (radar smoothness fix, 2026-11-14): 3 was not
- * enough — with ~77 tiles per frame on a phone grid and only a
- * handful of concurrent IEM requests, the loop outran a 3-frame
- * buffer and arrived at blank frames. 5 frames is the rolling
- * window; the range effect also prefetches the current frame plus
- * this window on a range switch. Whole ranges (49-99 frames) are
- * never prefetched: thousands of requests.
- *
- * The current frame itself is never returned (it is already the
- * visible frame, prefetched by the range effect), and duplicates are
- * dropped, so a 1-frame loop returns an empty list and a 2-frame loop
- * returns just the other frame.
- */
-fun lookAheadFrameIndices(currentFrameIndex: Int, frameCount: Int, ahead: Int = 5): List<Int> {
-    if (frameCount <= 0 || ahead <= 0) return emptyList()
-    val current = currentFrameIndex.coerceIn(0, frameCount - 1)
-    return (1..ahead)
-        .map { (current + it) % frameCount }
-        .filter { it != current }
-        .distinct()
-}
-
-// ---------------------------------------------------------------------------
-// Radar loop gating (AUDIT6 §9 Fixes 2-3): hold the previous frame until
-// the next is ready, preload the loop, dwell on the newest frame.
-// Pure Kotlin — covered by RadarTilesTest, no Compose, no Android.
-// ---------------------------------------------------------------------------
-
 /** Dwell on each frame once shown: 750 ms is the loop's normal step
  * (in the band the best radar apps use — research §3: 800 ms). */
 const val RADAR_LOOP_DWELL_MS = 750L
@@ -329,13 +206,6 @@ const val RADAR_LOOP_DWELL_MS = 750L
  * newest frame, short enough not to feel stalled. */
 const val RADAR_LOOP_END_PAUSE_MS = 2250L
 
-/** How long the loop waits for a frame to become ready before it
- * advances anyway. UNCHANGED from PR #14 and deliberately not raised:
- * the audit shows the timeout is not the bottleneck (a cold frame
- * needs ~16 s; a longer timeout just shows nothing for longer), and
- * it is the bound that keeps a dead frame from freezing the loop. */
-const val RADAR_LOOP_WAIT_TIMEOUT_MS = 2000L
-
 /** The next frame index after [currentFrameIndex], wrapping to 0 at
  * the end of the loop — the same wrap the loop itself advances with,
  * so the prefetch window and the playhead never disagree. Out-of-range
@@ -345,441 +215,11 @@ fun loopNextIndex(currentFrameIndex: Int, frameCount: Int): Int {
     return (currentFrameIndex.coerceIn(0, frameCount - 1) + 1) % frameCount
 }
 
-/** Is a frame ready to show? [settledTiles] tiles (loaded or errored —
- * a settled error is a known-missing tile, not a tile still in flight)
- * out of [totalTiles]. A frame with no tiles drawn yet is never ready. */
-fun isFrameSettled(settledTiles: Int, totalTiles: Int): Boolean =
-    totalTiles > 0 && settledTiles >= totalTiles
-
 /** How long the loop dwells on [displayedIndex] once shown: the normal
  * dwell, except the newest frame (last index) gets the end pause
  * before the loop wraps. */
 fun loopDwellMs(displayedIndex: Int, frameCount: Int): Long =
     if (frameCount > 0 && displayedIndex == frameCount - 1) RADAR_LOOP_END_PAUSE_MS else RADAR_LOOP_DWELL_MS
-
-/**
- * Honest first-load data cost of preloading the loop, for the
- * "LOADING LOOP..." state (AUDIT6 §9 Fix 3). From the audit's probe
- * (§9 Fix 3 / appendix): IEM LIVE downloads ~25 MB of speckle-heavy
- * tiles the first time, then reads them from the disk cache; future
- * ranges are mostly transparent PNGs (~3.5 MB for 24H, ~5 MB for
- * 48H). With the Fix 6+7 wiring the LIVE loop is usually MRMS
- * (10 frames x ~9 KB per viewport-size image) or LibreWXR
- * (10 frames x ~26 KB per clear 77-tile frame) — both far cheaper
- * than IEM live — so the Live cost follows the resolved source.
- * Star4000-safe: capitals, digits, spaces and periods only.
- */
-fun loopPreloadCostText(range: RadarRange, liveSource: RadarSourceKind? = null): String = when (range) {
-    RadarRange.Live -> when (liveSource) {
-        // Null means "not resolved yet": MRMS is the primary, so the
-        // text states the primary's cost and updates if the source
-        // falls back (the screen passes the resolved source).
-        RadarSourceKind.MRMS, null -> "FIRST LOAD ABOUT 100 KB THEN CACHED"
-        RadarSourceKind.LIBRE_WXR -> "FIRST LOAD ABOUT 300 KB THEN CACHED"
-        RadarSourceKind.IEM -> "FIRST LOAD ABOUT 25 MB THEN CACHED"
-    }
-    RadarRange.Future24h -> "FIRST LOAD ABOUT 3.5 MB THEN CACHED"
-    RadarRange.Future48h -> "FIRST LOAD ABOUT 5 MB THEN CACHED"
-}
-
-// ---------------------------------------------------------------------------
-// Forecast slow trigger (AUDIT6 §9 Fix 12, 2026-11-15): the old
-// unavailable state measured settled ERRORS only, so while the
-// switch burst was still draining — nothing settled yet — the user
-// got an empty map with no message and no retry for as long as the
-// backlog took (~97 s worst case). The time-based trigger below
-// fires when too little of the current frame has settled after a
-// wait. Pure Kotlin — covered by RadarTilesTest, no Compose, no
-// Android.
-// ---------------------------------------------------------------------------
-
-/** How long the current frame gets before the slow trigger may fire.
- * A healthy cold frame needs ~16 s wall for all 77 tiles at 5/host
- * (audit appendix: 15.6–17.3 s HRRR), so 20 s is PAST a healthy
- * full load, not inside it — a healthy cold start never fires this.
- * 20 s is also long enough that the LOADING LOOP state has had its
- * say first: the trigger is the message for a load that is not
- * merely slow to start, but stalled. */
-const val FORECAST_SLOW_WAIT_MS = 20000L
-
-/** Minimum settled fraction at the end of the wait: below this the
- * load counts as stalled. 25% is far below healthy progress (~90%
- * of a frame is settled by 20 s at ~5 tiles/s) yet above zero, so
- * a trickle of arrivals does not mask a stuck load — and a frame
- * that is merely slow but progressing (half settled) does not fire.
- * Settled includes errors: a down server settles its errors fast
- * and fires the error trigger instead; this trigger is for the
- * nothing-has-arrived case. */
-const val FORECAST_SLOW_MIN_SETTLED_FRACTION = 0.25
-
-/** Has the forecast load stalled? True only once [elapsedMs] has
- * reached [waitMs] AND fewer than [minSettledFraction] of the
- * frame's [totalTiles] have settled (loaded or errored). A frame
- * with no tiles drawn yet is never slow — the grid has not
- * reported, not stalled. */
-fun isForecastSlow(
-    settledTiles: Int,
-    totalTiles: Int,
-    elapsedMs: Long,
-    waitMs: Long = FORECAST_SLOW_WAIT_MS,
-    minSettledFraction: Double = FORECAST_SLOW_MIN_SETTLED_FRACTION
-): Boolean {
-    if (totalTiles <= 0) return false
-    if (elapsedMs < waitMs) return false
-    return settledTiles < minSettledFraction * totalTiles
-}
-
-/** How many of [urls] have settled (are in [settledUrls]) — the
- * current frame's settled count for the slow trigger, counted over
- * the prefetch lane's URL set. */
-fun settledUrlCount(urls: List<String>, settledUrls: Set<String>): Int =
-    urls.count { it in settledUrls }
-
-// ---------------------------------------------------------------------------
-// GIBS satellite tiles (radar smoothness fix, 2026-11-14): the satellite
-// layers are a tile grid like radar, not a single image — the screen
-// used to prefetch nothing for them, so satellite loaded tile-by-tile
-// behind the LOADING overlay. These are the exact URLs the screen's
-// AsyncImage loads, so a prefetched tile is a cache hit for it.
-// ---------------------------------------------------------------------------
-
-/** One GIBS satellite tile URL. [isVisible] selects the GeoColor
- * visible layer (matrix set Level7, matrices 0..6); false is the
- * Band13 clean-infrared layer (matrix set Level6, matrices 0..5).
- * [gibsTime] is the full UTC timestamp from gibsTimestamp; [zoom]
- * must already be the layer-clamped effective zoom (see
- * satelliteZoomLevel) — an unclamped zoom 404s/400s.
- * Tile size is 256 px, not 512: the GIBS GetCapabilities (checked
- * 2026-11-15) defines every TileMatrixSet at 256x256 — no 512 px
- * matrix set exists for either GOES layer — and a live tile fetch
- * returns a 256x256 PNG, so there is no 512 px variant to switch
- * to. The seam defence stays the parent underlay + whole-frame
- * fade-in (RadarScreen, Fix 9), not larger tiles. */
-fun gibsTileUrl(isVisible: Boolean, gibsTime: String, zoom: Int, tileX: Int, tileY: Int): String =
-    if (isVisible) {
-        "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/$gibsTime/GoogleMapsCompatible_Level7/$zoom/$tileY/$tileX.png"
-    } else {
-        "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_Band13_Clean_Infrared/default/$gibsTime/GoogleMapsCompatible_Level6/$zoom/$tileY/$tileX.png"
-    }
-
-// ---------------------------------------------------------------------------
-// Satellite loading (AUDIT6 §9 Fix 9, 2026-11-15): a layer switch used
-// to invalidate everything (the zoom clamp changes every URL), the
-// 12 s overlay cap restarted on every switch, and the frame assembled
-// tile by tile behind the overlay. The screen now holds the satellite
-// layer at alpha 0 until the whole frame has settled (or the per-visit
-// cap below fires) and fades it in whole; the Fix 4 parent underlay
-// shows low-res imagery underneath meanwhile. Pure Kotlin — covered
-// by RadarTilesTest, no Compose, no Android.
-// ---------------------------------------------------------------------------
-
-/** Overlay cap for satellite: 12 s per satellite VISIT, not per
- * layer switch. The visit starts when the user enters satellite
- * (either layer) and ends when they leave it; switching layers or
- * zooming within the visit must not restart the timer, or the
- * overlay can stay up indefinitely. Unchanged from the old cap's
- * 12 s — only the restart is fixed. */
-const val SATELLITE_OVERLAY_CAP_MS = 12000L
-
-/** Milliseconds left before the per-visit satellite overlay cap
- * fires, from a visit that started at [visitStartMs] (uptime ms)
- * as of [nowMs]. Zero when the visit never started (0) or the cap
- * has already elapsed — the screen delays by this, never longer,
- * so a recomposition cannot stretch the cap. */
-fun satelliteCapRemainingMs(visitStartMs: Long, nowMs: Long, capMs: Long = SATELLITE_OVERLAY_CAP_MS): Long {
-    if (visitStartMs <= 0L) return 0L
-    return (capMs - (nowMs - visitStartMs)).coerceAtLeast(0L)
-}
-
-/** Is the satellite frame ready to show whole? [settledTiles] tiles
- * (loaded or errored — a settled error is a known-missing tile, not
- * a tile still in flight) out of [totalTiles] drawn. A frame with no
- * tiles drawn yet is never ready. Same shape as [isFrameSettled];
- * kept separate so the satellite gate reads as a satellite gate. */
-fun isSatelliteFrameSettled(settledTiles: Int, totalTiles: Int): Boolean =
-    totalTiles > 0 && settledTiles >= totalTiles
-
-/**
- * Honest data cost of one satellite layer switch, for the loading
- * state (AUDIT6 §9 Fix 9). From the audit's probe (appendix): the
- * visible grid downloads ~6.0 MB and the IR grid ~5.2 MB, re-fetched
- * on every layer switch and on every new GOES timestamp. Star4000-safe:
- * capitals, digits, spaces and periods only. No Wi-Fi-only gate —
- * the rule is honest cost, not a gate.
- */
-fun satelliteCostText(isVisible: Boolean): String = if (isVisible) {
-    "SATELLITE USES MORE DATA. ABOUT 6 MB PER SWITCH."
-} else {
-    "SATELLITE USES MORE DATA. ABOUT 5 MB PER SWITCH."
-}
-
-/**
- * The GIBS satellite tile URLs for the visible grid centred on the
- * place — the same grid the screen renders (see the file header
- * note on tilesX/tilesY vs the drawn 2 * half + 1 span). One bounded
- * burst per layer/zoom/centre change, exactly like the radar
- * current-frame prefetch.
- */
-fun satelliteTileUrls(
-    isVisible: Boolean,
-    gibsTime: String,
-    centerLat: Double,
-    centerLon: Double,
-    zoom: Int,
-    tilesX: Int,
-    tilesY: Int
-): List<String> {
-    val range = centreTileRange(lonToTileX(centerLon, zoom), latToTileY(centerLat, zoom), tilesX, tilesY)
-    return satelliteTileUrlsForRange(isVisible, gibsTime, zoom, range)
-}
-
-/**
- * Snapped tile span (satellite seam fix, 2026-11-14): the screen span
- * of tile [tileIndex] at [stepPx] pixels per tile from a common
- * [originPx] (the screen position of world x/y = 0). The left edge
- * is rounded, and the width is derived from the NEXT tile's left
- * edge — never from a separately rounded size — so adjacent tiles
- * share edges exactly and no 1px seams open up when the step is
- * fractional (pinch zoom) or the size round-trips through dp.
- * Returns (leftPx, widthPx); width is always stepPx rounded to the
- * nearest integer, i.e. floor or ceil of the step, never 0 for a
- * step >= 1px.
- */
-fun snappedTileSpan(originPx: Float, tileIndex: Int, stepPx: Float): Pair<Int, Int> {
-    val left = (originPx + tileIndex * stepPx).roundToInt()
-    val right = (originPx + (tileIndex + 1) * stepPx).roundToInt()
-    return left to (right - left)
-}
-
-// ---------------------------------------------------------------------------
-// Viewport-driven tile manager (AUDIT6 §9 Fix 4, 2026-11-15): the tile
-// set used to be FIXED, centred on the place — panning only shifted
-// positions and never requested new tiles, so the newly visible area
-// stayed solid navy for ~10 s. The grid is now computed from the
-// PANNED VIEWPORT: the visible tiles plus a margin ring, recomputed
-// only when the pan settles (the screen transforms the existing tiles
-// during the drag and reconciles on gesture end). Pure Kotlin —
-// covered by RadarTilesTest, no Compose, no Android.
-// ---------------------------------------------------------------------------
-
-/** Margin ring around the viewport, in tiles (research §4: Leaflet
- * keepBuffer 2, Slippery 128 px expansion — 1 tile here, because the
- * grid cap below bounds the cost; the pan-velocity direction gets +1
- * more for prefetch). A 1-tile ring covers any pan up to a full tile
- * (256 px) with no gap at all during the drag. */
-const val VIEWPORT_TILE_MARGIN = 1
-
-/** Grid cap, unchanged from the old centre-based grid: at most 9 tiles
- * wide and 11 tall, so a very large screen cannot fire hundreds of
- * tile requests. */
-const val VIEWPORT_MAX_TILES_X = 9
-const val VIEWPORT_MAX_TILES_Y = 11
-
-/** How long after the last pan/zoom move the viewport counts as
- * settled: the screen reconciles (recomputes the tile set and
- * prefetches the new area) when the gesture has been still this long.
- * Leaflet throttles tile updates to 200 ms while panning and loads on
- * idle on mobile; 300 ms is the same idea with a little more settle. */
-const val PAN_SETTLE_DELAY_MS = 300L
-
-/** A pan smaller than this does not count as a pan direction: jitter
- * and rounding noise must not add a velocity tile. */
-const val PAN_DIRECTION_THRESHOLD_PX = 8f
-
-/** The inclusive tile-coordinate rectangle the screen draws and
- * prefetches. [width]/[height] are tile counts, not spans. */
-data class TileRange(val minX: Int, val maxX: Int, val minY: Int, val maxY: Int) {
-    val width: Int get() = maxX - minX + 1
-    val height: Int get() = maxY - minY + 1
-    val tileCount: Int get() = width * height
-    fun contains(tileX: Int, tileY: Int): Boolean =
-        tileX in minX..maxX && tileY in minY..maxY
-}
-
-/**
- * The tile set for a viewport, from the map origin (the screen
- * position of world x/y = 0 — the same origin the screen derives every
- * tile's snapped edges from) and the screen size. A pan moves the
- * origin, so the visible tiles move with it — unlike the old
- * centre-anchored grid, which never moved at all.
- *
- * [marginTiles] extra tiles are loaded on every side; the pan-velocity
- * direction ([velocityDx]/[velocityDy], -1/0/1 from [panDirection])
- * gets one more tile, so tiles in the direction the user is moving are
- * already loading when the gesture settles. The span is capped at
- * [maxTilesX] x [maxTilesY] around the viewport centre tile and
- * clamped to the valid tile coordinates for [zoom].
- */
-fun viewportTileRange(
-    mapOriginXPx: Float,
-    mapOriginYPx: Float,
-    screenWidthPx: Float,
-    screenHeightPx: Float,
-    tileSizePx: Float,
-    zoom: Int,
-    marginTiles: Int = VIEWPORT_TILE_MARGIN,
-    velocityDx: Int = 0,
-    velocityDy: Int = 0,
-    maxTilesX: Int = VIEWPORT_MAX_TILES_X,
-    maxTilesY: Int = VIEWPORT_MAX_TILES_Y
-): TileRange {
-    val maxCoord = (1 shl zoom) - 1
-    val step = tileSizePx.coerceAtLeast(1f)
-    // First/last tile intersecting the viewport: floor, not truncation
-    // — a negative origin must round toward -infinity, not toward
-    // zero, or the tile left of the origin is dropped.
-    val firstX = floor((-mapOriginXPx) / step).toInt()
-    val lastX = floor((screenWidthPx - 1f - mapOriginXPx) / step).toInt()
-    val firstY = floor((-mapOriginYPx) / step).toInt()
-    val lastY = floor((screenHeightPx - 1f - mapOriginYPx) / step).toInt()
-    val centreX = Math.floorDiv(firstX + lastX, 2)
-    val centreY = Math.floorDiv(firstY + lastY, 2)
-    var minX = firstX - marginTiles - if (velocityDx < 0) 1 else 0
-    var maxX = lastX + marginTiles + if (velocityDx > 0) 1 else 0
-    var minY = firstY - marginTiles - if (velocityDy < 0) 1 else 0
-    var maxY = lastY + marginTiles + if (velocityDy > 0) 1 else 0
-    // Cap the span around the viewport centre tile, then clamp to the
-    // valid tile coordinates for this zoom.
-    if (maxX - minX + 1 > maxTilesX) {
-        minX = centreX - maxTilesX / 2
-        maxX = minX + maxTilesX - 1
-    }
-    if (maxY - minY + 1 > maxTilesY) {
-        minY = centreY - maxTilesY / 2
-        maxY = minY + maxTilesY - 1
-    }
-    return TileRange(
-        minX.coerceIn(0, maxCoord),
-        maxX.coerceIn(0, maxCoord),
-        minY.coerceIn(0, maxCoord),
-        maxY.coerceIn(0, maxCoord)
-    )
-}
-
-/** Pan direction from a cumulative pan delta: -1, 0 or 1 per axis.
- * The screen passes the pan since the last settle (not the per-event
- * delta, which is only a few pixels per pointer event), so a real
- * drag always clears the threshold and jitter never does. */
-fun panDirection(deltaPx: Float): Int = when {
-    deltaPx > PAN_DIRECTION_THRESHOLD_PX -> 1
-    deltaPx < -PAN_DIRECTION_THRESHOLD_PX -> -1
-    else -> 0
-}
-
-/** The live-drag transform for the tile container (Bug 1 fix,
- * 2026-11-15): the scale and translation a graphicsLayer applies to
- * the grid rendered at the SETTLED viewport, so the map moves under
- * the finger during a drag with no recomposition. [scale] is the live
- * user scale over the settled one; [translationX]/[translationY] are
- * the live pan minus the settled pan scaled by that factor. That
- * factor is what makes the layer transform the EXACT tile math: a
- * tile's settled screen position is centre + (world - centre) *
- * settledScale + settledPan, and scaling that about the screen centre
- * then translating by (livePan - settledPan * scale) lands it exactly
- * on its live position — centre + (world - centre) * liveScale +
- * livePan — for every tile, the MRMS overlay and the puck. At rest
- * (live == settled) this is the identity. [settledUserScale] is never
- * 0: the screen coerces the live scale to 0.75..2.0 on every write and
- * the settled scale only ever copies it (or 1f). */
-data class DragLayerTransform(val translationX: Float, val translationY: Float, val scale: Float)
-
-fun dragLayerTransform(
-    panOffsetX: Float,
-    settledPanOffsetX: Float,
-    panOffsetY: Float,
-    settledPanOffsetY: Float,
-    userScale: Float,
-    settledUserScale: Float
-): DragLayerTransform {
-    val scale = userScale / settledUserScale
-    return DragLayerTransform(
-        translationX = panOffsetX - settledPanOffsetX * scale,
-        translationY = panOffsetY - settledPanOffsetY * scale,
-        scale = scale
-    )
-}
-
-/**
- * The lower-zoom parent tile for a tile: the tile at [zoom] - 1 that
- * contains it, plus which quadrant of the parent the child sits in
- * ([offsetX]/[offsetY], 0 or 1). The screen draws the parent scaled
- * 2x, shifted by -offset * tileSize and clipped to the child's box,
- * underneath the child — so a tile still loading shows its parent's
- * imagery instead of a hole, and a pan into unloaded area shows
- * low-res map instead of navy void. Null at zoom 0 (no parent).
- */
-data class ParentTile(val tileX: Int, val tileY: Int, val zoom: Int, val offsetX: Int, val offsetY: Int)
-
-fun parentTileFor(tileX: Int, tileY: Int, zoom: Int): ParentTile? {
-    if (zoom <= 0) return null
-    return ParentTile(
-        tileX = Math.floorDiv(tileX, 2),
-        tileY = Math.floorDiv(tileY, 2),
-        zoom = zoom - 1,
-        offsetX = Math.floorMod(tileX, 2),
-        offsetY = Math.floorMod(tileY, 2)
-    )
-}
-
-/** URL-set readiness (Fix 4): is every tile URL in [urls] settled
- * (loaded or errored, in [settledUrls])? The loop gates on this, not
- * on a per-frame count — a count cannot survive a pan, because tiles
- * that left the viewport stay counted while newly visible tiles are
- * still in flight. A set is exact across pans: tiles still visible
- * keep their settled status, new tiles are not ready until they
- * settle, departed tiles simply stop being asked about. */
-fun isTileSettled(urls: List<String>, settledUrls: Set<String>): Boolean =
-    urls.isNotEmpty() && urls.all { it in settledUrls }
-
-/** The tile URLs for ONE frame's layer across [range] — the
- * viewport-driven form of [radarFrameUrls]. */
-fun radarFrameUrlsForRange(layerName: String, zoom: Int, range: TileRange): List<String> =
-    buildList {
-        for (tileX in range.minX..range.maxX) {
-            for (tileY in range.minY..range.maxY) {
-                add(iemTileUrl(layerName, zoom, tileX, tileY))
-            }
-        }
-    }
-
-/** The radar tile URLs to prefetch for a scrub across [range]: one
- * list per loop frame (index 0..9). The viewport-driven form of
- * [radarPrefetchUrls]. */
-fun radarPrefetchUrlsForRange(zoom: Int, range: TileRange): List<List<String>> =
-    (0..9).map { frameIndex ->
-        radarFrameUrlsForRange(iemLayerNameFor(frameIndex), zoom, range)
-    }
-
-/** The GIBS satellite tile URLs for [range] — the viewport-driven
- * form of [satelliteTileUrls]. */
-fun satelliteTileUrlsForRange(
-    isVisible: Boolean,
-    gibsTime: String,
-    zoom: Int,
-    range: TileRange
-): List<String> =
-    buildList {
-        for (tileX in range.minX..range.maxX) {
-            for (tileY in range.minY..range.maxY) {
-                add(gibsTileUrl(isVisible, gibsTime, zoom, tileX, tileY))
-            }
-        }
-    }
-
-// ---------------------------------------------------------------------------
-// Multi-source observed radar (AUDIT6 §9 Fixes 6+7, wired 2026-11-15):
-// MRMS primary, LibreWXR paired, IEM fallback — LIVE (and LocalSite,
-// which is also observed radar) only. Future ranges stay on IEM HRRR
-// and never touch this section. Pure Kotlin — covered by
-// RadarTilesTest, no Compose, no Android.
-// ---------------------------------------------------------------------------
-
-/** MRMS frames are 5 min apart, so a frame time matches its MRMS time
- * when it is within half a step (2.5 min) of one. */
-const val MRMS_MATCH_TOLERANCE_MS: Long = 150_000L
-
-/** LibreWXR past frames are 10 min apart: half a step is 5 min. */
-const val LIBRE_WXR_MATCH_TOLERANCE_SECONDS: Long = 300L
 
 /** The LIVE loop keeps its 10-frame shape at MRMS cadence: 10 frames
  * x 5 min = a 50-min span (vs 45 min on the old IEM loop). The MRMS
@@ -787,79 +227,6 @@ const val LIBRE_WXR_MATCH_TOLERANCE_SECONDS: Long = 300L
  * loop plays only the newest 10, so the finer cadence is the point
  * (less flicker), not a longer span. */
 const val MRMS_LOOP_FRAME_COUNT: Int = 10
-
-/** [range] expanded by [marginTiles] tiles on every side, clamped to
- * the valid tile coordinates for [zoom]. The MRMS bbox is the
- * viewport prefetch range plus this margin, so a pan of up to a tile
- * does not immediately leave the single image behind (the Fix 4
- * margin principle, applied to the single-image path). */
-fun expandedTileRange(range: TileRange, marginTiles: Int, zoom: Int): TileRange {
-    val maxCoord = (1 shl zoom) - 1
-    return TileRange(
-        (range.minX - marginTiles).coerceIn(0, maxCoord),
-        (range.maxX + marginTiles).coerceIn(0, maxCoord),
-        (range.minY - marginTiles).coerceIn(0, maxCoord),
-        (range.maxY + marginTiles).coerceIn(0, maxCoord)
-    )
-}
-
-/** The lon/lat bbox exactly covering [range] at [zoom]: west/east
- * from the outer tile edges, north/south likewise. tileYToLat gives
- * the NORTH edge of a tile, so the range's south edge is the north
- * edge of the tile below its last row. */
-fun lonLatBboxForTileRange(range: TileRange, zoom: Int): LonLatBbox {
-    return LonLatBbox(
-        westLon = tileXToLon(range.minX, zoom),
-        southLat = tileYToLat(range.maxY + 1, zoom),
-        eastLon = tileXToLon(range.maxX + 1, zoom),
-        northLat = tileYToLat(range.minY, zoom)
-    )
-}
-
-/** The MRMS extent time nearest [validTimeMs], or null when no extent
- * time is within [toleranceMs]. The loop's frame times are the IEM
- * skeleton (now minus multiples of 5 min, unaligned seconds) or the
- * MRMS times themselves, so an exact match cannot be assumed — the
- * nearest aligned time within half a step is the match. */
-fun nearestMrmsTimeMs(
-    validTimeMs: Long,
-    timesMs: List<Long>,
-    toleranceMs: Long = MRMS_MATCH_TOLERANCE_MS
-): Long? {
-    var best: Long? = null
-    var bestDiff = Long.MAX_VALUE
-    for (timeMs in timesMs) {
-        val diff = kotlin.math.abs(timeMs - validTimeMs)
-        if (diff < bestDiff) {
-            bestDiff = diff
-            best = timeMs
-        }
-    }
-    val found = best
-    return if (found != null && bestDiff <= toleranceMs) found else null
-}
-
-/** The LibreWXR PAST frame nearest [validTimeSec], or null when none
- * is within [toleranceSec]. Past frames only: nowcast frames are
- * server-side advected forecasts, not observed radar, and must never
- * stand in for an observed loop frame. */
-fun nearestLibreWxrPastFrame(
-    validTimeSec: Long,
-    maps: LibreWxrMaps,
-    toleranceSec: Long = LIBRE_WXR_MATCH_TOLERANCE_SECONDS
-): LibreWxrFrame? {
-    var best: LibreWxrFrame? = null
-    var bestDiff = Long.MAX_VALUE
-    for (frame in maps.past) {
-        val diff = kotlin.math.abs(frame.timeEpochSec - validTimeSec)
-        if (diff < bestDiff) {
-            bestDiff = diff
-            best = frame
-        }
-    }
-    val found = best
-    return if (found != null && bestDiff <= toleranceSec) found else null
-}
 
 /**
  * The LIVE loop frames from MRMS extent times: the newest
@@ -882,194 +249,3 @@ fun mrmsLiveFrames(timesMs: List<Long>, now: Instant): List<RadarFrame> {
         RadarFrame(validTime, iemLayerNameFor(layerIndex), label)
     }
 }
-
-/**
- * One LIVE loop frame with its source resolved: which source serves
- * this frame, what the loop draws for it, and the per-tile identity
- * the display path needs. [libreWxrFrame]/[libreWxrHost] are set
- * only for LIBRE_WXR (the display builds per-tile URLs from the
- * frame's path, never from the URL list); [iemLayerName] is always
- * set (IEM-fallback identity + crossfade key). [validTime] is the
- * time of the image actually served (the matched MRMS/LibreWXR
- * time), which can differ from the loop frame's time by up to the
- * match tolerance — the loop label stays the frame-list label.
- */
-data class ResolvedLiveFrame(
-    val validTime: Instant,
-    val source: RadarSourceKind,
-    val content: RadarFrameContent,
-    val libreWxrFrame: LibreWxrFrame?,
-    val libreWxrHost: String?,
-    val iemLayerName: String
-)
-
-/**
- * Resolve one LIVE loop frame to its source, in
- * [DEFAULT_RADAR_SOURCE_ORDER] (MRMS, LibreWXR, IEM), starting at
- * [startFrom] when the frame has already fallen back (the screen's
- * per-frame override — see the fallback watcher in RadarScreen).
- * A source is taken only when its prerequisites hold:
- * - MRMS: a viewport [bbox] is known AND the extent holds a time
- *   within half a step of the frame time. Content is ONE exportImage
- *   URL for the bbox at the matched (aligned) time.
- * - LibreWXR: a maps document is known AND a past frame is within
- *   half a step. Content is the frame's tile grid over [tileRange]
- *   (the viewport prefetch range — the Fix 4 range, not the
- *   centre-based grid of the adapter's libreWxrFrameTileUrls).
- * - IEM: always available (terminal fallback). Content is the
- *   frame's IEM tile grid over [tileRange].
- * [tileRange] null (grid not yet reported) yields an empty tile list
- * for Tiled content: the frame is then gated on its display tiles,
- * never on a prefetch list that does not exist yet.
- */
-fun resolveLiveFrame(
-    validTime: Instant,
-    iemLayerName: String,
-    mrmsTimesMs: List<Long>,
-    libreWxrMaps: LibreWxrMaps?,
-    bbox: LonLatBbox?,
-    imageWidthPx: Int,
-    imageHeightPx: Int,
-    zoom: Int,
-    tileRange: TileRange?,
-    startFrom: RadarSourceKind? = null
-): ResolvedLiveFrame {
-    val order = if (startFrom != null) {
-        val at = DEFAULT_RADAR_SOURCE_ORDER.indexOf(startFrom)
-        if (at < 0) DEFAULT_RADAR_SOURCE_ORDER else DEFAULT_RADAR_SOURCE_ORDER.subList(at, DEFAULT_RADAR_SOURCE_ORDER.size)
-    } else {
-        DEFAULT_RADAR_SOURCE_ORDER
-    }
-    for (source in order) {
-        when (source) {
-            RadarSourceKind.MRMS -> {
-                val box = bbox
-                val matchedMs = box?.let { nearestMrmsTimeMs(validTime.toEpochMilli(), mrmsTimesMs) }
-                if (box != null && matchedMs != null) {
-                    val image = RadarFrameContent.SingleImage(
-                        url = mrmsExportImageUrl(box, matchedMs, imageWidthPx, imageHeightPx),
-                        bbox = box,
-                        widthPx = imageWidthPx,
-                        heightPx = imageHeightPx
-                    )
-                    return ResolvedLiveFrame(
-                        Instant.ofEpochMilli(matchedMs), RadarSourceKind.MRMS, image, null, null, iemLayerName
-                    )
-                }
-            }
-            RadarSourceKind.LIBRE_WXR -> {
-                val maps = libreWxrMaps
-                val frame = maps?.let { nearestLibreWxrPastFrame(validTime.epochSecond, it) }
-                if (maps != null && frame != null) {
-                    val urls = tileRange?.let { libreWxrFrameTileUrlsForRange(maps, frame, zoom, it) }.orEmpty()
-                    return ResolvedLiveFrame(
-                        Instant.ofEpochSecond(frame.timeEpochSec), RadarSourceKind.LIBRE_WXR,
-                        RadarFrameContent.Tiled(urls, zoom), frame, maps.host, iemLayerName
-                    )
-                }
-            }
-            RadarSourceKind.IEM -> {
-                val urls = tileRange?.let { radarFrameUrlsForRange(iemLayerName, zoom, it) }.orEmpty()
-                return ResolvedLiveFrame(
-                    validTime, RadarSourceKind.IEM,
-                    RadarFrameContent.Tiled(urls, zoom), null, null, iemLayerName
-                )
-            }
-        }
-    }
-    // Unreachable: IEM always resolves. Kept so the function is total
-    // even if the order above ever loses its terminal source.
-    val urls = tileRange?.let { radarFrameUrlsForRange(iemLayerName, zoom, it) }.orEmpty()
-    return ResolvedLiveFrame(
-        validTime, RadarSourceKind.IEM,
-        RadarFrameContent.Tiled(urls, zoom), null, null, iemLayerName
-    )
-}
-
-/** The prefetch/readiness URLs for a resolved frame: the one image
- * URL for a SingleImage frame, the tile grid for a Tiled frame. */
-fun liveFrameContentUrls(resolved: ResolvedLiveFrame): List<String> = when (val content = resolved.content) {
-    is RadarFrameContent.SingleImage -> listOf(content.url)
-    is RadarFrameContent.Tiled -> content.urls
-}
-
-/**
- * The display tile URL for a resolved frame at ([tileX], [tileY]):
- * built from the frame's source identity, not from its URL list
- * (the list covers the prefetch range, while the display iterates
- * the display range — the two ranges differ by the pan-velocity
- * tile). Null for MRMS: a SingleImage frame draws one overlay
- * image, never per-tile URLs. Null also when a LibreWXR frame lost
- * its host/path — the caller then falls back to the IEM tile URL.
- */
-fun liveFrameTileUrl(resolved: ResolvedLiveFrame, zoom: Int, tileX: Int, tileY: Int): String? =
-    when (resolved.source) {
-        RadarSourceKind.MRMS -> null
-        RadarSourceKind.LIBRE_WXR -> {
-            val frame = resolved.libreWxrFrame
-            val host = resolved.libreWxrHost
-            if (frame != null && host != null) libreWxrTileUrl(host, frame.path, zoom, tileX, tileY) else null
-        }
-        RadarSourceKind.IEM -> iemTileUrl(resolved.iemLayerName, zoom, tileX, tileY)
-    }
-
-/** The LibreWXR tile URLs for one frame across [range] — the
- * viewport-driven form of [libreWxrFrameTileUrls], mirroring
- * [radarFrameUrlsForRange] so LibreWXR plugs into the same grid,
- * prefetch and cache machinery as IEM. */
-fun libreWxrFrameTileUrlsForRange(
-    maps: LibreWxrMaps,
-    frame: LibreWxrFrame,
-    zoom: Int,
-    range: TileRange
-): List<String> =
-    buildList {
-        for (tileX in range.minX..range.maxX) {
-            for (tileY in range.minY..range.maxY) {
-                add(libreWxrTileUrl(maps.host, frame.path, zoom, tileX, tileY))
-            }
-        }
-    }
-
-/**
- * Per-frame fallback (Fix 6+7 state machine), pure half: the next
- * source for a frame whose [current] source failed, or null to stay.
- * Failure is read off the prefetch failure set ([failedUrls] —
- * prefetch listener errors only; display errors never drive it):
- * - MRMS fails as ONE image: its URL in the failed set demotes the
- *   frame to LibreWXR when a maps document is available, else IEM.
- * - LibreWXR fails as a GRID: only when EVERY tile URL of the frame
- *   failed does the frame demote to IEM. A partial failure shows
- *   with holes (a settled tile error is a known-missing tile, as
- *   everywhere else) — demoting the whole frame for one bad tile
- *   would refetch 77 IEM tiles for nothing.
- * - IEM is terminal: null, always.
- * The screen's watcher applies this monotonically (overrides only
- * move down the order), so a fallback can never oscillate back to
- * a source that already failed for that frame.
- */
-fun fallbackSourceAfterFailure(
-    current: RadarSourceKind,
-    content: RadarFrameContent,
-    failedUrls: Set<String>,
-    libreWxrAvailable: Boolean
-): RadarSourceKind? = when (current) {
-    RadarSourceKind.MRMS -> {
-        val image = content as? RadarFrameContent.SingleImage
-        if (image != null && image.url in failedUrls) {
-            if (libreWxrAvailable) RadarSourceKind.LIBRE_WXR else RadarSourceKind.IEM
-        } else {
-            null
-        }
-    }
-    RadarSourceKind.LIBRE_WXR -> {
-        val tiled = content as? RadarFrameContent.Tiled
-        if (tiled != null && tiled.urls.isNotEmpty() && tiled.urls.all { it in failedUrls }) {
-            RadarSourceKind.IEM
-        } else {
-            null
-        }
-    }
-    RadarSourceKind.IEM -> null
-}
-

@@ -5,8 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.core.UnitFormatter
-import com.example.data.mapper.RadarRange
-import com.example.data.mapper.radarRangeFrames
 import com.example.data.repo.WeatherRepository
 import com.example.data.settings.SettingsManager
 import com.example.data.work.AlertScheduler
@@ -24,15 +22,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.ZoneId
-
-enum class RadarLayer(val title: String) {
-    Reflectivity("NEXRAD Composite"),
-    // The station shown is the one NWS /points returned for the selected
-    // place — never a hardcoded site.
-    LocalSite("Local Radar Site"),
-    SatelliteVis("Satellite Visible"),
-    SatelliteIr("Satellite Clean IR")
-}
 
 class WeatherViewModel(
     private val weatherRepository: WeatherRepository,
@@ -70,7 +59,6 @@ class WeatherViewModel(
     val pirateWeatherAttempted: StateFlow<Boolean> = settingsManager.pirateWeatherAttemptedFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-
     /** Background music toggle (Home screen): off by default. */
     val musicEnabled: StateFlow<Boolean> = settingsManager.musicEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -81,45 +69,6 @@ class WeatherViewModel(
     // Build C: rain-starting alerts, off by default (opt-in).
     val rainAlertsEnabled: StateFlow<Boolean> = settingsManager.rainAlertsEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    private val _selectedRadarLayer = MutableStateFlow(RadarLayer.Reflectivity)
-    val selectedRadarLayer = _selectedRadarLayer.asStateFlow()
-
-    /** Radar time range (Build B): Live is the 10-frame 45-min loop; the
-     * others are past 24/48/72h (archived mosaic) and future 24/48h
-     * (HRRR simulated reflectivity, a forecast). */
-    private val _selectedRadarRange = MutableStateFlow(RadarRange.Live)
-    val selectedRadarRange = _selectedRadarRange.asStateFlow()
-
-    private val _currentRadarFrameIndex = MutableStateFlow(9) // 0..9 (9 = most recent "now")
-    val currentRadarFrameIndex = _currentRadarFrameIndex.asStateFlow()
-
-    /**
-     * Fix 13 (AUDIT6 §9): the ViewModel OWNS the radar frame list.
-     * It is computed ONCE per range selection (setRadarRange, and here
-     * at init for Live) from a single `now` — never recomputed with a
-     * fresh `now` on every frame-index call. The old code recomputed
-     * radarRangeFrames(range, Instant.now()) inside setRadarFrameIndex,
-     * while the screen froze its list at range-switch time: after
-     * ~15 min the ViewModel's list shrank (its front advances) below
-     * the screen's frozen count, and the loop's advance was clamped to
-     * the same index forever — a silent stall on long sessions. The
-     * owned list never shrinks mid-range (frame counts only shrink as
-     * `now` advances, and this list's `now` is fixed at selection),
-     * so the coercion below can no longer trap the playhead. The
-     * screen can consume this list directly through RadarScreen's
-     * optional `radarFrames` parameter (plumbing in
-     * WeatherNavDisplay/MainActivity still to do — the seam is built
-     * here); until then the screen's frozen list and this list agree
-     * on count, because both are computed once at range entry.
-     */
-    private val _radarFrames = MutableStateFlow(
-        radarRangeFrames(RadarRange.Live, java.time.Instant.now())
-    )
-    val radarFrames = _radarFrames.asStateFlow()
-
-    private val _isRadarPlaying = MutableStateFlow(true)
-    val isRadarPlaying = _isRadarPlaying.asStateFlow()
 
     /**
      * Regional map points (R5): the centre place first, then its
@@ -227,7 +176,6 @@ class WeatherViewModel(
         }
     }
 
-
     fun setMusicEnabled(enabled: Boolean) {
         viewModelScope.launch {
             settingsManager.setMusicEnabled(enabled)
@@ -275,38 +223,6 @@ class WeatherViewModel(
                 AlertScheduler.cancel(context)
             }
         }
-    }
-
-    fun setRadarLayer(layer: RadarLayer) {
-        _selectedRadarLayer.value = layer
-    }
-
-    fun setRadarRange(range: RadarRange) {
-        _selectedRadarRange.value = range
-        // Reset to the frame closest to now: the last (most recent)
-        // frame for past/live, the first (nearest) frame for future.
-        // The list is computed ONCE here, from this one `now`, and
-        // owned until the next range selection (Fix 13).
-        val frames = radarRangeFrames(range, java.time.Instant.now())
-        _radarFrames.value = frames
-        _currentRadarFrameIndex.value = if (range.isForecast) 0 else (frames.size - 1).coerceAtLeast(0)
-    }
-
-    fun setRadarFrameIndex(index: Int) {
-        // Coerce to the OWNED frame list's count (Fix 13), not the
-        // live 0..9 and not a freshly recomputed list: future ranges
-        // have ~75-99 frames, and a fresh `now` here used to shrink
-        // the max below the screen's frozen count and stall the loop.
-        val max = (_radarFrames.value.size - 1).coerceAtLeast(0)
-        _currentRadarFrameIndex.value = index.coerceIn(0, max)
-    }
-
-    // 3.3: this only flips the play state. The loop itself lives in
-    // RadarScreen (a LaunchedEffect keyed on isPlaying), so no radar job
-    // runs when the screen was never visited. The ViewModel keeps only
-    // the frame index + play state.
-    fun toggleRadarPlay() {
-        _isRadarPlaying.value = !_isRadarPlaying.value
     }
 
     fun useCurrentLocation(

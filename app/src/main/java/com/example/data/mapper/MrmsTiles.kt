@@ -1,7 +1,5 @@
 package com.example.data.mapper
 
-import java.time.Instant
-
 /**
  * NWS ArcGIS MRMS ImageServer adapter — AUDIT6 §9 fix 6, PRIMARY
  * observed-radar source.
@@ -21,9 +19,8 @@ import java.time.Instant
  *
  * It is a REST/WMS bbox service, NOT XYZ tiles: consumption is
  * `exportImage` (bbox + size + time → ONE image for the viewport).
- * See [RadarFrameContent.SingleImage] and the interface note in
- * RadarSources.kt — the wiring agent draws one image per frame over
- * its bbox, alongside (not through) the existing XYZ tile path.
+ * The engine draws one image per frame over its bbox, alongside
+ * (not through) the XYZ tile path.
  *
  * COLOUR SCALE: MRMS serves its own FIXED NWS colour scale. There is
  * no palette parameter and no custom palette to build — the wiring
@@ -150,36 +147,3 @@ fun mrmsFrameTimesFromServiceInfoJson(serviceInfoJson: String): List<Long> {
 // ---------------------------------------------------------------------------
 // One frame, ready for the loop
 // ---------------------------------------------------------------------------
-
-/**
- * The MRMS loop frames for a viewport: one [RadarSourceFrame] per
- * 5-min step in the service's reported window, each carrying ONE
- * exportImage URL for [bbox] at [widthPx] x [heightPx]. The wiring
- * agent prefetches these images (one request per frame — NOT 77 tile
- * requests) and swaps them with the two-slot hold pattern of AUDIT6
- * fix 2; on pan it rebuilds the bbox (with margin) and re-requests
- * only the visible frame's image.
- *
- * [serviceInfoJson] is fetched via [RadarTextFetcher] from
- * [MRMS_SERVICE_INFO_URL]. Returns empty when the extent is unusable.
- */
-fun mrmsFramesForViewport(
-    serviceInfoJson: String,
-    bbox: LonLatBbox,
-    widthPx: Int,
-    heightPx: Int
-): List<RadarSourceFrame> {
-    return mrmsFrameTimesFromServiceInfoJson(serviceInfoJson).map { timeMs ->
-        RadarSourceFrame(
-            validTime = Instant.ofEpochMilli(timeMs),
-            source = RadarSourceKind.MRMS,
-            label = "MRMS",
-            content = RadarFrameContent.SingleImage(
-                url = mrmsExportImageUrl(bbox, timeMs, widthPx, heightPx),
-                bbox = bbox,
-                widthPx = widthPx,
-                heightPx = heightPx
-            )
-        )
-    }
-}

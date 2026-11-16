@@ -72,9 +72,6 @@ const val LIBRE_WXR_COLOR_SCHEME: Int = 2
  */
 const val LIBRE_WXR_TILE_OPTIONS: String = "1_1"
 
-/** LibreWXR frame cadence: one frame every 10 minutes (past + nowcast). */
-const val LIBRE_WXR_FRAME_STEP_SECONDS: Long = 10 * 60
-
 /**
  * Frames older than this before the newest past frame are treated as
  * pruned: the server 404s them (a 2-hour-old frame 404'd in the live
@@ -155,44 +152,6 @@ fun libreWxrTileTemplate(
 ): String =
     "$host$path/$tileSizePx/{z}/{x}/{y}/$LIBRE_WXR_COLOR_SCHEME/$LIBRE_WXR_TILE_OPTIONS.png"
 
-/**
- * The tile URLs for ONE LibreWXR frame across the visible grid — the
- * same grid as [radarFrameUrls] (centre tile ± half tiles), so the
- * frame plugs into the existing tile rendering, prefetch and cache
- * machinery unchanged. One list per frame; the caller enqueues the
- * current frame first, then the look-ahead window.
- */
-fun libreWxrFrameTileUrls(
-    maps: LibreWxrMaps,
-    frame: LibreWxrFrame,
-    centerLat: Double,
-    centerLon: Double,
-    zoom: Int,
-    tilesX: Int,
-    tilesY: Int
-): List<String> {
-    val centerTileX = lonToTileX(centerLon, zoom)
-    val centerTileY = latToTileY(centerLat, zoom)
-    val halfX = tilesX / 2
-    val halfY = tilesY / 2
-    return buildList {
-        for (dx in -halfX..halfX) {
-            for (dy in -halfY..halfY) {
-                add(
-                    libreWxrTileUrl(
-                        maps.host, frame.path, zoom,
-                        centerTileX + dx, centerTileY + dy
-                    )
-                )
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Maps-JSON parsing (minimal, hand-rolled: pure classpath has no Moshi)
-// ---------------------------------------------------------------------------
-
 private val LIBRE_WXR_HOST_REGEX = Regex("\"host\"\\s*:\\s*\"([^\"]+)\"")
 private val LIBRE_WXR_FRAME_REGEX =
     Regex("\\{[^{}]*\"time\"\\s*:\\s*(\\d+)[^{}]*\"path\"\\s*:\\s*\"([^\"]+)\"[^{}]*\\}")
@@ -248,9 +207,9 @@ fun parseLibreWxrMaps(mapsJson: String): LibreWxrMaps? {
  * AUDIT6 §9 fix 7) — they extend the loop 60 min into the future,
  * they are NOT model reflectivity and must never be labelled as such.
  *
- * Callers must re-fetch the maps document (via [RadarTextFetcher])
- * each loop refresh and rebuild this list: frame timestamps move and
- * old frames prune, so a cached list goes stale within minutes.
+ * Callers must re-fetch the maps document each loop refresh and
+ * rebuild this list: frame timestamps move and old frames prune, so
+ * a cached list goes stale within minutes.
  */
 fun libreWxrLoopFrames(maps: LibreWxrMaps): List<LibreWxrFrame> {
     val newestPast = maps.newestPastTime() ?: return emptyList()

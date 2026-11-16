@@ -1,17 +1,16 @@
 package com.example.ui.radar.engine
 
+import android.content.ComponentCallbacks2
+import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.lifecycleScope
-import com.example.BuildConfig
+import com.example.domain.model.Place
 import com.example.data.mapper.FutureFrameAvailability
 import com.example.data.mapper.FutureTailResult
 import com.example.data.mapper.capFutureFrames
@@ -42,13 +41,15 @@ import com.example.data.mapper.parseLibreWxrMaps
 import com.example.data.mapper.parseMrmsTimeExtent
 import com.example.data.mapper.radarFrameLabel
 import com.example.data.mapper.radarRangeFrames
-import com.example.ui.theme.AuraWeatherTheme
 import java.time.Instant
 import java.util.Locale
 import kotlin.math.atan
 import kotlin.math.exp
 import kotlin.math.PI
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
@@ -59,7 +60,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngQuad
@@ -75,17 +75,16 @@ import org.maplibre.android.style.sources.RasterSource
 import org.maplibre.android.style.sources.TileSet
 
 /**
- * Phase 2 — the MapLibre map engine + the rebuilt radar loop.
+ * Phase 5 — the MapLibre map engine + the rebuilt radar loop, now
+ * the Radar tab itself (it was the standalone debug activity until
+ * the Phase 5 cutover; [RadarEngineTab] hosts it in the nav shell).
+ * The controller owns the machinery; the tab owns the MapView, the
+ * lifecycle forwarding and the place wiring.
  *
- * Debug-gated entry (the proven spike pattern): the activity finishes
- * immediately on non-debug builds, and its launcher entry exists only
- * in `app/src/debug/AndroidManifest.xml`, so the release APK gains no
- * launcher entry and no engine behaviour. The old Radar tab is
- * untouched — this screen runs beside it until the Phase 5 cutover.
- *
- * What this activity owns (the screen file is chrome only):
- * - `MapView` in `AndroidView`, full lifecycle forwarding;
- *   `MapLibre.getInstance` before creation.
+ * What this controller owns (the screen file is chrome only):
+ * - `MapView` in `AndroidView`, full lifecycle forwarding from the
+ *   host activity (the tab creates the view, after
+ *   `MapLibre.getInstance`).
  * - The raster-only style (JSON from [buildRadarStyleJson]) + the
  *   programmatically added sources, in draw order: 10 volatile live
  *   IEM frame sources (shape (a), prefetch OFF), the full future
@@ -121,13 +120,16 @@ import org.maplibre.android.style.sources.TileSet
  *   "GIBS TILES" + actual fetched bytes per switch.
  * - Pan/zoom/rotate are MapLibre's own gestures (on by default);
  *   the zoom/recenter buttons drive the camera directly. A pan past
- *   the 0.5° margin (or a zoom outside 7..9, snapped back on settle)
- *   re-resolves the MRMS loop with a new bbox; small pans are free.
+ *   the 0.5° margin re-resolves the MRMS loop with a new bbox; small
+ *   pans are free. Zoom is bounded 5..9 by the map's own min/max zoom
+ *   preferences — a pinch-out stops at the floor during the gesture
+ *   and stays where the fingers left it (no post-settle snap-back).
  *   On satellite the same settle retargets the WMS image (pan past
  *   the margin, or a zoom change); in tiles-fallback mode a pan
  *   needs nothing — MapLibre fetches the new area itself.
- * - Centre is Cincinnati (Robert's area) until the Phase 5 cutover
- *   wires the screen to the place state.
+ * Centre is the selected place ([onPlaceChanged] moves it on every
+ * place change); the tab only hosts the engine once a place exists,
+ * so there is no hardcoded default centre.
  *
  * What Phase 2 deliberately does NOT do (later phases own it):
  * - The loop never re-promotes to a higher source on refresh: a
@@ -169,13 +171,13 @@ import org.maplibre.android.style.sources.TileSet
  *   used ONLY as the pan-settle signal, and never marks a frame
  *   ready — there is no public per-source load API in 13.7.1.
  */
-class RadarEngineActivity : ComponentActivity() {
+class RadarEngineController(
+    private val context: Context,
+    initialPlace: Place
+) {
 
     companion object {
         private const val TAG = "RadarEngine"
-
-        /** Camera default: Cincinnati, OH (Robert's area). */
-        private val ENGINE_CENTER = LatLng(RADAR_ENGINE_CENTER_LAT, RADAR_ENGINE_CENTER_LON)
 
         /** IEM/HRRR proving grid (256 px tiles): 7 x 11 = 77 tiles — the
          *  old grid cap. Covers the viewport + margin at zoom 9, the
@@ -198,6 +200,29 @@ class RadarEngineActivity : ComponentActivity() {
         /** Tiled look-ahead window: the current frame + this many ahead. */
         private const val TILED_LOOK_AHEAD: Int = 5
     }
+
+    /** The controller's own scope (Main.immediate, like the
+     *  activity's lifecycleScope was): the ticker, refresh timer,
+     *  decodes and resolutions all run here; [destroy] cancels it. */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** The place the engine is centred on (never a hardcoded
+     *  default): the tab only hosts the engine once a place exists,
+     *  and [onPlaceChanged] moves this on every place change. */
+    private var placeCentre: LatLng = LatLng(initialPlace.point.lat, initialPlace.point.lon)
+    private var placeId: String = initialPlace.id
+
+    /** Low-memory forwarding (was the activity's onLowMemory). */
+    private val lowMemoryCallbacks = object : ComponentCallbacks2 {
+        override fun onConfigurationChanged(newConfig: Configuration) = Unit
+        override fun onLowMemory() {
+            mapView?.onLowMemory()
+        }
+        override fun onTrimMemory(level: Int) = Unit
+    }
+
+    /** Guard: [start] runs once per controller lifetime. */
+    private var started: Boolean = false
 
     private var mapView: MapView? = null
     private var mapLibreMap: MapLibreMap? = null
@@ -389,23 +414,34 @@ class RadarEngineActivity : ComponentActivity() {
     private val tickerPoke = Channel<Unit>(Channel.CONFLATED)
 
     // UI state (the screen file is chrome only; these are its inputs).
-    private var selectedLayer by mutableStateOf(EngineLayer.Radar)
-    private var selectedRange by mutableStateOf(EngineRange.Live)
-    private var uiFrames by mutableStateOf<List<RadarFrame>>(emptyList())
-    private var uiCurrentIndex by mutableStateOf(0)
-    private var uiIsPlaying by mutableStateOf(false)
-    private var uiPlayEnabled by mutableStateOf(false)
-    private var uiStatusText by mutableStateOf<String?>(null)
-    private var uiUnavailableText by mutableStateOf<String?>(null)
-    private var uiSourceLabel by mutableStateOf<String?>(null)
-    private var uiCostText by mutableStateOf<String?>(null)
-    private var uiEndNote by mutableStateOf<String?>(null)
+    var selectedLayer by mutableStateOf(EngineLayer.Radar)
+        private set
+    var selectedRange by mutableStateOf(EngineRange.Live)
+        private set
+    var uiFrames by mutableStateOf<List<RadarFrame>>(emptyList())
+        private set
+    var uiCurrentIndex by mutableStateOf(0)
+        private set
+    var uiIsPlaying by mutableStateOf(false)
+        private set
+    var uiPlayEnabled by mutableStateOf(false)
+        private set
+    var uiStatusText by mutableStateOf<String?>(null)
+        private set
+    var uiUnavailableText by mutableStateOf<String?>(null)
+        private set
+    var uiSourceLabel by mutableStateOf<String?>(null)
+        private set
+    var uiCostText by mutableStateOf<String?>(null)
+        private set
+    var uiEndNote by mutableStateOf<String?>(null)
+        private set
 
     private fun activeStore(): RadarLoopStore =
         if (selectedRange == EngineRange.Live) liveStore else futureStore
 
     private fun currentTarget(): LatLng =
-        mapLibreMap?.cameraPosition?.target ?: ENGINE_CENTER
+        mapLibreMap?.cameraPosition?.target ?: placeCentre
 
     private fun currentZoom(): Double =
         mapLibreMap?.cameraPosition?.zoom ?: RADAR_ENGINE_ZOOM
@@ -424,15 +460,17 @@ class RadarEngineActivity : ComponentActivity() {
         LatLng(bbox.southLat, bbox.westLon)
     )
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        if (!BuildConfig.DEBUG) {
-            // Release builds carry the engine code (it ships at the
-            // Phase 5 cutover), but the standalone entry never runs
-            // outside debug.
-            finish()
-            return
-        }
+    /**
+     * Start the engine on the tab's [MapView] (created by
+     * [RadarEngineTab] after `MapLibre.getInstance`). The camera opens
+     * on the place; the loop resolves and the ticker + refresh timer
+     * start. Runs once per controller lifetime; [destroy] undoes it.
+     */
+    fun start(view: MapView) {
+        if (started) return
+        started = true
+        mapView = view
+        context.registerComponentCallbacks(lowMemoryCallbacks)
         val now = Instant.now()
         // Future sources are built lazily on the first future visit
         // (Phase 4: ~74/97 sources for the full ranges — not at
@@ -440,15 +478,19 @@ class RadarEngineActivity : ComponentActivity() {
         futureSourceFrames = emptyList()
         frameShownAtMs = SystemClock.uptimeMillis()
 
-        MapLibre.getInstance(this)
-        val view = MapView(this)
-        mapView = view
-        view.onCreate(savedInstanceState)
         view.addOnDidBecomeIdleListener { onMapIdle() }
         view.getMapAsync { map ->
             mapLibreMap = map
             map.cameraPosition = CameraPosition.Builder()
-                .target(ENGINE_CENTER).zoom(RADAR_ENGINE_ZOOM).build()
+                .target(placeCentre).zoom(RADAR_ENGINE_ZOOM).build()
+            // Zoom bounds live on the map itself, so a pinch-out
+            // stops at the floor DURING the gesture — the controller
+            // never moves the camera after a user gesture (the
+            // auto-zoom bug, 2026-11-15: onMapIdle used to snap any
+            // zoom below 7 back to 7 on settle, and 7 is the opening
+            // zoom, so a radar pinch-out could never move at all).
+            map.setMinZoomPreference(RADAR_ENGINE_ZOOM_MIN.toDouble())
+            map.setMaxZoomPreference(RADAR_ENGINE_ZOOM_MAX.toDouble())
             // GIBS time here is ONLY the initial value baked into the
             // style JSON — it is never displayed. Phase 3 resolves the
             // real per-layer scan time by probing (WmsSatellite)
@@ -475,83 +517,93 @@ class RadarEngineActivity : ComponentActivity() {
         resolveLiveLoop()
         startTicker()
         startRefreshTimer()
-        setContent {
-            AuraWeatherTheme {
-                RadarEngineScreen(
-                    mapView = mapView!!,
-                    selectedLayer = selectedLayer,
-                    selectedRange = selectedRange,
-                    frames = uiFrames,
-                    currentFrameIndex = uiCurrentIndex,
-                    isPlaying = uiIsPlaying,
-                    playEnabled = uiPlayEnabled,
-                    statusText = uiStatusText,
-                    unavailableText = uiUnavailableText,
-                    sourceLabel = uiSourceLabel,
-                    costText = uiCostText,
-                    endNote = uiEndNote,
-                    onSelectLayer = { selectLayer(it) },
-                    onSelectRange = { selectRange(it) },
-                    onPlayPause = { onPlayPause() },
-                    onRetry = { onRetry() },
-                    onScrubStart = { onScrubStart() },
-                    onScrubFrame = { scrubTo(it) },
-                    onScrubEnd = { onScrubEnd() },
-                    onZoomIn = { zoomByStep(+1) },
-                    onZoomOut = { zoomByStep(-1) },
-                    onRecenter = { recenter() }
-                )
-            }
-        }
     }
 
-    // -- MapView lifecycle -------------------------------------------------
+    // -- MapView lifecycle (forwarded by RadarEngineTab from the host
+    //    activity's lifecycle; the tab calls [destroy] when it leaves
+    //    composition) -------------------------------------------------------
 
-    override fun onStart() {
-        super.onStart()
+    fun onStart() {
         mapView?.onStart()
     }
 
-    override fun onResume() {
-        super.onResume()
+    fun onResume() {
         mapView?.onResume()
         activityResumed = true
         pokeTicker()
         // Refresh on resume when the loop is stale (5-min cadence);
         // the entry resolution counts as a refresh, so the first
-        // onResume after onCreate does not refetch.
+        // onResume after start does not refetch.
         if (liveStore.generationId > 0L &&
             SystemClock.uptimeMillis() - lastRefreshMs > RADAR_ENGINE_LOOP_REFRESH_MS
         ) {
-            lifecycleScope.launch { refreshLoops() }
+            scope.launch { refreshLoops() }
         }
     }
 
-    override fun onPause() {
+    fun onPause() {
         activityResumed = false
-        super.onPause()
         mapView?.onPause()
     }
 
-    override fun onStop() {
-        super.onStop()
+    fun onStop() {
         mapView?.onStop()
     }
 
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        mapView?.onSaveInstanceState(outState)
-    }
-
-    override fun onLowMemory() {
-        super.onLowMemory()
-        mapView?.onLowMemory()
-    }
-
-    override fun onDestroy() {
+    /**
+     * Teardown: stop the fetcher, destroy the MapView, cancel the
+     * controller scope (ticker, refresh timer, decodes, resolutions).
+     * The tab calls this exactly once, from onDispose. (MapView
+     * instance state is not saved: the camera is restored from the
+     * place on the next start.)
+     */
+    fun destroy() {
         fetcher.close()
-        super.onDestroy()
+        try {
+            context.unregisterComponentCallbacks(lowMemoryCallbacks)
+        } catch (e: Exception) {
+            Log.w(TAG, "unregistering low-memory callbacks failed: ${e.javaClass.simpleName}")
+        }
         mapView?.onDestroy()
+        mapView = null
+        mapLibreMap = null
+        scope.cancel()
+    }
+
+    /**
+     * Retarget the engine to a new place: the camera recentres (the
+     * old screen recentred on a place switch too), the MRMS loop
+     * re-resolves for the new bbox when it is live, and the
+     * pan-margin origin moves so a tiled loop does not refetch on
+     * the next idle. The satellite retarget rides the camera move's
+     * idle settle. No-op for the place already centred on. Called by
+     * RadarEngineTab on every place change; the MapView and the loop
+     * survive it.
+     */
+    fun onPlaceChanged(place: Place) {
+        if (place.id == placeId &&
+            place.point.lat == placeCentre.latitude &&
+            place.point.lon == placeCentre.longitude
+        ) return
+        placeId = place.id
+        placeCentre = LatLng(place.point.lat, place.point.lon)
+        // No map yet: the camera + loop follow when it is ready
+        // (start uses placeCentre).
+        val map = mapLibreMap ?: return
+        map.cameraPosition = CameraPosition.Builder()
+            .target(placeCentre).zoom(RADAR_ENGINE_ZOOM)
+            .bearing(0.0).tilt(0.0).build()
+        if (selectedLayer == EngineLayer.Radar &&
+            selectedRange == EngineRange.Live &&
+            liveStore.generationId != 0L &&
+            liveStore.source == RadarSourceKind.MRMS
+        ) {
+            reresolveLiveForBbox()
+        } else if (liveStore.generationId != 0L) {
+            // Tiled sources follow the camera themselves; only the
+            // pan-margin origin needs to move to the new place.
+            liveGenerationCentre = placeCentre
+        }
     }
 
     // -- Style setup ---------------------------------------------------------
@@ -1035,7 +1087,7 @@ class RadarEngineActivity : ComponentActivity() {
         decodingJobs[slot]?.cancel()
         val generationId = liveStore.generationId
         decodingFrame[slot] = index
-        decodingJobs[slot] = lifecycleScope.launch(Dispatchers.Default) {
+        decodingJobs[slot] = scope.launch(Dispatchers.Default) {
             try {
                 val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     ?: return@launch
@@ -1113,7 +1165,7 @@ class RadarEngineActivity : ComponentActivity() {
         val w = view?.width ?: 0
         val h = view?.height ?: 0
         if (w > 0 && h > 0) return w to h
-        val dm = resources.displayMetrics
+        val dm = context.resources.displayMetrics
         return dm.widthPixels to dm.heightPixels
     }
 
@@ -1182,7 +1234,7 @@ class RadarEngineActivity : ComponentActivity() {
     private fun resolveSatellite(layer: WmsSatelliteLayer, reason: SatResolveReason) {
         if (loadedStyle == null) return
         satResolveJob?.cancel()
-        satResolveJob = lifecycleScope.launch {
+        satResolveJob = scope.launch {
             resolveSatelliteInner(layer, reason)
         }
     }
@@ -1787,7 +1839,7 @@ class RadarEngineActivity : ComponentActivity() {
      *  LibreWXR when its maps yield past frames, else the IEM
      *  skeleton (terminal fallback — always 10 frames). */
     private fun resolveLiveLoop() {
-        lifecycleScope.launch {
+        scope.launch {
             val meta = fetchLoopMetadata(liveStore.generationId)
             meta.libreWxrMaps?.let { libreWxrMaps = it }
             val now = Instant.now()
@@ -1937,7 +1989,7 @@ class RadarEngineActivity : ComponentActivity() {
         }
         liveStore.requestFrame(index, generationId)
         val url = mrmsUrl(timeMs)
-        lifecycleScope.launch {
+        scope.launch {
             when (val result = fetcher.fetch(url, generationId)) {
                 is FetchResult.Success -> {
                     if (liveStore.generationId == generationId) {
@@ -1984,7 +2036,7 @@ class RadarEngineActivity : ComponentActivity() {
             return
         }
         store.requestFrame(index, generationId)
-        lifecycleScope.launch {
+        scope.launch {
             val results = urls.map { url ->
                 async { fetcher.fetch(url, generationId) }
             }.awaitAll()
@@ -2195,7 +2247,7 @@ class RadarEngineActivity : ComponentActivity() {
     // -- Ticker (dwell, no-timeout advance, slow budget) --------------------
 
     private fun startTicker() {
-        lifecycleScope.launch {
+        scope.launch {
             while (isActive) {
                 if (activityResumed) tickLoop()
                 val store = activeStore()
@@ -2310,7 +2362,7 @@ class RadarEngineActivity : ComponentActivity() {
     // -- Refresh (5-min timer + on resume) ---------------------------------
 
     private fun startRefreshTimer() {
-        lifecycleScope.launch {
+        scope.launch {
             while (isActive) {
                 delay(RADAR_ENGINE_LOOP_REFRESH_MS)
                 if (activityResumed) refreshLoops()
@@ -2449,11 +2501,13 @@ class RadarEngineActivity : ComponentActivity() {
 
     /**
      * Map-idle settle (NOT a readiness signal — readiness is proven
-     * only by the fetcher). Three jobs: clamp the gesture zoom to the
-     * layer range (the +/- buttons already clamp; a pinch can exceed
-     * it — radar 7..9, satellite 5..9, the buttons' range), re-resolve
-     * the MRMS loop when the camera target moved past the 0.5° pan
-     * margin, and retarget the satellite WMS image on pan/zoom settle.
+     * only by the fetcher). Two jobs: re-resolve the MRMS loop when
+     * the camera target moved past the 0.5° pan margin, and retarget
+     * the satellite WMS image on pan/zoom settle. The zoom range is
+     * deliberately NOT clamped here: the map's own min/max zoom
+     * preferences (set in start) bound every gesture during the
+     * pinch, so a zoom-out stays where the user's fingers left it.
+     * A post-settle clamp here was the auto-zoom bug (2026-11-15).
      * Tiled sources need no re-resolution on pan: their URLs do not
      * embed the bbox, and MapLibre fetches the new area itself.
      */
@@ -2461,22 +2515,7 @@ class RadarEngineActivity : ComponentActivity() {
         val map = mapLibreMap ?: return
         if (loadedStyle == null) return
         val camera = map.cameraPosition
-        val target = camera.target ?: ENGINE_CENTER
-        val (minZoom, maxZoom) = if (selectedLayer == EngineLayer.Radar) {
-            RADAR_ENGINE_ZOOM_MIN.toDouble() to RADAR_ENGINE_ZOOM_MAX.toDouble()
-        } else {
-            // Satellite: down to z5, the IR native max; overzoom past
-            // the native max renders scaled tiles, so the top stays 9
-            // (same range as zoomByStep).
-            5.0 to RADAR_ENGINE_ZOOM_MAX.toDouble()
-        }
-        if (camera.zoom < minZoom || camera.zoom > maxZoom) {
-            val clamped = camera.zoom.coerceIn(minZoom, maxZoom)
-            map.cameraPosition = CameraPosition.Builder()
-                .target(target).zoom(clamped)
-                .bearing(camera.bearing).tilt(camera.tilt).build()
-            return // the clamp move fires another idle; the checks below run then
-        }
+        val target = camera.target ?: placeCentre
         if (selectedLayer != EngineLayer.Radar) {
             onSatelliteMapIdle(target, camera.zoom)
             return
@@ -2515,7 +2554,7 @@ class RadarEngineActivity : ComponentActivity() {
 
     // -- UI callbacks --------------------------------------------------------
 
-    private fun selectLayer(layer: EngineLayer) {
+    fun selectLayer(layer: EngineLayer) {
         selectedLayer = layer
         if (layer != EngineLayer.Radar) {
             wmsLayerFor(layer)?.let { beginSatelliteVisit(it) }
@@ -2532,7 +2571,7 @@ class RadarEngineActivity : ComponentActivity() {
         }
     }
 
-    private fun selectRange(range: EngineRange) {
+    fun selectRange(range: EngineRange) {
         selectedRange = range
         if (range == EngineRange.Live) {
             if (liveStore.generationId == 0L) resolveLiveLoop()
@@ -2600,7 +2639,7 @@ class RadarEngineActivity : ComponentActivity() {
         pokeTicker()
     }
 
-    private fun onPlayPause() {
+    fun onPlayPause() {
         val store = activeStore()
         when {
             store.isPaused -> store.setPaused(false)
@@ -2625,7 +2664,7 @@ class RadarEngineActivity : ComponentActivity() {
      * cap and the availability signals reset with it, so a retry
      * can lift a cap the old in-generation re-request could not.
      */
-    private fun onRetry() {
+    fun onRetry() {
         if (selectedLayer != EngineLayer.Radar) {
             val layer = wmsLayerFor(selectedLayer) ?: return
             satTimestampCache.recordFetchFailure(layer)
@@ -2648,7 +2687,7 @@ class RadarEngineActivity : ComponentActivity() {
             pokeTicker()
             return
         }
-        lifecycleScope.launch {
+        scope.launch {
             val store = liveStore
             val meta = fetchLoopMetadata(store.generationId)
             meta.libreWxrMaps?.let { libreWxrMaps = it }
@@ -2691,7 +2730,7 @@ class RadarEngineActivity : ComponentActivity() {
         }
     }
 
-    private fun onScrubStart() {
+    fun onScrubStart() {
         val store = activeStore()
         wasPlayingBeforeScrub = !store.isPaused &&
             (store.state == LiveLoopState.PLAYING || store.state == LiveLoopState.WAITING_NEXT)
@@ -2700,7 +2739,7 @@ class RadarEngineActivity : ComponentActivity() {
         refreshUiState()
     }
 
-    private fun scrubTo(index: Int) {
+    fun scrubTo(index: Int) {
         val store = activeStore()
         if (store.scrubTo(index)) {
             frameShownAtMs = SystemClock.uptimeMillis()
@@ -2713,7 +2752,7 @@ class RadarEngineActivity : ComponentActivity() {
         }
     }
 
-    private fun onScrubEnd() {
+    fun onScrubEnd() {
         val store = activeStore()
         if (wasPlayingBeforeScrub) store.setPaused(false)
         pokeTicker()
@@ -2812,27 +2851,26 @@ class RadarEngineActivity : ComponentActivity() {
     // -- Camera (MapLibre gestures handle pan/zoom/rotate; these are the
     //   +/- and recenter buttons, driving the camera directly) -------------
 
-    private fun zoomByStep(delta: Int) {
+    fun zoomByStep(delta: Int) {
         val map = mapLibreMap ?: return
         val current = map.cameraPosition
-        val minZoom = if (selectedLayer == EngineLayer.Radar) {
-            RADAR_ENGINE_ZOOM_MIN
-        } else {
-            // Satellite: down to z5, the IR native max; overzoom past
-            // the native max renders scaled tiles, so the top stays 9.
-            5
-        }.toDouble()
+        // Uniform 5..9 on every layer (RADAR_ENGINE_ZOOM_MIN/MAX) —
+        // the same range the map preferences enforce for gestures,
+        // so the buttons and the pinch agree on the floor.
         val newZoom = (current.zoom + delta)
-            .coerceIn(minZoom, RADAR_ENGINE_ZOOM_MAX.toDouble())
+            .coerceIn(
+                RADAR_ENGINE_ZOOM_MIN.toDouble(),
+                RADAR_ENGINE_ZOOM_MAX.toDouble()
+            )
         map.cameraPosition = CameraPosition.Builder()
             .target(current.target).zoom(newZoom)
             .bearing(current.bearing).tilt(current.tilt).build()
     }
 
-    private fun recenter() {
+    fun recenter() {
         val map = mapLibreMap ?: return
         map.cameraPosition = CameraPosition.Builder()
-            .target(ENGINE_CENTER).zoom(RADAR_ENGINE_ZOOM)
+            .target(placeCentre).zoom(RADAR_ENGINE_ZOOM)
             .bearing(0.0).tilt(0.0).build()
     }
 }
