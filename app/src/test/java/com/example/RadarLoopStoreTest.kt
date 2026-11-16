@@ -379,4 +379,71 @@ class RadarLoopStoreTest {
         assertFalse(store.scrubTo(-1))
         assertEquals(5, store.currentIndex)
     }
+
+    // -- Tail cap (Phase 4: future / HRRR wiring) -------------------------
+
+    @Test fun `tail cap cuts the list and carries readiness by valid time`() {
+        val store = readyStore(ready = setOf(0, 1, 2, 3))
+        // Playhead on frame 2; the cap cuts after frame 2.
+        store.scrubTo(2)
+        val all = frames()
+        assertTrue(store.applyTailCap(all.take(3)))
+        assertEquals(3, store.frameCount())
+        assertEquals(2, store.currentIndex)
+        assertTrue(store.isReady(0))
+        assertTrue(store.isReady(2))
+        assertEquals(LiveLoopState.PLAYING, store.state)
+    }
+
+    @Test fun `tail cap moves the playhead when it sat past the cut`() {
+        val store = readyStore(ready = setOf(0, 1, 2, 3, 4, 5))
+        store.scrubTo(5)
+        assertEquals(5, store.currentIndex)
+        assertTrue(store.applyTailCap(frames().take(3)))
+        assertEquals(3, store.frameCount())
+        // Frame 5 is gone: the playhead moves to the newest playable.
+        assertEquals(2, store.currentIndex)
+        assertTrue(store.isReady(2))
+        assertEquals(LiveLoopState.PLAYING, store.state)
+    }
+
+    @Test fun `tail cap to an empty list is UNAVAILABLE, never a blank map`() {
+        val store = RadarLoopStore()
+        store.resolveGeneration(RadarSourceKind.IEM, frames())
+        assertTrue(store.applyTailCap(emptyList()))
+        assertEquals(0, store.frameCount())
+        assertEquals(LiveLoopState.UNAVAILABLE, store.state)
+    }
+
+    @Test fun `tail cap with no ready frames left returns to LOADING`() {
+        val store = readyStore(ready = setOf(8, 9))
+        assertTrue(store.applyTailCap(frames().take(3)))
+        assertEquals(3, store.frameCount())
+        assertEquals(0, store.readyCount())
+        assertEquals(LiveLoopState.LOADING, store.state)
+    }
+
+    @Test fun `tail cap with an identical list is a no-op`() {
+        val store = readyStore(ready = setOf(0, 1))
+        assertFalse(store.applyTailCap(frames()))
+        assertEquals(10, store.frameCount())
+    }
+
+    @Test fun `tail cap with no generation is a no-op`() {
+        val store = RadarLoopStore()
+        assertFalse(store.applyTailCap(frames().take(3)))
+        assertEquals(0, store.frameCount())
+    }
+
+    @Test fun `tail cap keeps a held playhead waiting when its frame is unready`() {
+        val store = readyStore(ready = setOf(0, 1))
+        store.scrubTo(4)
+        assertEquals(4, store.currentIndex)
+        assertEquals(LiveLoopState.WAITING_NEXT, store.state)
+        // Frame 4 survives the cap but is still unready; frames 0-1
+        // are ready, so the loop keeps waiting on frame 4, not blank.
+        assertTrue(store.applyTailCap(frames().take(5)))
+        assertEquals(4, store.currentIndex)
+        assertEquals(LiveLoopState.WAITING_NEXT, store.state)
+    }
 }

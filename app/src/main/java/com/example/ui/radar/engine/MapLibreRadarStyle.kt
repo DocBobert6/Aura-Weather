@@ -18,9 +18,10 @@ package com.example.ui.radar.engine
  *   on — is exercised, instead of the `"volatile": true` JSON flag
  *   (whose parse path into the renderer is unproven; the flag stays
  *   unused). Live = 10 per-frame volatile sources (shape (a));
- *   future = a bounded window of HRRR sources (Phase 4 owns the full
- *   49–99-frame ranges through the frame store); MRMS = 2 ImageSource
- *   slots retargeted with `setUri`.
+ *   future = one volatile source per HRRR frame of the full range
+ *   (Phase 4: ~74 for 24 h, ~97 for 48 h), built lazily on the
+ *   first future visit; MRMS = 2 ImageSource slots retargeted with
+ *   `setUri`.
  * - Layers draw, bottom to top: background, basemap, satellite,
  *   radar-live, radar-future, MRMS. See [layerDrawOrder].
  *
@@ -42,14 +43,18 @@ package com.example.ui.radar.engine
 const val RADAR_ENGINE_FRAME_COUNT: Int = 10
 
 /**
- * Phase 1 bound on the future ranges: the first 16 HRRR frames of the
- * range (15-min steps, so ~4 h of forecast). The full ranges hold
- * 49–99 frames; creating a volatile source + layer per frame up front
- * is Phase 4's frame-store work, not Phase 1's. The first 16 frames
- * of the 24 h and 48 h ranges are identical (same HRRR run, same
- * steps), so one window serves both range pills.
+ * Phase 4: there is NO bound on the future ranges any more. The
+ * full 24 h (~73 frames) and 48 h (~97 frames) HRRR windows each
+ * get one volatile source + layer per frame, built lazily on the
+ * first future visit (the activity's `rebuildFutureSources`); the
+ * 24 h list is a prefix of the 48 h list, so a range switch only
+ * extends the sources instead of rebuilding them. Phase 1's
+ * 16-frame window (`RADAR_ENGINE_FUTURE_WINDOW`) is gone: it cut
+ * both ranges to ~4 h of forecast. A future layer only loads its
+ * tiles once its frame is proved ready (the activity flips its
+ * `visibility` from `none` to `visible` then) — creating 99
+ * sources does not fire a 99-frame tile burst on range entry.
  */
-const val RADAR_ENGINE_FUTURE_WINDOW: Int = 16
 
 /** Two-slot crossfade duration (ms), matching the rebuild plan §3.2. */
 const val RADAR_ENGINE_CROSSFADE_MS: Long = 150L
@@ -299,17 +304,19 @@ fun buildRadarStyleJson(gibsVisTime: String, gibsIrTime: String): String = "{" +
  * Full layer draw order, bottom to top, as the activity builds it:
  * the JSON layers first, then the programmatically added live frame
  * layers (newest last among themselves — opacity decides which shows),
- * then the future frame layers, then the MRMS slots on top. The
- * activity adds layers in exactly this order (`addLayer` appends).
+ * then the future frame layers ([futureFrameCount] of them — the
+ * full range the activity built, ~74 for 24 h, ~97 for 48 h), then
+ * the MRMS slots on top. The activity adds layers in exactly this
+ * order (`addLayer` appends).
  */
-fun layerDrawOrder(): List<String> {
+fun layerDrawOrder(futureFrameCount: Int): List<String> {
     val order = mutableListOf<String>()
     order.add("radar-background")
     order.add(RADAR_ENGINE_BASEMAP_LAYER_ID)
     order.add(RADAR_ENGINE_SAT_VIS_LAYER_ID)
     order.add(RADAR_ENGINE_SAT_IR_LAYER_ID)
     for (i in 0 until RADAR_ENGINE_FRAME_COUNT) order.add(radarLiveFrameLayerId(i))
-    for (i in 0 until RADAR_ENGINE_FUTURE_WINDOW) order.add(radarFutureFrameLayerId(i))
+    for (i in 0 until futureFrameCount) order.add(radarFutureFrameLayerId(i))
     order.add(radarMrmsLayerId(RADAR_ENGINE_MRMS_SLOT_A))
     order.add(radarMrmsLayerId(RADAR_ENGINE_MRMS_SLOT_B))
     return order

@@ -183,12 +183,21 @@ private fun trimOneDecimal(value: Double): String {
  * fetched for the range so far (sum over the frames fetched), and
  * re-calls it as more frames load — the text then tracks reality
  * instead of asserting an estimate. 0 bytes (nothing fetched yet)
- * reads "FIRST LOAD 0 B THEN CACHED".
+ * reads "FIRST LOAD 0 B".
  *
- * NOTE: "THEN CACHED" inherits the old wording. IEM tiles carry
- * `max-age=300` (5 min), so the cache claim only holds for minutes,
- * not across sessions — Agent B should revisit the wording if the
- * cache story changes; the byte figure itself is exact.
+ * NOTE (Phase 4, Agent B): there is deliberately NO "THEN CACHED"
+ * here, although the old estimates carried it. Nothing caches a
+ * future visit's bytes: the proving fetcher has no disk cache at
+ * all, the future MapLibre sources are volatile (their tiles never
+ * persist to the ambient cache), and IEM tiles carry
+ * `max-age=300` (5 min) — so even a server-side cache claim would
+ * hold only for minutes, not across sessions. A revisit re-fetches.
+ * The byte figure itself is exact; the text claims nothing beyond
+ * this visit's first load. (The Live loop's `loopLoadCostText`
+ * keeps its "THEN CACHED": its MRMS bytes are held in memory
+ * across the 5-min refresh within a generation, and its tiled
+ * fallbacks replay from MapLibre's in-memory tile pyramid — a
+ * within-session claim, not a cross-session one.)
  */
 fun futureCostTextFromBytes(bytesFetched: Long): String =
-    "FIRST LOAD ${formatDataBytes(bytesFetched)} THEN CACHED"
+    "FIRST LOAD ${formatDataBytes(bytesFetched)}"

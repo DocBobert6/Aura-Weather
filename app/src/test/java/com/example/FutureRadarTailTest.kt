@@ -187,8 +187,34 @@ class FutureRadarTailTest {
     @Test
     fun futureCostTextUsesActualBytes() {
         // Tonight's probe: 85 served centre tiles totalled 28,390 B.
-        assertEquals("FIRST LOAD 27.7 KB THEN CACHED", futureCostTextFromBytes(28390))
-        assertEquals("FIRST LOAD 0 B THEN CACHED", futureCostTextFromBytes(0))
-        assertEquals("FIRST LOAD 3.5 MB THEN CACHED", futureCostTextFromBytes(3670016))
+        // No "THEN CACHED": nothing caches a future visit's bytes
+        // (no fetcher disk cache, volatile MapLibre sources,
+        // IEM max-age=300) — a revisit re-fetches.
+        assertEquals("FIRST LOAD 27.7 KB", futureCostTextFromBytes(28390))
+        assertEquals("FIRST LOAD 0 B", futureCostTextFromBytes(0))
+        assertEquals("FIRST LOAD 3.5 MB", futureCostTextFromBytes(3670016))
+    }
+
+    // -- Full-range shape (Phase 4 wiring pins) -----------------------------
+
+    @Test
+    fun future24hFrameCountAtProbeTime() {
+        // 2026-11-16 00:29:50Z: run 23:00, first frame 00:30, 15-min
+        // steps to 17:00 (18h from the run), then hourly to 00:00.
+        val now = Instant.parse("2026-11-16T00:29:50Z")
+        assertEquals(74, radarRangeFrames(RadarRange.Future24h, now).size)
+    }
+
+    @Test
+    fun future24hIsAPrefixOfFuture48hForTheSameNow() {
+        // The wiring relies on this: the 24h list is the 48h list's
+        // head (same run, same step rule), so a 24h -> 48h switch
+        // only extends the sources instead of rebuilding them.
+        val now = Instant.parse("2026-11-16T00:29:50Z")
+        val h24 = radarRangeFrames(RadarRange.Future24h, now)
+        val h48 = radarRangeFrames(RadarRange.Future48h, now)
+        assertEquals(74, h24.size)
+        assertEquals(97, h48.size)
+        assertEquals(h24, h48.take(h24.size))
     }
 }
