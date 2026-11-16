@@ -86,7 +86,12 @@ import org.maplibre.android.maps.MapView
  * - A source + cost panel names the loop's locked source for the
  *   shown frame (MRMS / LIBREWXR / IEM / HRRR) and the data cost of
  *   the loop so far, measured from actual fetched bytes — never a
- *   fixed estimate. The panel appears only once bytes exist.
+ *   fixed estimate. The panel appears only once bytes exist. For a
+ *   future range the cost is the range's actual bytes with no cache
+ *   claim ("FIRST LOAD 27.7 KB" — nothing caches a future visit),
+ *   and a capped tail shows its end note ("FORECAST ENDS ABOUT
+ *   11:00 UTC") below the legend; when the cap leaves nothing
+ *   playable the unavailable panel carries the state instead.
  *
  * Phase 3 satellite chrome (same panels, lifted out of the
  * radar-only gate — the activity computes, this file displays):
@@ -131,6 +136,7 @@ fun RadarEngineScreen(
     unavailableText: String?,
     sourceLabel: String?,
     costText: String?,
+    endNote: String?,
     onSelectLayer: (EngineLayer) -> Unit,
     onSelectRange: (EngineRange) -> Unit,
     onPlayPause: () -> Unit,
@@ -148,6 +154,15 @@ fun RadarEngineScreen(
     val frameCount = frames.size
     val safeFrameIndex = currentFrameIndex.coerceIn(0, (frameCount - 1).coerceAtLeast(0))
     val currentFrame = frames.getOrNull(safeFrameIndex)
+    // No frames yet (still loading): the pill must not claim a frame
+    // label it does not have. Live shows its newest label; a future
+    // range shows its range — "LIVE NOW" on a loading forecast
+    // would be the wrong tense entirely.
+    val emptyFrameLabel = when (selectedRange) {
+        EngineRange.Live -> "LIVE NOW"
+        EngineRange.Future24h -> "IN 24H"
+        EngineRange.Future48h -> "IN 48H"
+    }
     // The slider fires onValueChange on every drag move; the activity
     // needs exactly one start/end pair per drag, so the drag state
     // lives here and the start callback fires on the first move only.
@@ -214,7 +229,7 @@ fun RadarEngineScreen(
                         modifier = Modifier.padding(horizontal = 14.dp)
                     ) {
                         Text(
-                            text = (currentFrame?.label ?: "LIVE NOW").uppercase(),
+                            text = (currentFrame?.label ?: emptyFrameLabel).uppercase(),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = if (currentFrame?.label == "LIVE NOW" || currentFrame?.label == "NOW") {
@@ -396,22 +411,27 @@ fun RadarEngineScreen(
                     }
                 }
 
-                // Forecast ranges are model output: a short one-line
-                // caption on a solid panel, so it never wraps with an
-                // orphaned word or collides with map labels. The live
-                // clear-air caption stays a plain line.
+                // Forecast ranges are model output: the top banner
+                // says FORECAST, so this column does not repeat it.
+                // What it does say, while the tail is capped, is
+                // where the forecast ends ("FORECAST ENDS ABOUT
+                // 11:00 UTC") — the one forecast fact the top
+                // banner cannot carry. The live clear-air caption
+                // stays a plain line.
                 if (isForecastRange) {
-                    RetroPanel(shape = RetroShapes.medium) {
-                        Text(
-                            text = "FORECAST",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = RetroTokens.HeaderOrange,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
-                            textAlign = TextAlign.Center
-                        )
+                    if (endNote != null) {
+                        RetroPanel(shape = RetroShapes.medium) {
+                            Text(
+                                text = endNote.uppercase(),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = RetroTokens.HeaderOrange,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                 } else {
                     // Clear-air speckle: the lightest echoes can be
@@ -476,9 +496,12 @@ fun RadarEngineScreen(
                         // keeps the default 48dp touch height.
                         // The range's extent, flanking the scrubber so
                         // it costs no extra row: first frame label to
-                        // last frame label.
+                        // last frame label. No frames yet means no
+                        // frame labels — a dash, never an invented
+                        // time ("-45M" was a stale Live guess that
+                        // also showed on loading forecasts).
                         Text(
-                            text = (frames.firstOrNull()?.label ?: "-45M").uppercase(),
+                            text = (frames.firstOrNull()?.label ?: "-").uppercase(),
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                             color = RetroTokens.Yellow
                         )
@@ -519,7 +542,7 @@ fun RadarEngineScreen(
                         )
 
                         Text(
-                            text = (frames.lastOrNull()?.label ?: "NOW").uppercase(),
+                            text = (frames.lastOrNull()?.label ?: "-").uppercase(),
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                             color = RetroTokens.Yellow
                         )

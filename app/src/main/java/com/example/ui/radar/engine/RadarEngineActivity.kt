@@ -12,6 +12,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import com.example.BuildConfig
+import com.example.data.mapper.FutureFrameAvailability
+import com.example.data.mapper.FutureTailResult
+import com.example.data.mapper.capFutureFrames
+import com.example.data.mapper.futureCostTextFromBytes
 import com.example.data.mapper.LIBRE_WXR_MAPS_URL
 import com.example.data.mapper.LIBRE_WXR_TILE_SIZE_512
 import com.example.data.mapper.LibreWxrFrame
@@ -62,6 +66,7 @@ import org.maplibre.android.geometry.LatLngQuad
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.RasterLayer
 import org.maplibre.android.style.layers.TransitionOptions
@@ -83,13 +88,14 @@ import org.maplibre.android.style.sources.TileSet
  *   `MapLibre.getInstance` before creation.
  * - The raster-only style (JSON from [buildRadarStyleJson]) + the
  *   programmatically added sources, in draw order: 10 volatile live
- *   IEM frame sources (shape (a), prefetch OFF), a bounded window of
- *   volatile HRRR future sources (prefetch OFF), 2 MRMS ImageSource
+ *   IEM frame sources (shape (a), prefetch OFF), the full future
+ *   HRRR ranges as volatile sources (Phase 4, one per frame),
+ *   2 MRMS ImageSource
  *   slots (bitmaps via `setImage`, 150 ms opacity crossfade), and —
  *   built at fallback time — 10 volatile LibreWXR 512 sources.
  *   Volatile/prefetch are set in Kotlin at source creation — never
  *   the `"volatile": true` JSON flag.
- * - The loop itself, in two [RadarLoopStore]s (live + future window),
+ * - The loop itself, in two [RadarLoopStore]s (live + future),
  *   driven by ONE [CoalescingFetcher] and a dwell ticker:
  *   metadata (MRMS + LibreWXR, in parallel) BEFORE the first
  *   prefetch burst; source lock for the whole loop; no-timeout
@@ -124,18 +130,32 @@ import org.maplibre.android.style.sources.TileSet
  *   wires the screen to the place state.
  *
  * What Phase 2 deliberately does NOT do (later phases own it):
- * - Future ranges show only the first [RADAR_ENGINE_FUTURE_WINDOW]
- *   frames (Phase 4 owns the full ranges through the frame store).
- *   The future window runs through the same store class and ticker
- *   as Live, with readiness proven by a centre 3×3 tile fetch per
- *   frame (not the full grid — the future ranges were never the
- *   complaint, and full-grid proving of 16 frames would cost ~1200
- *   requests per range switch for no user-visible gain).
  * - The loop never re-promotes to a higher source on refresh: a
  *   fallback stays fallen-back until the user hits RETRY, which
  *   re-resolves metadata and takes the best source available then.
  *   (Re-promoting mid-session would swap palettes under a playing
  *   loop — the source lock exists to prevent exactly that.)
+ *
+ * Phase 4 — the full future ranges (HRRR) through the same frame
+ * store: the 24 h (~74 frames) and 48 h (~97 frames) ranges, no
+ * window cap, one volatile source per frame built lazily on the
+ * first future visit. The 24 h list is a prefix of the 48 h list
+ * (same HRRR run), so a range switch only extends the sources.
+ * A future layer starts with `visibility: none` — its tiles only
+ * load once its frame is proved ready, so creating 97 sources
+ * does not fire a 97-frame tile burst on range entry (a hidden
+ * layer produces no render data, so its source gets no tile
+ * updates; `Source::update()` takes the layer properties).
+ * The tail cap: every future frame's centre 3x3 proving fetch is
+ * also its served/failed signal (bytes seen = SERVED, all failed
+ * = FAILED, unprobed = UNKNOWN); [capFutureFrames] runs on every
+ * settle and the store's list is capped to the longest leading
+ * run before the first failure, with the end note
+ * ("FORECAST ENDS ABOUT 11:00 UTC") in the chrome while capped,
+ * and the unavailable state + RETRY when nothing serves. Cost is
+ * the range's actual fetched bytes via [futureCostTextFromBytes]
+ * — no "THEN CACHED": nothing caches a future visit (no fetcher
+ * disk cache, volatile sources, IEM max-age=300).
  *
  * Readiness, and what proves it (the store never trusts the map):
  * - MRMS: the fetcher's bytes in hand, blank-checked by the store
@@ -271,9 +291,30 @@ class RadarEngineActivity : ComponentActivity() {
 
     /** The frames the style's future sources were built from (with
      *  their HRRR layer names). The store's frames carry no layer
-     *  names, so this list is the source of truth for rebuilds. */
+     *  names, so this list is the source of truth for rebuilds —
+     *  and, for the tail cap, the full range list the availability
+     *  signals are indexed against (the store's list is a prefix of
+     *  it once capped). */
     private lateinit var futureSourceFrames: List<RadarFrame>
     private var futureSourcesBuiltFor: List<RadarFrame>? = null
+
+    /** Per-frame served/failed signal for the future range, parallel
+     *  to [futureSourceFrames] (the FULL range list, not the store's
+     *  possibly-capped list): SERVED when the frame's centre-3x3
+     *  proving fetch returned bytes, FAILED when every tile failed,
+     *  UNKNOWN until probed. Re-run [capFutureFrames] on every
+     *  change; reset to all-UNKNOWN on every new generation. */
+    private var futureAvailability = mutableListOf<FutureFrameAvailability>()
+
+    /** Last tail-cap result for the future range (null before the
+     *  first probe settles). Its [FutureTailResult.endNote] is the
+     *  chrome's end note while capped. */
+    private var futureTail: FutureTailResult? = null
+
+    /** Which future range the future store's generation was resolved
+     *  for (null before the first future resolution). A range switch
+     *  re-resolves even when a generation exists. */
+    private var futureResolvedRange: EngineRange? = null
 
     /** The LibreWXR frames of the current live generation (for the
      *  source templates + proving URLs), in loop order. Empty unless
@@ -358,6 +399,7 @@ class RadarEngineActivity : ComponentActivity() {
     private var uiUnavailableText by mutableStateOf<String?>(null)
     private var uiSourceLabel by mutableStateOf<String?>(null)
     private var uiCostText by mutableStateOf<String?>(null)
+    private var uiEndNote by mutableStateOf<String?>(null)
 
     private fun activeStore(): RadarLoopStore =
         if (selectedRange == EngineRange.Live) liveStore else futureStore
@@ -392,8 +434,10 @@ class RadarEngineActivity : ComponentActivity() {
             return
         }
         val now = Instant.now()
-        futureSourceFrames = radarRangeFrames(RadarRange.Future24h, now)
-            .take(RADAR_ENGINE_FUTURE_WINDOW)
+        // Future sources are built lazily on the first future visit
+        // (Phase 4: ~74/97 sources for the full ranges — not at
+        // startup for a range the user may never open).
+        futureSourceFrames = emptyList()
         frameShownAtMs = SystemClock.uptimeMillis()
 
         MapLibre.getInstance(this)
@@ -445,6 +489,7 @@ class RadarEngineActivity : ComponentActivity() {
                     unavailableText = uiUnavailableText,
                     sourceLabel = uiSourceLabel,
                     costText = uiCostText,
+                    endNote = uiEndNote,
                     onSelectLayer = { selectLayer(it) },
                     onSelectRange = { selectRange(it) },
                     onPlayPause = { onPlayPause() },
@@ -538,11 +583,14 @@ class RadarEngineActivity : ComponentActivity() {
             Log.w(TAG, "adding live frame sources failed: ${e.javaClass.simpleName}: ${e.message}")
         }
 
-        // Future window: one volatile source per HRRR frame in the
-        // window (first 16 of the range; Phase 4 owns the rest).
-        // The 24 h and 48 h ranges share this prefix (same HRRR run),
-        // so one window serves both range pills.
-        rebuildFutureSources(futureSourceFrames)
+        // Future HRRR sources are NOT built here: they are built
+        // lazily on the first future visit (Phase 4 — ~74/97 sources
+        // for the full ranges, via [rebuildFutureSources], which the
+        // style-loaded callback re-runs through
+        // [syncSourcesForCurrentGeneration] when a resolution raced
+        // ahead of the style load). The 24 h and 48 h ranges share
+        // the HRRR run prefix, so one built set serves both pills.
+        // NOTE: no `rebuildFutureSources` call here on purpose.
 
         // MRMS two-slot ImageSources (wide-margin bbox, png32
         // exportImage). Built with a 1x1 transparent bitmap — never a
@@ -621,14 +669,44 @@ class RadarEngineActivity : ComponentActivity() {
      * Rebuild the future HRRR sources for [frames] (their layer names
      * are the HRRR run's, so a new run means new sources). Deferred
      * when the style is not loaded yet — the style-loaded callback
-     * re-runs this via [syncSourcesForCurrentGeneration]. No-op when
-     * the sources already match [frames].
+     * re-runs this via [syncSourcesForCurrentGeneration]. Incremental:
+     * - same list as built: no-op;
+     * - [frames] a prefix of the built list (48 h -> 24 h): no-op —
+     *   the built sources already cover it, the extras just sit
+     *   unused (never proved, never visible);
+     * - [frames] extends the built list (24 h -> 48 h, same run):
+     *   only the new tail's sources are added;
+     * - anything else (a new HRRR run, or a list that is not a
+     *   prefix of the built one): full remove + re-add.
+     * Every new layer starts with `visibility: none` + opacity 0:
+     * its tiles only load once its frame is proved ready (see
+     * [setFutureLayerVisible]) — creating ~97 sources must not fire
+     * a ~97-frame tile burst on range entry.
      */
     private fun rebuildFutureSources(frames: List<RadarFrame>) {
         futureSourceFrames = frames
         val style = loadedStyle ?: return
-        if (frames == futureSourcesBuiltFor) return
+        val built = futureSourcesBuiltFor
+        if (frames == built) return
+        if (built != null && frames.size <= built.size &&
+            built.subList(0, frames.size) == frames
+        ) return // already covered by the built superset
         try {
+            if (built != null && frames.size > built.size &&
+                frames.subList(0, built.size) == built
+            ) {
+                // Prefix extension: only add the new tail.
+                for (i in built.size until frames.size) {
+                    addFutureSource(style, i, frames[i])
+                }
+                futureSourcesBuiltFor = frames
+                syncFutureLayerVisibility()
+                Log.i(
+                    TAG,
+                    "extended future (HRRR) sources: ${built.size} -> ${frames.size}"
+                )
+                return
+            }
             for ((i, layer) in futureFrameLayers.withIndex()) {
                 try {
                     style.removeLayer(layer.id)
@@ -644,23 +722,69 @@ class RadarEngineActivity : ComponentActivity() {
             futureFrameLayers.clear()
             visibleFutureIndex = -1
             for ((i, frame) in frames.withIndex()) {
-                val source = RasterSource(
-                    radarFutureFrameSourceId(i),
-                    TileSet("2.2.0", hrrrFrameTileTemplate(frame.layerName)),
-                    256
-                )
-                source.isVolatile = true
-                source.prefetchZoomDelta = 0
-                style.addSource(source)
-                val layer = RasterLayer(radarFutureFrameLayerId(i), radarFutureFrameSourceId(i))
-                    .withProperties(PropertyFactory.rasterOpacity(0f))
-                style.addLayer(layer)
-                futureFrameLayers.add(layer)
+                addFutureSource(style, i, frame)
             }
             futureSourcesBuiltFor = frames
+            syncFutureLayerVisibility()
             Log.i(TAG, "added ${frames.size} volatile future (HRRR) frame sources")
         } catch (e: Exception) {
             Log.w(TAG, "adding future frame sources failed: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
+
+    /** Add one future HRRR source + layer at [index], hidden until
+     *  its frame is proved ready ([setFutureLayerVisible]). */
+    private fun addFutureSource(style: Style, index: Int, frame: RadarFrame) {
+        val source = RasterSource(
+            radarFutureFrameSourceId(index),
+            TileSet("2.2.0", hrrrFrameTileTemplate(frame.layerName)),
+            256
+        )
+        source.isVolatile = true
+        source.prefetchZoomDelta = 0
+        style.addSource(source)
+        val layer = RasterLayer(radarFutureFrameLayerId(index), radarFutureFrameSourceId(index))
+            .withProperties(
+                PropertyFactory.rasterOpacity(0f),
+                PropertyFactory.visibility(Property.NONE)
+            )
+        style.addLayer(layer)
+        // Index-aligned with the frame list: the append path adds in
+        // order from the built size, the rebuild path clears first.
+        // Out-of-order would corrupt show/hide by index, so fail
+        // loudly (the caller logs it) instead of filling a gap.
+        check(index == futureFrameLayers.size) {
+            "future layer index $index out of order (have ${futureFrameLayers.size})"
+        }
+        futureFrameLayers.add(layer)
+    }
+
+    /**
+     * Make future frame [index]'s layer visible so MapLibre starts
+     * loading its tiles. Called when the frame is proved ready —
+     * never before: a hidden layer produces no render data, so its
+     * source loads nothing, which is what keeps the 97-source range
+     * from firing a 97-frame tile burst on entry. Opacity stays 0
+     * until the frame is the current one ([showTiledFrame]).
+     */
+    private fun setFutureLayerVisible(index: Int) {
+        if (index !in futureFrameLayers.indices) return
+        try {
+            futureFrameLayers[index]
+                .setProperties(PropertyFactory.visibility(Property.VISIBLE))
+        } catch (e: Exception) {
+            Log.w(TAG, "unhiding future layer $index failed: ${e.javaClass.simpleName}")
+        }
+    }
+
+    /** Unhide every future layer whose frame is already ready (a
+     *  rebuild after the style loaded late, or a refresh that
+     *  carried readiness): without this a ready frame's layer could
+     *  stay hidden and the loop would show nothing. */
+    private fun syncFutureLayerVisibility() {
+        if (loadedStyle == null) return
+        for (i in 0 until futureStore.frameCount()) {
+            if (futureStore.isReady(i)) setFutureLayerVisible(i)
         }
     }
 
@@ -732,7 +856,11 @@ class RadarEngineActivity : ComponentActivity() {
         if (liveStore.source == RadarSourceKind.LIBRE_WXR) {
             buildLibreWxrSources(libreWxrLoopFrames)
         }
-        rebuildFutureSources(futureSourceFrames)
+        // Future sources build lazily on the first future visit;
+        // nothing to sync until a future resolution exists.
+        if (futureSourceFrames.isNotEmpty()) {
+            rebuildFutureSources(futureSourceFrames)
+        }
     }
 
     // -- Layer / frame application (opacity only, no tile reload) -----------
@@ -838,6 +966,12 @@ class RadarEngineActivity : ComponentActivity() {
                 visibleLiveIemIndex = hideTiledFamily(liveFrameLayers, visibleLiveIemIndex)
                 visibleLibreWxrIndex = hideTiledFamily(libreWxrFrameLayers, visibleLibreWxrIndex)
                 if (store.isReady(index)) {
+                    // Belt-and-braces: the layer must be visible
+                    // before the opacity crossfade (a ready frame is
+                    // unhidden at settle time, but a rebuild raced
+                    // ahead of the style load must not leave it
+                    // hidden here).
+                    setFutureLayerVisible(index)
                     visibleFutureIndex = showTiledFrame(
                         futureFrameLayers, visibleFutureIndex, index
                     )
@@ -1971,6 +2105,15 @@ class RadarEngineActivity : ComponentActivity() {
      * (the store's generation guard already ignored those marks).
      */
     private fun onFrameSettled(store: RadarLoopStore, index: Int) {
+        // Future tail cap first: a settle can cut the tail (and move
+        // the playhead) before anything below reads the loop state.
+        if (store === futureStore) {
+            updateFutureTail(index)
+            // A proved-ready future frame starts loading its tiles
+            // now (visibility), ahead of the playhead — see
+            // setFutureLayerVisible.
+            if (store.isReady(index)) setFutureLayerVisible(index)
+        }
         if (store.state == LiveLoopState.PRIMED && !store.isPaused) {
             store.startPlayback()
         }
@@ -1994,6 +2137,59 @@ class RadarEngineActivity : ComponentActivity() {
             pokeTicker()
         }
         refreshUiState()
+    }
+
+    /**
+     * Future tail cap (Phase 4): frame [index]'s proving settle is
+     * also its served/failed signal. Record it, re-run
+     * [capFutureFrames] over the store's frames, and cap the store
+     * when the first failure cuts the tail. Runs on every future
+     * settle — including the slow-budget marks (a stalled frame is
+     * a failed signal) and in-flight proves that settle after a cap
+     * (their signals are recorded against the full list, but the cap
+     * over the smaller store list ignores them). A frame that
+     * settles after its generation ended is ignored (its fetch
+     * state is null out of range).
+     */
+    private fun updateFutureTail(index: Int) {
+        val store = futureStore
+        if (store.generationId == 0L) return
+        if (index !in futureAvailability.indices) return
+        val signal = when (store.fetchState(index)) {
+            FrameFetchState.READY -> FutureFrameAvailability.SERVED
+            FrameFetchState.FAILED -> FutureFrameAvailability.FAILED
+            else -> return
+        }
+        if (futureAvailability[index] == signal) return
+        futureAvailability[index] = signal
+        applyFutureTailCap()
+    }
+
+    /** Re-run the tail cap over the future store's current frames. */
+    private fun applyFutureTailCap() {
+        val store = futureStore
+        if (store.generationId == 0L || store.frameCount() == 0) return
+        val storeFrames = store.frames.map { RadarFrame(it.validTime, "", it.label) }
+        val result = capFutureFrames(
+            storeFrames,
+            futureAvailability.take(storeFrames.size)
+        )
+        futureTail = result
+        if (result.playableFrames.size < storeFrames.size) {
+            val changed = store.applyTailCap(
+                result.playableFrames.map { LoopFrame(it.validTime, it.label) }
+            )
+            if (changed) {
+                Log.i(
+                    TAG,
+                    "future tail capped: ${storeFrames.size} -> " +
+                        "${result.playableFrames.size} frames, " +
+                        "end note: ${result.endNote}"
+                )
+                refreshDisplay()
+                pokeTicker()
+            }
+        }
     }
 
     // -- Ticker (dwell, no-timeout advance, slow budget) --------------------
@@ -2101,6 +2297,12 @@ class RadarEngineActivity : ComponentActivity() {
             return
         }
         Log.w(TAG, "slow budget: no frame ready in 20 s, generation $gen marked failed")
+        if (store === futureStore) {
+            // A stalled frame is a failed signal: feed the tail cap
+            // so the loop caps (or goes unavailable) on the same
+            // facts instead of holding stale UNKNOWNs.
+            for (i in 0 until store.frameCount()) updateFutureTail(i)
+        }
         if (store === liveStore) handleLiveUnavailable()
         refreshUiState()
     }
@@ -2216,8 +2418,7 @@ class RadarEngineActivity : ComponentActivity() {
     private suspend fun refreshFutureLoop() {
         val store = futureStore
         if (store.generationId == 0L) return
-        val frames = radarRangeFrames(RadarRange.Future24h, Instant.now())
-            .take(RADAR_ENGINE_FUTURE_WINDOW)
+        val frames = radarRangeFrames(futureRadarRange(), Instant.now())
         if (frames == futureSourceFrames) return
         rebuildFutureSources(frames)
         val wasPaused = store.isPaused
@@ -2228,6 +2429,9 @@ class RadarEngineActivity : ComponentActivity() {
             frames.map { LoopFrame(it.validTime, it.label) }
         ) ?: return
         fetcher.endGeneration(oldGen)
+        futureResolvedRange = selectedRange
+        futureAvailability = frames.map { FutureFrameAvailability.UNKNOWN }.toMutableList()
+        futureTail = null
         if (wasPaused) store.setPaused(true)
         oldTime?.let { t ->
             val idx = store.frames.indexOfFirst { it.validTime == t }
@@ -2314,7 +2518,6 @@ class RadarEngineActivity : ComponentActivity() {
     private fun selectLayer(layer: EngineLayer) {
         selectedLayer = layer
         if (layer != EngineLayer.Radar) {
-            clampZoomForSatellite()
             wmsLayerFor(layer)?.let { beginSatelliteVisit(it) }
             applyLayerAndFrame()
             frameShownAtMs = SystemClock.uptimeMillis()
@@ -2334,7 +2537,12 @@ class RadarEngineActivity : ComponentActivity() {
         if (range == EngineRange.Live) {
             if (liveStore.generationId == 0L) resolveLiveLoop()
         } else {
-            if (futureStore.generationId == 0L) resolveFutureLoop()
+            // A range switch re-resolves even with a generation in
+            // hand (24 h <-> 48 h are different frame lists); a
+            // re-tap of the same range does not.
+            if (futureStore.generationId == 0L || futureResolvedRange != range) {
+                resolveFutureLoop()
+            }
         }
         applyLayerAndFrame()
         frameShownAtMs = SystemClock.uptimeMillis()
@@ -2342,23 +2550,50 @@ class RadarEngineActivity : ComponentActivity() {
         pokeTicker()
     }
 
-    /** Resolve the future window on first visit (fresh HRRR run). */
+    /** The [RadarRange] for the selected future range (Live never reaches here). */
+    private fun futureRadarRange(): RadarRange =
+        if (selectedRange == EngineRange.Future48h) RadarRange.Future48h
+        else RadarRange.Future24h
+
+    /** Resolve the future range on first visit (fresh HRRR run), or
+     *  on a range switch (24 h <-> 48 h are different frame lists —
+     *  the old 16-frame window made them look identical, so this
+     *  used to resolve Future24h unconditionally). The playhead's
+     *  valid time and the pause survive a re-resolution when the
+     *  frame is still in the new list; a first resolution starts at
+     *  the nearest forecast (frame 0), like Phase 1 — the store
+     *  starts at the newest frame, which is ~2 days out. */
     private fun resolveFutureLoop() {
-        val frames = radarRangeFrames(RadarRange.Future24h, Instant.now())
-            .take(RADAR_ENGINE_FUTURE_WINDOW)
+        val range = selectedRange
+        if (range == EngineRange.Live) return
+        val frames = radarRangeFrames(futureRadarRange(), Instant.now())
         rebuildFutureSources(frames)
+        val hadGeneration = futureStore.generationId > 0L
+        val wasPaused = futureStore.isPaused
+        val oldTime = futureStore.currentFrame()?.validTime
         val oldGen = futureStore.generationId
         val res = futureStore.resolveGeneration(
             RadarSourceKind.IEM,
             frames.map { LoopFrame(it.validTime, it.label) }
         ) ?: return
         fetcher.endGeneration(oldGen)
+        futureResolvedRange = range
+        futureAvailability = frames.map { FutureFrameAvailability.UNKNOWN }.toMutableList()
+        futureTail = null
         futureGenerationStartedAtMs = SystemClock.uptimeMillis()
         futureSlowBudgetFiredGen = -1L
         frameShownAtMs = SystemClock.uptimeMillis()
-        // Start at the nearest forecast (frame 0), like Phase 1 — the
-        // store starts at the newest frame, which is ~4 h out.
-        futureStore.scrubTo(0)
+        if (hadGeneration) {
+            if (wasPaused) futureStore.setPaused(true)
+            oldTime?.let { t ->
+                val idx = futureStore.frames.indexOfFirst { it.validTime == t }
+                if (idx >= 0) futureStore.scrubTo(idx)
+            }
+        } else {
+            // Start at the nearest forecast (frame 0), like Phase 1 — the
+            // store starts at the newest frame, which is ~2 days out.
+            futureStore.scrubTo(0)
+        }
         requestTiledFramesAhead(futureStore) { i -> provingUrlsFor(futureStore, i) }
         refreshDisplay()
         refreshUiState()
@@ -2386,7 +2621,9 @@ class RadarEngineActivity : ComponentActivity() {
      * when the loop and the frame list are unchanged — re-request
      * everything not ready, current first (a retry that only
      * re-requests failures is a no-op for a stalled queue). Future
-     * ranges retry their own store (HRRR is their only source).
+     * ranges retry as a fresh generation (new HRRR run check): the
+     * cap and the availability signals reset with it, so a retry
+     * can lift a cap the old in-generation re-request could not.
      */
     private fun onRetry() {
         if (selectedLayer != EngineLayer.Radar) {
@@ -2400,13 +2637,13 @@ class RadarEngineActivity : ComponentActivity() {
             return
         }
         if (selectedRange != EngineRange.Live) {
-            val store = futureStore
-            if (store.generationId == 0L) return
-            val plan = store.retry()
-            Log.i(TAG, "retry (future): re-requesting ${plan.frameIndices.size} frames")
-            for (i in plan.frameIndices) {
-                requestTiledFrame(store, i, plan.generationId, provingUrlsFor(store, i))
-            }
+            // Future RETRY is a fresh generation (new HRRR run
+            // check): the cap, the availability signals and the
+            // proving all reset, and the loop re-proves from the
+            // playhead's frame. The old in-generation re-request
+            // could not lift a cap — the capped frames were no
+            // longer in the store to re-request.
+            resolveFutureLoop()
             refreshUiState()
             pokeTicker()
             return
@@ -2519,6 +2756,7 @@ class RadarEngineActivity : ComponentActivity() {
                 SatMode.TILES -> "GIBS TILES"
                 SatMode.NONE -> null
             }
+            uiEndNote = null
             val satBytesFetched = fetcher.totalBytesFetched(satGenerationId)
             uiCostText = if (satBytesFetched > 0) {
                 satelliteCostText(satBytesFetched)
@@ -2542,8 +2780,29 @@ class RadarEngineActivity : ComponentActivity() {
             selectedRange != EngineRange.Live -> "HRRR"
             else -> store.source?.let { sourceLabel(it) }
         }
+        // The tail end note, only while the future loop is capped
+        // with frames still to play ("FORECAST ENDS ABOUT 11:00
+        // UTC"). When the cap leaves nothing playable the
+        // unavailable panel above carries the state instead — the
+        // note would only duplicate it.
+        uiEndNote = if (selectedRange != EngineRange.Live &&
+            futureTail?.capped == true && futureStore.frameCount() > 0
+        ) {
+            futureTail?.endNote
+        } else {
+            null
+        }
         val bytes = fetcher.totalBytesFetched(store.generationId)
-        uiCostText = if (bytes > 0) loopLoadCostText(bytes) else null
+        uiCostText = if (bytes > 0) {
+            // Future ranges report their actual fetched bytes
+            // through the future helper — never the old "ABOUT
+            // 3.5 MB / 5 MB THEN CACHED" estimates, and without a
+            // cache claim nothing honours (see FutureRadarTail.kt).
+            if (selectedRange != EngineRange.Live) futureCostTextFromBytes(bytes)
+            else loopLoadCostText(bytes)
+        } else {
+            null
+        }
     }
 
     private fun pokeTicker() {
@@ -2568,17 +2827,6 @@ class RadarEngineActivity : ComponentActivity() {
         map.cameraPosition = CameraPosition.Builder()
             .target(current.target).zoom(newZoom)
             .bearing(current.bearing).tilt(current.tilt).build()
-    }
-
-    private fun clampZoomForSatellite() {
-        val map = mapLibreMap ?: return
-        val maxZoom = satelliteMaxZoom(selectedLayer == EngineLayer.SatelliteVis).toDouble()
-        val current = map.cameraPosition
-        if (current.zoom > maxZoom) {
-            map.cameraPosition = CameraPosition.Builder()
-                .target(current.target).zoom(maxZoom)
-                .bearing(current.bearing).tilt(current.tilt).build()
-        }
     }
 
     private fun recenter() {

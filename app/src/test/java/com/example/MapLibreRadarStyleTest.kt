@@ -4,7 +4,6 @@ import com.example.ui.radar.engine.RADAR_ENGINE_BASEMAP_LAYER_ID
 import com.example.ui.radar.engine.RADAR_ENGINE_BASEMAP_TILE_TEMPLATE
 import com.example.ui.radar.engine.RADAR_ENGINE_CROSSFADE_MS
 import com.example.ui.radar.engine.RADAR_ENGINE_FRAME_COUNT
-import com.example.ui.radar.engine.RADAR_ENGINE_FUTURE_WINDOW
 import com.example.ui.radar.engine.RADAR_ENGINE_MRMS_SLOT_A
 import com.example.ui.radar.engine.RADAR_ENGINE_MRMS_SLOT_B
 import com.example.ui.radar.engine.RADAR_ENGINE_MRMS_BBOX_1X
@@ -45,7 +44,8 @@ class MapLibreRadarStyleTest {
     fun `frame count is ten and crossfade is 150ms`() {
         assertEquals(10, RADAR_ENGINE_FRAME_COUNT)
         assertEquals(150L, RADAR_ENGINE_CROSSFADE_MS)
-        assertEquals(16, RADAR_ENGINE_FUTURE_WINDOW)
+        // Phase 4: no window bound any more — the full future ranges
+        // (~73 / ~97 frames) each get one source per frame.
     }
 
     @Test
@@ -119,10 +119,10 @@ class MapLibreRadarStyleTest {
         val layerIds = (0 until RADAR_ENGINE_FRAME_COUNT).map { radarLiveFrameLayerId(it) }
         assertEquals(RADAR_ENGINE_FRAME_COUNT, layerIds.toSet().size)
         assertTrue(sourceIds.none { it in layerIds })
-        val futureSources = (0 until RADAR_ENGINE_FUTURE_WINDOW).map { radarFutureFrameSourceId(it) }
-        assertEquals(RADAR_ENGINE_FUTURE_WINDOW, futureSources.toSet().size)
-        val futureLayers = (0 until RADAR_ENGINE_FUTURE_WINDOW).map { radarFutureFrameLayerId(it) }
-        assertEquals(RADAR_ENGINE_FUTURE_WINDOW, futureLayers.toSet().size)
+        val futureSources = (0 until 97).map { radarFutureFrameSourceId(it) }
+        assertEquals(97, futureSources.toSet().size)
+        val futureLayers = (0 until 97).map { radarFutureFrameLayerId(it) }
+        assertEquals(97, futureLayers.toSet().size)
         assertTrue(futureSources.none { it in sourceIds })
     }
 
@@ -140,8 +140,10 @@ class MapLibreRadarStyleTest {
 
     @Test
     fun `layer draw order is background basemap satellite live future mrms`() {
-        val order = layerDrawOrder()
-        assertEquals(4 + RADAR_ENGINE_FRAME_COUNT + RADAR_ENGINE_FUTURE_WINDOW + 2, order.size)
+        // Full 48 h range: 97 future layers between the live layers
+        // and the MRMS slots.
+        val order = layerDrawOrder(97)
+        assertEquals(4 + RADAR_ENGINE_FRAME_COUNT + 97 + 2, order.size)
         assertEquals("radar-background", order.first())
         assertEquals(radarMrmsLayerId(RADAR_ENGINE_MRMS_SLOT_B), order.last())
         assertEquals(RADAR_ENGINE_BASEMAP_LAYER_ID, order[1])
@@ -150,8 +152,8 @@ class MapLibreRadarStyleTest {
         assertEquals(radarLiveFrameLayerId(0), order[4])
         assertEquals(radarLiveFrameLayerId(9), order[13])
         assertEquals(radarFutureFrameLayerId(0), order[14])
-        assertEquals(radarFutureFrameLayerId(15), order[29])
-        assertEquals(radarMrmsLayerId(RADAR_ENGINE_MRMS_SLOT_A), order[30])
+        assertEquals(radarFutureFrameLayerId(96), order[110])
+        assertEquals(radarMrmsLayerId(RADAR_ENGINE_MRMS_SLOT_A), order[111])
         assertEquals(order.size, order.toSet().size)
     }
 

@@ -444,6 +444,71 @@ class RadarLoopStore {
         return RefreshResult(RefreshOutcome.APPLIED, carried, null)
     }
 
+    // -- Tail cap (future / HRRR wiring) ---------------------------------
+
+    /**
+     * Apply a tail cap: replace the frame list with [playable], the
+     * leading run the wiring agent computed (see `capFutureFrames`).
+     * Readiness carries across by valid time, exactly like
+     * [refreshFrames]; the playhead follows its frame's valid time
+     * when it survives, else moves to the newest playable frame.
+     *
+     * Unlike [refreshFrames] this deliberately bypasses the
+     * backwards-newest guard: a cap's newest time IS earlier by
+     * construction (the tail was cut), and that is the point — the
+     * cut tail must never play as a blank map. The caller guarantees
+     * [playable] is a leading run of the current list (usually a
+     * prefix); any valid time not in the current list simply starts
+     * NOT_REQUESTED.
+     *
+     * State after the cap: no frames at all → [LiveLoopState.UNAVAILABLE]
+     * (the wiring agent shows the unavailable state, never a blank
+     * map); nothing ready → [LiveLoopState.LOADING]; the playhead's
+     * frame ready → PLAYING when already playing/waiting, PRIMED
+     * otherwise; the playhead's frame unready but something else
+     * ready → [LiveLoopState.WAITING_NEXT].
+     *
+     * Returns true when the frame list changed, false when [playable]
+     * is exactly the current list or there is no generation yet.
+     */
+    fun applyTailCap(playable: List<LoopFrame>): Boolean {
+        if (frames.isEmpty()) return false
+        if (playable.map { it.validTime } == frames.map { it.validTime }) return false
+        val currentTime = frames.getOrNull(currentIndex)?.validTime
+        val oldByTime = frames.mapIndexed { i, f -> f.validTime to i }.toMap()
+        val newReady = BooleanArray(playable.size)
+        val newEmpty = BooleanArray(playable.size)
+        val newFetch = Array(playable.size) { FrameFetchState.NOT_REQUESTED }
+        for ((newIndex, frame) in playable.withIndex()) {
+            val oldIndex = oldByTime[frame.validTime]
+            if (oldIndex != null && readyFlags.getOrNull(oldIndex) == true) {
+                newReady[newIndex] = true
+                newEmpty[newIndex] = emptyFlags.getOrNull(oldIndex) == true
+                newFetch[newIndex] = FrameFetchState.READY
+            } else if (oldIndex != null) {
+                newFetch[newIndex] = fetchStates.getOrNull(oldIndex)
+                    ?: FrameFetchState.NOT_REQUESTED
+            }
+        }
+        frames = playable.toList()
+        readyFlags = newReady
+        emptyFlags = newEmpty
+        fetchStates = newFetch
+        currentIndex = currentTime?.let { t ->
+            playable.indexOfFirst { it.validTime == t }.takeIf { it >= 0 }
+        } ?: playable.lastIndex.coerceAtLeast(0)
+        state = when {
+            frames.isEmpty() -> LiveLoopState.UNAVAILABLE
+            readyCount() == 0 -> LiveLoopState.LOADING
+            isReady(currentIndex) -> when (state) {
+                LiveLoopState.PLAYING, LiveLoopState.WAITING_NEXT -> LiveLoopState.PLAYING
+                else -> LiveLoopState.PRIMED
+            }
+            else -> LiveLoopState.WAITING_NEXT
+        }
+        return true
+    }
+
     // -- Fetch reporting (generation-guarded) ----------------------------
 
     /**
