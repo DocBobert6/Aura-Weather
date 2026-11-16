@@ -1,3 +1,23 @@
+# Aura Weather 0.1.1
+
+Fixes the first-launch crash in 0.1.0. That release crashed every time it
+was opened: after the first forecast loaded, the app tried to save it to
+its offline cache and crashed, so it never got past the first load. The
+cause was the release build's code shrinker (R8) renaming the
+weather-condition names — ClearDay, Rain, and the rest — that Moshi reads
+when saving the forecast cache. The build now tells R8 to leave those
+names alone, and to leave the forecast-cache models' fields alone too, so
+the cache save works and the app stays open.
+
+## Notes
+
+- This is an arm64-only APK (`arm64-v8a`); there is no universal build.
+- The signed release APK will not install over a debug build (different
+  signing key). Uninstall the debug build first — that wipes app data,
+  including places and settings, which need re-adding afterwards.
+
+---
+
 # Aura Weather 0.1.0
 
 First release. The radar tab is rebuilt from the ground up, the retro look
