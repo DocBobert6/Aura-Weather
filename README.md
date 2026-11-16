@@ -6,11 +6,13 @@ The look is the classic late-90s / early-2000s Weather Channel local forecast �
 
 ## Status
 
-0.1.0 released — tag `v0.1.0` (`versionName "0.1.0"` / `versionCode 5` in
-`app/build.gradle.kts`), arm64-only APK. The in-app updater (see below)
-finds that release. Release builds are cut from a `v*` tag by
-`.github/workflows/release.yml`, which signs the arm64 APK with the
-release keystore and attaches it to the GitHub release.
+0.1.1 released — tag `v0.1.1` (`versionName "0.1.1"` / `versionCode 6` in
+`app/build.gradle.kts`), arm64-only APK. Fixes the 0.1.0 first-launch
+crash: R8 had renamed the weather-condition names Moshi reads when saving
+the forecast cache, so the first cache save crashed the app. The in-app
+updater (see below) finds that release. Release builds are cut from a
+`v*` tag by `.github/workflows/release.yml`, which signs the arm64 APK
+with the release keystore and attaches it to the GitHub release.
 
 ---
 

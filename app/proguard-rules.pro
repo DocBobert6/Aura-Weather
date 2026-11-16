@@ -13,6 +13,29 @@
     public static ** valueOf(java.lang.String);
 }
 
+# Moshi reflection (0.1.1 fix): 0.1.0 crashed on first launch because R8
+# renamed the enum constants Moshi reads when saving the forecast cache
+# (WeatherCondition -> j54, ClearDay gone: NoSuchFieldException in
+# StandardJsonAdapters$EnumJsonAdapter). values()/valueOf() above is NOT
+# what Moshi needs — it does clazz.getField(<constant name>). This blanket
+# rule keeps every enum's constants: WeatherCondition now, AlertSeverity
+# (WeatherAlert.severity, saved in the same cache call) next.
+-keepclassmembers enum * {
+    <fields>;
+}
+
+# Moshi reflection (0.1.1 fix): the forecast-cache models in
+# com.example.domain.model carry no @JsonClass, so they are serialized
+# purely by KotlinJsonAdapterFactory (WeatherRepository.kt), which binds
+# JSON names to constructor parameter / field names via kotlin-reflect.
+# Moshi's own R8 guidance: keep rules are required for reflectively
+# serialized classes. Without this, R8 renames the models' fields and
+# constructors the same way it renamed the enum constants in 0.1.0.
+# Classes covered (WeatherRepository.saveToCache / parseCacheToState):
+# CurrentConditions, HourlyPoint, DailyPoint, MinutePrecip, WeatherAlert,
+# AirQuality, PollenData — plus the enums above.
+-keep class com.example.domain.model.** { *; }
+
 # Moshi codegen: the generated *JsonAdapter classes are looked up by
 # name at runtime, and the @JsonClass models are instantiated by them.
 -keep @com.squareup.moshi.JsonClass class *
