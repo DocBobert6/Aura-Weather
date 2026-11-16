@@ -24,10 +24,11 @@ package com.example.ui.radar.engine
  * - Layers draw, bottom to top: background, basemap, satellite,
  *   radar-live, radar-future, MRMS. See [layerDrawOrder].
  *
- * The GIBS timestamp is a PARAMETER ([gibsTimestamp] values are
- * computed by the caller with the canonical `gibsTimestamp` helper):
- * this file stays free of the mapper that owns that helper so the pure
- * compile set stays one file. IEM/HRRR layer names are likewise passed
+ * The GIBS timestamp is a PARAMETER: the caller passes the INITIAL
+ * fallback timestamps (computed with the canonical `gibsTimestamp`
+ * helper) — the activity rebuilds the satellite sources with a
+ * probed timestamp before first satellite display (Phase 3), so the
+ * JSON value is never the displayed time.
  * in ([iemFrameTileTemplate] / [hrrrFrameTileTemplate] take the layer
  * name) — the canonical names live in `RadarTiles.kt`
  * (`iemLayerNameFor` / `hrrrLayerName`) and are never duplicated here.
@@ -69,6 +70,19 @@ const val RADAR_ENGINE_SAT_IR_LAYER_ID: String = "radar-sat-ir-layer"
 /** MRMS ImageSource slot ids (two-slot crossfade). */
 const val RADAR_ENGINE_MRMS_SLOT_A: String = "radar-mrms-a"
 const val RADAR_ENGINE_MRMS_SLOT_B: String = "radar-mrms-b"
+
+/** Satellite WMS ImageSource slot ids (two-slot crossfade, Phase 3). */
+const val RADAR_ENGINE_SAT_WMS_SLOT_A: String = "radar-sat-wms-a"
+const val RADAR_ENGINE_SAT_WMS_SLOT_B: String = "radar-sat-wms-b"
+
+/**
+ * Per-request timeout for satellite WMS fetches (Phase 3): a hung
+ * GetMap or probe must move the UI on inside the 20 s loop slow
+ * budget — the fetcher's own 20 s read bound is too long for the
+ * satellite 10 s single-request budget, so the wiring applies this
+ * around the await instead of changing the client.
+ */
+const val RADAR_ENGINE_SAT_REQUEST_TIMEOUT_MS: Long = 10_000L
 
 /**
  * Pan margin trigger (Phase 2): the camera target has moved this far
@@ -184,6 +198,9 @@ fun radarLibreWxrFrameLayerId(index: Int): String = "radar-librewxr-frame-layer-
 /** Raster layer id for an MRMS ImageSource slot. */
 fun radarMrmsLayerId(slotId: String): String = "radar-mrms-layer-$slotId"
 
+/** Raster layer id for a satellite WMS ImageSource slot (Phase 3). */
+fun radarSatWmsLayerId(slotId: String): String = "radar-sat-wms-layer-$slotId"
+
 /**
  * MapLibre tile-URL template for one IEM radar frame. MapLibre's own
  * placeholder order is `{z}/{x}/{y}` and IEM serves that order.
@@ -205,8 +222,9 @@ fun hrrrFrameTileTemplate(layerName: String): String =
 /**
  * GIBS WMTS tile-URL template for one satellite layer. GIBS order is
  * `{z}/{y}/{x}` (as in the canonical `gibsTileUrl`); [gibsTime] is the
- * full UTC timestamp from `gibsTimestamp` (Phase 3 owns per-path
- * probing and refresh — Phase 1 freezes it at style build).
+ * full UTC timestamp — the initial fallback value at style build, or
+ * the probed WMS scan time when the activity rebuilds the source for
+ * the WMTS fallback (Phase 3).
  */
 fun gibsTileTemplate(isVisible: Boolean, gibsTime: String): String =
     if (isVisible) {

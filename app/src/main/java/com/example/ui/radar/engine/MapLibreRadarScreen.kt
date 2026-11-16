@@ -88,6 +88,15 @@ import org.maplibre.android.maps.MapView
  *   the loop so far, measured from actual fetched bytes — never a
  *   fixed estimate. The panel appears only once bytes exist.
  *
+ * Phase 3 satellite chrome (same panels, lifted out of the
+ * radar-only gate — the activity computes, this file displays):
+ * - The status pill shows "LOADING SATELLITE…" while the satellite
+ *   image resolves, and the unavailable panel shows "SATELLITE
+ *   UNAVAILABLE" with the same RETRY pill when there is no image to
+ *   hold. The source + cost panel names "GIBS WMS" or "GIBS TILES"
+ *   with the switch's actual bytes. The dBZ legend, transport pill
+ *   and slider stay radar-only (satellite is a single image).
+ *
  * The dBZ legend pill is a faithful copy of the old screen's private
  * `LegendColorPill` (it is private there; making it public would be
  * an invasive change to the old screen for one 20-line pill).
@@ -304,10 +313,37 @@ fun RadarEngineScreen(
 
         // Bottom Controls: Legend, Playback & Scrub Slider. Radar
         // layers only: satellite is a single image, so there is no
-        // dBZ legend and no loop to play. Bottom padding is 16dp —
-        // there is no nav bar to clear in the standalone activity
-        // (see the file header); at cutover this becomes the nav
-        // clearance again.
+        // dBZ legend and no loop to play. Satellite gets its own
+        // bottom column with just the three shared panels — status,
+        // unavailable + RETRY, source + cost — so a satellite visit
+        // says what it is doing and what it cost. Bottom padding is
+        // 16dp — there is no nav bar to clear in the standalone
+        // activity (see the file header); at cutover this becomes the
+        // nav clearance again.
+        if (isSatellite) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 16.dp,
+                        bottom = 16.dp
+                    ),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (unavailableText != null) {
+                    EngineUnavailablePanel(unavailableText, onRetry)
+                }
+                if (statusText != null) {
+                    EngineStatusPill(statusText)
+                }
+                if (sourceLabel != null) {
+                    EngineSourceCostPanel(sourceLabel, costText)
+                }
+            }
+        }
         if (!isSatellite) {
             Column(
                 modifier = Modifier
@@ -325,58 +361,18 @@ fun RadarEngineScreen(
                 // The RETRY pill is a clickable yellow RetroPanel, not
                 // a GlassIconButton: that button is a fixed 48dp
                 // circle and the word RETRY would clip inside it.
+                // Shared with the satellite bottom column (same panel,
+                // "SATELLITE UNAVAILABLE" text from the activity).
                 if (unavailableText != null) {
-                    RetroPanel(shape = RetroShapes.medium) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = unavailableText.uppercase(),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = RetroTokens.HeaderOrange,
-                                modifier = Modifier.weight(1f)
-                            )
-                            RetroPanel(
-                                shape = RetroShapes.medium,
-                                color = RetroTokens.Yellow,
-                                modifier = Modifier.clickable { onRetry() }
-                            ) {
-                                Text(
-                                    text = "RETRY",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = RetroTokens.Background,
-                                    modifier = Modifier.padding(
-                                        horizontal = 14.dp,
-                                        vertical = 8.dp
-                                    )
-                                )
-                            }
-                        }
-                    }
+                    EngineUnavailablePanel(unavailableText, onRetry)
                 }
 
                 // Loop waiting state: the loop holds the current frame
                 // while the next one is not ready yet, and says so —
-                // never a silent freeze.
+                // never a silent freeze. Shared with satellite
+                // ("LOADING SATELLITE…" while resolving).
                 if (statusText != null) {
-                    RetroPanel(shape = RetroShapes.medium) {
-                        Text(
-                            text = statusText.uppercase(),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = RetroTokens.Yellow,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
-                            textAlign = TextAlign.Center
-                        )
-                    }
+                    EngineStatusPill(statusText)
                 }
 
                 // Radar Legend Bar
@@ -437,32 +433,11 @@ fun RadarEngineScreen(
                 // Loop source + data cost, from actual fetched bytes:
                 // the locked source on the left, the cost on the right
                 // once any bytes exist. Hidden entirely (not a dash)
-                // while the loop has fetched nothing yet.
+                // while the loop has fetched nothing yet. Shared with
+                // the satellite bottom column ("GIBS WMS" / "GIBS
+                // TILES" + the switch's actual bytes).
                 if (sourceLabel != null) {
-                    RetroPanel(shape = RetroShapes.medium) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "SOURCE: $sourceLabel",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = RetroTokens.Yellow
-                            )
-                            if (costText != null) {
-                                Text(
-                                    text = costText,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = RetroTokens.TextSecondary
-                                )
-                            }
-                        }
-                    }
+                    EngineSourceCostPanel(sourceLabel, costText)
                 }
 
                 // Classic transport pill: play/pause + frame scrubber
@@ -550,6 +525,87 @@ fun RadarEngineScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EngineUnavailablePanel(unavailableText: String, onRetry: () -> Unit) {
+    RetroPanel(shape = RetroShapes.medium) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = unavailableText.uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = RetroTokens.HeaderOrange,
+                modifier = Modifier.weight(1f)
+            )
+            RetroPanel(
+                shape = RetroShapes.medium,
+                color = RetroTokens.Yellow,
+                modifier = Modifier.clickable { onRetry() }
+            ) {
+                Text(
+                    text = "RETRY",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = RetroTokens.Background,
+                    modifier = Modifier.padding(
+                        horizontal = 14.dp,
+                        vertical = 8.dp
+                    )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EngineStatusPill(statusText: String) {
+    RetroPanel(shape = RetroShapes.medium) {
+        Text(
+            text = statusText.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = RetroTokens.Yellow,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun EngineSourceCostPanel(sourceLabel: String, costText: String?) {
+    RetroPanel(shape = RetroShapes.medium) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "SOURCE: $sourceLabel",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = RetroTokens.Yellow
+            )
+            if (costText != null) {
+                Text(
+                    text = costText,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = RetroTokens.TextSecondary
+                )
             }
         }
     }
