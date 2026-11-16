@@ -39,14 +39,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import com.example.data.mapper.RadarFrame
 import com.example.data.mapper.pressureDescriptor
 import com.example.data.mapper.visibilityDescriptor
-import com.example.data.mapper.RadarRange
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.Place
 import com.example.domain.model.RegionalPoint
-import com.example.ui.RadarLayer
 import com.example.ui.WeatherViewModel
 import com.example.ui.airpollen.AirPollenScreen
 import com.example.ui.alerts.AlertsScreen
@@ -55,7 +52,7 @@ import com.example.ui.designsystem.NavPillItem
 import com.example.ui.designsystem.PillSegmentedControl
 import com.example.ui.designsystem.RetroTokens
 import com.example.ui.home.HomeScreen
-import com.example.ui.radar.RadarScreen
+import com.example.ui.radar.engine.RadarEngineTab
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.sunmoon.SunMoonScreen
 import androidx.compose.material.icons.Icons
@@ -104,15 +101,6 @@ fun WeatherNavDisplay(
     pirateWeatherWorking: Boolean,
     pirateWeatherAttempted: Boolean,
 
-    selectedRadarLayer: RadarLayer,
-    selectedRadarRange: RadarRange,
-    currentRadarFrameIndex: Int,
-    // Fix 13 (AUDIT6 §9): the ViewModel-owned frame list, shared with
-    // RadarScreen so the ViewModel and the screen never compute their
-    // own lists from different `now`s. Null keeps the screen's own
-    // frozen list (previews / callers without a ViewModel).
-    radarFrames: List<RadarFrame>? = null,
-    isRadarPlaying: Boolean,
     regionalPoints: List<RegionalPoint> = emptyList(),
     musicEnabled: Boolean = false,
     onToggleMusic: () -> Unit = {},
@@ -225,11 +213,6 @@ fun WeatherNavDisplay(
                             pirateWeatherWorking = pirateWeatherWorking,
                             pirateWeatherAttempted = pirateWeatherAttempted,
 
-                            selectedRadarLayer = selectedRadarLayer,
-                            selectedRadarRange = selectedRadarRange,
-                            currentRadarFrameIndex = currentRadarFrameIndex,
-                            radarFrames = radarFrames,
-                            isRadarPlaying = isRadarPlaying,
                             onNavigate = onNavigate,
                             tickerVisible = tickerVisible,
                             regionalPoints = regionalPoints,
@@ -269,11 +252,6 @@ fun WeatherNavDisplay(
                     pirateWeatherWorking = pirateWeatherWorking,
                     pirateWeatherAttempted = pirateWeatherAttempted,
 
-                    selectedRadarLayer = selectedRadarLayer,
-                    selectedRadarRange = selectedRadarRange,
-                    currentRadarFrameIndex = currentRadarFrameIndex,
-                    radarFrames = radarFrames,
-                    isRadarPlaying = isRadarPlaying,
                     onNavigate = onNavigate,
                     tickerVisible = tickerVisible,
                     regionalPoints = regionalPoints,
@@ -618,11 +596,6 @@ private fun ScreenContent(
     pirateWeatherWorking: Boolean,
     pirateWeatherAttempted: Boolean,
 
-    selectedRadarLayer: RadarLayer,
-    selectedRadarRange: RadarRange,
-    currentRadarFrameIndex: Int,
-    radarFrames: List<RadarFrame>? = null,
-    isRadarPlaying: Boolean,
     onNavigate: (ScreenDestination) -> Unit,
     tickerVisible: Boolean,
     regionalPoints: List<RegionalPoint> = emptyList(),
@@ -641,10 +614,6 @@ private fun ScreenContent(
     val onRefresh = remember(viewModel) { { viewModel.refresh() } }
     val onSelectPlace = remember(viewModel) { { id: String -> viewModel.selectPlace(id) } }
     val onUseCurrentLocation = remember(viewModel) { { highAccuracy: Boolean -> viewModel.useCurrentLocation(highAccuracy) } }
-    val onSelectRadarLayer = remember(viewModel) { { layer: RadarLayer -> viewModel.setRadarLayer(layer) } }
-    val onSelectRadarRange = remember(viewModel) { { range: RadarRange -> viewModel.setRadarRange(range) } }
-    val onToggleRadarPlay = remember(viewModel) { { viewModel.toggleRadarPlay() } }
-    val onScrubRadarFrame = remember(viewModel) { { index: Int -> viewModel.setRadarFrameIndex(index) } }
     val onSetUseMetric = remember(viewModel) { { metric: Boolean -> viewModel.setUseMetric(metric) } }
     val onSavePirateWeatherApiKey = remember(viewModel) { { key: String -> viewModel.setPirateWeatherApiKey(key) } }
     val onAddPlace = remember(viewModel) { { name: String, state: String, lat: Double, lon: Double -> viewModel.addPlace(name, state, lat, lon) } }
@@ -677,17 +646,11 @@ private fun ScreenContent(
             regionalPoints = regionalPoints
         )
 
-        ScreenDestination.Radar -> RadarScreen(
-            state = weatherState,
-            selectedLayer = selectedRadarLayer,
-            selectedRange = selectedRadarRange,
-            currentFrameIndex = currentRadarFrameIndex,
-            isPlaying = isRadarPlaying,
-            onSelectLayer = onSelectRadarLayer,
-            onSelectRange = onSelectRadarRange,
-            onTogglePlay = onToggleRadarPlay,
-            onScrubFrame = onScrubRadarFrame,
-            radarFrames = radarFrames,
+        // Phase 5 cutover: the engine IS the Radar tab. The old
+        // RadarScreen is no longer called from anywhere; the file
+        // stays in place for the deletion pass.
+        ScreenDestination.Radar -> RadarEngineTab(
+            place = selectedPlace ?: weatherState?.place,
             tickerVisible = tickerVisible
         )
 

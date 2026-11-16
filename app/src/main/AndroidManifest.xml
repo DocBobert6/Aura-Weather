@@ -34,20 +34,9 @@
             </intent-filter>
         </activity>
 
-        <!-- Phase 1 radar rebuild: MapLibre engine activity. No intent
-             filter, not exported, debug-gated at runtime (it finishes
-             immediately on non-debug builds). Debug builds get a
-             launcher entry for it via the activity-alias in
-             app/src/debug/AndroidManifest.xml ("Aura Radar Engine"
-             icon) so Robert can run the Phase 1 device gate without
-             adb; the release APK has no such entry. It becomes the
-             radar screen at the Phase 5 cutover. -->
-        <activity
-            android:name=".ui.radar.engine.RadarEngineActivity"
-            android:exported="false"
-            android:label="Aura Radar Engine"
-            android:resizeableActivity="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density" />
+        <!-- Phase 5 cutover: the MapLibre radar engine has no activity
+             of its own any more — RadarEngineTab hosts the controller
+             as the Radar tab. No launcher entry exists for it. -->
 
         <!-- 3.2 home-screen widget. The system must be able to deliver
              APPWIDGET_UPDATE to it, so it is exported. -->

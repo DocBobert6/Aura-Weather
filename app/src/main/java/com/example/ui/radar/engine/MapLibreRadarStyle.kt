@@ -5,8 +5,8 @@ package com.example.ui.radar.engine
  *
  * Pure Kotlin: no Android, no MapLibre, no Compose imports — compiled
  * and unit-tested locally with kotlinc + JUnit (see
- * MapLibreRadarStyleTest); the engine activity
- * ([RadarEngineActivity]) consumes these builders.
+ * MapLibreRadarStyleTest); the engine controller
+ * ([RadarEngineController]) consumes these builders.
  *
  * Shape (from the Phase 0 spikes, RADAR_PHASE0_MAPLIBRE.md):
  * - Raster-only style JSON: version 8, navy background, Esri basemap,
@@ -191,7 +191,7 @@ fun radarFutureFrameLayerId(index: Int): String = "radar-future-frame-layer-$ind
  * LibreWXR sources are built at fallback time (their tile templates
  * embed the per-frame `path` from the maps JSON, known only after
  * metadata arrives) — unlike the IEM sources, whose layer names are
- * static. See `RadarEngineActivity` for the build/teardown order
+ * static. See `RadarEngineController` for the build/teardown order
  * (layer first, then source — a source still referenced by a layer
  * cannot simply be removed).
  */

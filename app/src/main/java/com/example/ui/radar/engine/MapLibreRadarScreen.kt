@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.data.mapper.RadarFrame
+import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
 import com.example.ui.designsystem.GlassIconButton
 import com.example.ui.designsystem.PillSegmentedControl
@@ -51,7 +52,7 @@ import org.maplibre.android.maps.MapView
 
 /**
  * Phase 2 — the new radar screen's foundation: MapLibre map + retro
- * chrome overlays. The map engine lives in [RadarEngineActivity]
+ * chrome overlays. The map engine lives in [RadarEngineController]
  * (MapView, style, sources, layers); this file is chrome only.
  *
  * Chrome is the old screen's look, unchanged: the same
@@ -61,16 +62,15 @@ import org.maplibre.android.maps.MapView
  * transport at the bottom). Two deliberate differences from the old
  * screen, both structural, neither visual:
  * - No bottom nav bar or ticker here: both are owned by
- *   `WeatherNavDisplay`, not by the radar screen, and this screen
- *   runs standalone (debug launcher entry) until the Phase 5 cutover
- *   wires it into the nav. The bottom controls therefore pad 16dp,
- *   not `AuraBars.contentBottomPadding`; at cutover that padding
- *   becomes the nav clearance again.
- * - No "Local Site" layer pill: Phase 1 has no place/station state
- *   (standalone activity, Cincinnati default centre). The pill set is
- *   Radar / Sat Visible / Sat IR.
+ *   `WeatherNavDisplay`, not by the radar screen. The bottom controls
+ *   therefore pad `AuraBars.contentBottomPadding(tickerVisible)` —
+ *   the nav clearance (bar height + ticker when visible + the
+ *   navigationBars inset, PR #18) — so the last control is never
+ *   hidden behind the docked bar.
+ * - No "Local Site" layer pill: the place drives the centre instead
+ *   (Phase 5). The pill set is Radar / Sat Visible / Sat IR.
  *
- * Phase 2 loop chrome (the activity computes, this file displays):
+ * Phase 2 loop chrome (the controller computes, this file displays):
  * - The play button works now: Pause icon while the loop is playing,
  *   PlayArrow otherwise; disabled unless the loop is PRIMED, PLAYING
  *   or WAITING_NEXT. The slider pauses the loop while the user drags
@@ -94,7 +94,7 @@ import org.maplibre.android.maps.MapView
  *   playable the unavailable panel carries the state instead.
  *
  * Phase 3 satellite chrome (same panels, lifted out of the
- * radar-only gate — the activity computes, this file displays):
+ * radar-only gate — the controller computes, this file displays):
  * - The status pill shows "LOADING SATELLITE…" while the satellite
  *   image resolves, and the unavailable panel shows "SATELLITE
  *   UNAVAILABLE" with the same RETRY pill when there is no image to
@@ -147,6 +147,7 @@ fun RadarEngineScreen(
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onRecenter: () -> Unit,
+    tickerVisible: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val isSatellite = selectedLayer != EngineLayer.Radar
@@ -163,7 +164,7 @@ fun RadarEngineScreen(
         EngineRange.Future24h -> "IN 24H"
         EngineRange.Future48h -> "IN 48H"
     }
-    // The slider fires onValueChange on every drag move; the activity
+    // The slider fires onValueChange on every drag move; the controller
     // needs exactly one start/end pair per drag, so the drag state
     // lives here and the start callback fires on the first move only.
     var scrubDragging by remember { mutableStateOf(false) }
@@ -332,9 +333,8 @@ fun RadarEngineScreen(
         // bottom column with just the three shared panels — status,
         // unavailable + RETRY, source + cost — so a satellite visit
         // says what it is doing and what it cost. Bottom padding is
-        // 16dp — there is no nav bar to clear in the standalone
-        // activity (see the file header); at cutover this becomes the
-        // nav clearance again.
+        // the nav clearance (`AuraBars.contentBottomPadding`), so the
+        // last control clears the docked bar and the ticker.
         if (isSatellite) {
             Column(
                 modifier = Modifier
@@ -344,7 +344,7 @@ fun RadarEngineScreen(
                         start = 16.dp,
                         end = 16.dp,
                         top = 16.dp,
-                        bottom = 16.dp
+                        bottom = AuraBars.contentBottomPadding(tickerVisible)
                     ),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -368,7 +368,7 @@ fun RadarEngineScreen(
                         start = 16.dp,
                         end = 16.dp,
                         top = 16.dp,
-                        bottom = 16.dp
+                        bottom = AuraBars.contentBottomPadding(tickerVisible)
                     ),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -377,7 +377,7 @@ fun RadarEngineScreen(
                 // a GlassIconButton: that button is a fixed 48dp
                 // circle and the word RETRY would clip inside it.
                 // Shared with the satellite bottom column (same panel,
-                // "SATELLITE UNAVAILABLE" text from the activity).
+                // "SATELLITE UNAVAILABLE" text from the controller).
                 if (unavailableText != null) {
                     EngineUnavailablePanel(unavailableText, onRetry)
                 }
