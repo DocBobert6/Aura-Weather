@@ -12,7 +12,6 @@ import okhttp3.Response
 import okhttp3.logging.HttpLoggingInterceptor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.TimeUnit
@@ -100,43 +99,17 @@ class HttpClientsTest {
     }
 
     @Test
-    fun testTilePrefetchClientDispatcherLimits() {
-        val dispatcher = HttpClients.tilePrefetchClient().dispatcher
-        assertEquals(
-            "Prefetch lane stays at the old 5-per-host level so a burst cannot starve display",
-            HttpClients.TILE_PREFETCH_MAX_REQUESTS_PER_HOST,
-            dispatcher.maxRequestsPerHost
-        )
-        assertEquals(5, dispatcher.maxRequestsPerHost)
-        assertEquals(HttpClients.TILE_PREFETCH_MAX_REQUESTS, dispatcher.maxRequests)
-        assertEquals(32, dispatcher.maxRequests)
-    }
-
-    @Test
-    fun testTileLanesAreSeparateDispatchers() {
-        val display = HttpClients.tileDisplayClient()
-        val prefetch = HttpClients.tilePrefetchClient()
-        assertNotSame(
-            "Display and prefetch must not share a dispatcher, or prefetch could queue behind display",
-            display.dispatcher,
-            prefetch.dispatcher
-        )
-        assertNotSame(display, prefetch)
-    }
-
-    @Test
     fun testTileClientsCarryNoNwsHeadersAndNoLogging() {
-        for (client in listOf(HttpClients.tileDisplayClient(), HttpClients.tilePrefetchClient())) {
-            assertFalse(
-                "Tile hosts are IEM / Esri / GIBS, not api.weather.gov — no NWS headers",
-                client.interceptors.any { it is NwsHeaderInterceptor }
-            )
-            assertFalse(
-                "A tile burst would flood logcat — no logging interceptor on tile lanes",
-                client.interceptors.any { it is HttpLoggingInterceptor }
-            )
-            assertTrue("Tile lanes carry no interceptors at all", client.interceptors.isEmpty())
-        }
+        val client = HttpClients.tileDisplayClient()
+        assertFalse(
+            "Tile hosts are IEM / Esri / GIBS, not api.weather.gov — no NWS headers",
+            client.interceptors.any { it is NwsHeaderInterceptor }
+        )
+        assertFalse(
+            "A tile burst would flood logcat — no logging interceptor on the tile client",
+            client.interceptors.any { it is HttpLoggingInterceptor }
+        )
+        assertTrue("The tile client carries no interceptors at all", client.interceptors.isEmpty())
     }
 
     @Test

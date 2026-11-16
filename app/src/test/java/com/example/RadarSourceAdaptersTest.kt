@@ -3,22 +3,16 @@ package com.example
 import com.example.data.mapper.DEFAULT_RADAR_SOURCE_ORDER
 import com.example.data.mapper.LibreWxrFrame
 import com.example.data.mapper.LibreWxrMaps
-import com.example.data.mapper.RadarFrameContent
+import com.example.data.mapper.LonLatBbox
 import com.example.data.mapper.RadarSourceKind
-import com.example.data.mapper.availableSources
 import com.example.data.mapper.fallbackAfter
-import com.example.data.mapper.libreWxrFrameTileUrls
 import com.example.data.mapper.libreWxrLoopFrames
 import com.example.data.mapper.libreWxrTileUrl
 import com.example.data.mapper.mrmsExportImageUrl
 import com.example.data.mapper.mrmsFrameTimesFromServiceInfoJson
 import com.example.data.mapper.mrmsFrameTimesFromTimeExtent
-import com.example.data.mapper.mrmsFramesForViewport
 import com.example.data.mapper.parseLibreWxrMaps
 import com.example.data.mapper.parseMrmsTimeExtent
-import com.example.data.mapper.tileXToLon
-import com.example.data.mapper.tileYToLat
-import com.example.data.mapper.viewportBboxForTileGrid
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -45,53 +39,6 @@ import org.junit.Test
  */
 class RadarSourceAdaptersTest {
 
-    private val centerLat = 38.7833
-    private val centerLon = -84.6027
-
-    // -- Web Mercator inverse (RadarSources) -------------------------------
-
-    @Test
-    fun testTileXToLon_crittendenZoom8() {
-        // lonToTileX(-84.6027, 8) = 67, so tile 67's west edge is just
-        // west of Crittenden and tile 68's west edge just east of it.
-        assertTrue(tileXToLon(67, 8) < centerLon)
-        assertTrue(tileXToLon(68, 8) > centerLon)
-        assertEquals(-85.78125, tileXToLon(67, 8), 0.00001)
-    }
-
-    @Test
-    fun testTileYToLat_crittendenZoom8() {
-        // latToTileY(38.7833, 8) = 98, so tile 98's north edge is just
-        // north of Crittenden and tile 99's north edge just south.
-        assertTrue(tileYToLat(98, 8) > centerLat)
-        assertTrue(tileYToLat(99, 8) < centerLat)
-    }
-
-    @Test
-    fun testTileInverse_roundTripsLonLat() {
-        // tileXToLon/tileYToLat invert RadarTiles' lonToTileX/latToTileY:
-        // the centre lon/lat must fall inside its own tile's edges.
-        val x = com.example.data.mapper.lonToTileX(centerLon, 8)
-        val y = com.example.data.mapper.latToTileY(centerLat, 8)
-        assertEquals(67, x)
-        assertEquals(98, y)
-        assertTrue(centerLon in tileXToLon(x, 8)..tileXToLon(x + 1, 8))
-        assertTrue(centerLat in tileYToLat(y + 1, 8)..tileYToLat(y, 8))
-    }
-
-    @Test
-    fun testViewportBbox_containsCentreAndMargin() {
-        val bbox = viewportBboxForTileGrid(centerLat, centerLon, 8, 6, 11, marginTiles = 1)
-        assertTrue(bbox.contains(centerLon, centerLat))
-        assertTrue(bbox.westLon < centerLon && bbox.eastLon > centerLon)
-        assertTrue(bbox.southLat < centerLat && bbox.northLat > centerLat)
-        // One margin tile each side: the span is the 7x11 drawn grid
-        // (6/2 and 11/2 halves, +1 tile each side) plus the margin.
-        val noMargin = viewportBboxForTileGrid(centerLat, centerLon, 8, 6, 11, marginTiles = 0)
-        assertTrue(bbox.westLon < noMargin.westLon)
-        assertTrue(bbox.eastLon > noMargin.eastLon)
-    }
-
     // -- Fallback ordering (RadarSources) ----------------------------------
 
     @Test
@@ -109,23 +56,19 @@ class RadarSourceAdaptersTest {
         assertNull(fallbackAfter(RadarSourceKind.IEM))
     }
 
-    @Test
-    fun testAvailableSources_dropsUnavailable() {
-        assertEquals(
-            listOf(RadarSourceKind.LIBRE_WXR, RadarSourceKind.IEM),
-            availableSources(setOf(RadarSourceKind.MRMS))
-        )
-        assertEquals(
-            listOf(RadarSourceKind.MRMS),
-            availableSources(setOf(RadarSourceKind.LIBRE_WXR, RadarSourceKind.IEM))
-        )
-    }
-
     // -- MRMS (MrmsTiles) ---------------------------------------------------
 
     @Test
     fun testMrmsExportImageUrl_probedShape() {
-        val bbox = viewportBboxForTileGrid(centerLat, centerLon, 8, 6, 11, marginTiles = 0)
+        // The Crittenden KY bbox at zoom 8, 6x11 grid, no margin
+        // (tiles X 64..71, Y 93..104) — the same bbox the deleted
+        // viewportBboxForTileGrid helper built for this test.
+        val bbox = LonLatBbox(
+            westLon = -90.0,
+            southLat = 31.952162238024968,
+            eastLon = -80.15625,
+            northLat = 44.087585028245165
+        )
         val url = mrmsExportImageUrl(bbox, 1794715977000L, 512, 512)
         assertTrue(url.startsWith("https://mapservices.weather.noaa.gov/eventdriven/rest/services/radar/radar_base_reflectivity_time/ImageServer/exportImage?"))
         assertTrue(url.contains("bboxSR=4326"))
@@ -175,22 +118,6 @@ class RadarSourceAdaptersTest {
     fun testMrmsFrameTimes_invertedExtentIsEmpty() {
         assertTrue(mrmsFrameTimesFromTimeExtent(2000L, 1000L).isEmpty())
         assertTrue(mrmsFrameTimesFromServiceInfoJson("{\"nope\":true}").isEmpty())
-    }
-
-    @Test
-    fun testMrmsFramesForViewport_oneImagePerFrame() {
-        val json = "{\"timeInfo\":{\"timeExtent\":[1794709257000,1794715977000]}}"
-        val bbox = viewportBboxForTileGrid(centerLat, centerLon, 8, 6, 11, marginTiles = 1)
-        val frames = mrmsFramesForViewport(json, bbox, 1080, 1000)
-        assertEquals(22, frames.size)
-        assertTrue(frames.all { it.source == RadarSourceKind.MRMS })
-        // MRMS shape: ONE image per frame, never a tile grid.
-        val first = frames.first()
-        val content = first.content as RadarFrameContent.SingleImage
-        assertEquals(bbox, content.bbox)
-        assertEquals(1080, content.widthPx)
-        assertEquals(1000, content.heightPx)
-        assertTrue(content.url.contains("time=1794709500000"))
     }
 
     // -- LibreWXR (LibreWxrTiles) --------------------------------------------
@@ -283,15 +210,4 @@ class RadarSourceAdaptersTest {
         )
     }
 
-    @Test
-    fun testLibreWxrFrameTileUrls_gridMatchesIemGrid() {
-        val maps = parseLibreWxrMaps(sampleMapsJson)!!
-        val frame = maps.past.last()
-        val urls = libreWxrFrameTileUrls(maps, frame, centerLat, centerLon, 8, 6, 11)
-        // Same 7x11 = 77-tile grid the IEM path draws at this zoom.
-        assertEquals(77, urls.size)
-        assertEquals(77, urls.toSet().size)
-        assertTrue(urls.contains("https://api.librewxr.net/v2/radar/1794716400/256/8/67/98/2/1_1.png"))
-        assertTrue(urls.all { it.startsWith("https://api.librewxr.net/v2/radar/1794716400/256/8/") })
-    }
 }
