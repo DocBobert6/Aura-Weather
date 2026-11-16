@@ -1,3 +1,37 @@
+# Aura Weather 0.2.0
+
+You can now add a place by searching for it, and remove places you no
+longer need.
+
+## Place search
+
+- In Settings, under Saved Places, ADD now opens a search box. Type a
+  city, a city and state (like "Crittenden, KY"), or a zip code, and
+  pick the right place from the list.
+- A zip code is looked up first on Zippopotam.us, with Open-Meteo as
+  the backup if that fails. City names are searched on Open-Meteo.
+- Entering latitude and longitude by hand is still there — it is the
+  "ENTER COORDINATES" button in the search box.
+
+## Remove a location
+
+- Every saved place now has a remove button in Settings. Tap it and
+  the place is gone right away, along with its saved weather.
+- If you remove the place you are currently looking at, another saved
+  place is selected instead — or the app goes back to the empty state
+  if that was the last one.
+- Current Location cannot be removed: it is your phone's GPS location,
+  and it comes back every time you tap "use current location".
+
+## Notes
+
+- This is an arm64-only APK (`arm64-v8a`); there is no universal build.
+- The signed release APK will not install over a debug build (different
+  signing key). Uninstall the debug build first — that wipes app data,
+  including places and settings, which need re-adding afterwards.
+
+---
+
 # Aura Weather 0.1.1
 
 Fixes the first-launch crash in 0.1.0. That release crashed every time it

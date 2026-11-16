@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +65,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
 import com.example.core.UnitFormatter
+import com.example.data.geocoding.PlaceSearchResult
 import com.example.ui.designsystem.RetroShapes
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -621,6 +623,11 @@ private fun ScreenContent(
     // ViewModel instance never changes, so these stay valid.
     val onRefresh = remember(viewModel) { { viewModel.refresh() } }
     val onSelectPlace = remember(viewModel) { { id: String -> viewModel.selectPlace(id) } }
+    val onRemovePlace = remember(viewModel) { { id: String -> viewModel.removePlace(id) } }
+    val onSearchPlaces = remember(viewModel) { { query: String -> viewModel.searchPlaces(query) } }
+    val onClearPlaceSearch = remember(viewModel) { { viewModel.clearPlaceSearch() } }
+    val onAddSearchedPlace = remember(viewModel) { { result: PlaceSearchResult -> viewModel.addSearchedPlace(result) } }
+    val placeSearchState by viewModel.placeSearchState.collectAsState()
     val onUseCurrentLocation = remember(viewModel) { { highAccuracy: Boolean -> viewModel.useCurrentLocation(highAccuracy) } }
     val onSetUseMetric = remember(viewModel) { { metric: Boolean -> viewModel.setUseMetric(metric) } }
     val onSavePirateWeatherApiKey = remember(viewModel) { { key: String -> viewModel.setPirateWeatherApiKey(key) } }
@@ -697,6 +704,11 @@ private fun ScreenContent(
 
             onSelectPlace = onSelectPlace,
             onAddPlace = onAddPlace,
+            onRemovePlace = onRemovePlace,
+            placeSearchState = placeSearchState,
+            onSearchPlaces = onSearchPlaces,
+            onClearPlaceSearch = onClearPlaceSearch,
+            onAddSearchedPlace = onAddSearchedPlace,
             tickerVisible = tickerVisible,
             crtFilterEnabled = crtFilterEnabled,
             onSetCrtFilterEnabled = onSetCrtFilterEnabled,

@@ -33,7 +33,8 @@ class MainActivity : ComponentActivity() {
             weatherRepository = app.container.weatherRepository,
             settingsManager = app.container.settingsManager,
             fusedLocationClient = app.container.fusedLocationClient,
-            appContext = applicationContext
+            appContext = applicationContext,
+            geocodingRepository = app.container.geocodingRepository
         )
     }
 

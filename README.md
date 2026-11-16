@@ -6,13 +6,18 @@ The look is the classic late-90s / early-2000s Weather Channel local forecast �
 
 ## Status
 
-0.1.1 released — tag `v0.1.1` (`versionName "0.1.1"` / `versionCode 6` in
-`app/build.gradle.kts`), arm64-only APK. Fixes the 0.1.0 first-launch
-crash: R8 had renamed the weather-condition names Moshi reads when saving
-the forecast cache, so the first cache save crashed the app. The in-app
-updater (see below) finds that release. Release builds are cut from a
-`v*` tag by `.github/workflows/release.yml`, which signs the arm64 APK
-with the release keystore and attaches it to the GitHub release.
+0.2.0 — tag `v0.2.0` (`versionName "0.2.0"` / `versionCode 7` in
+`app/build.gradle.kts`), arm64-only APK. Adds place search and
+remove-a-location: Settings → SAVED PLACES → ADD now searches a city,
+"City, ST", or a zip code (Open-Meteo Geocoding + Zippopotam.us) and
+shows a picker list to tap; entering coordinates stays as a secondary
+path. Each saved place has a remove button; Current Location cannot be
+removed (it is the device's GPS place). 0.1.1 fixed the 0.1.0
+first-launch crash: R8 had renamed the weather-condition names Moshi
+reads when saving the forecast cache, so the first cache save crashed
+the app. Release builds are cut from a `v*` tag by
+`.github/workflows/release.yml`, which signs the arm64 APK with the
+release keystore and attaches it to the GitHub release.
 
 ---
 
@@ -74,12 +79,19 @@ with the release keystore and attaches it to the GitHub release.
     - When an update is found, the app downloads the release APK and installs it only if its SHA-256 digest matches the digest GitHub reported for the asset and its signing certificate matches the installed app. With no digest reported, the install is refused outright.
     - The updater finds the first GitHub release (0.1.0, tag `v0.1.0`) and any later stable release; with no releases published, it correctly reports "up to date".
 
+12. **Place Search & Remove a Location**
+    - Settings → SAVED PLACES → ADD searches instead of asking for latitude/longitude: type a city, "City, ST" (e.g. Crittenden, KY), or a zip code. A 5-digit zip is looked up on Zippopotam.us first (Open-Meteo Geocoding is the fallback); anything else goes to Open-Meteo Geocoding only. Results always show as a list — name, region, country, population when the API gives one — and tapping one adds it; nothing is auto-picked. Typing is debounced (~300 ms) and nothing is searched under 2 characters.
+    - Entering coordinates by hand stays available from the search dialog ("ENTER COORDINATES").
+    - Every saved place has a remove button, immediate on tap. Removing the selected place selects another saved place, or clears to the empty state when none remains; the removed place's cached weather is deleted too. Current Location cannot be removed.
+
 ---
 
 ## 📡 Data Sources & Attribution
 
 - **National Weather Service (NOAA)**: `https://api.weather.gov/` (Public domain US Government data). Requests carry the User-Agent `AuraWeather/1.0 (https://github.com/DocBobert6/Aura-Weather)`.
 - **Open-Meteo**: `https://api.open-meteo.com/` (Weather data by Open-Meteo.com under CC BY 4.0) — forecast, hourly/daily, and air quality.
+- **Open-Meteo Geocoding**: `https://geocoding-api.open-meteo.com/` (Place search by Open-Meteo.com under CC BY 4.0) — city names worldwide, and a US zip code as the query.
+- **Zippopotam.us**: `https://api.zippopotam.us/` (US zip-code lookup for place search — first choice for zip queries).
 - **Pirate Weather**: `https://api.pirateweather.net/` — true 1-minute precipitation for the minute-cast, when the user has entered their own key in Settings. Free tier, no card required.
 - **Iowa Environmental Mesonet (IEM)**: Iowa State University / NOAA NEXRAD Level III composite tile cache — the last-resort live-radar fallback, and the tile host for HRRR simulated reflectivity in the IN 24H / IN 48H forecast ranges.
 - **Esri World Dark Gray Base**: dark basemap under the radar and the regional map (keyless, `server.arcgisonline.com`). CARTO dark_all now returns an "API KEY REQUIRED" watermark tile and cannot be used.

@@ -198,6 +198,31 @@ class WeatherRepository(
     }
 
     /**
+     * Removes a saved place (0.2.0). The Current Location row is NOT
+     * removable: it is the device's GPS place, re-created on every
+     * "use current location" tap, so deleting it would be immediately
+     * undone and confusing. The UI hides its remove button; this guard
+     * is the second line of defence.
+     * Removing the selected place selects another saved place if one
+     * remains (DAO order: presets first, then name), else clears to
+     * the empty state. The removed place's cache rows go with it.
+     */
+    suspend fun removePlace(placeId: String) = withContext(Dispatchers.IO) {
+        if (placeId == CURRENT_LOCATION_ID) return@withContext
+        val entity = savedPlaceDao.getPlaceById(placeId) ?: return@withContext
+        val wasSelected = entity.isSelected
+        savedPlaceDao.deletePlace(entity)
+        weatherCacheDao.deleteCache(placeId)
+        if (!wasSelected) return@withContext
+        val remaining = savedPlaceDao.getAllPlaces().first()
+        if (remaining.isEmpty()) {
+            clearWeather()
+        } else {
+            selectPlace(remaining.first().id)
+        }
+    }
+
+    /**
      * Records the device's current location as the one "Current Location"
      * place. Every tap updates the same row — it never mints a new place.
      */
