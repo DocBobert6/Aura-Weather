@@ -70,12 +70,6 @@ class WeatherViewModel(
     val rainAlertsEnabled: StateFlow<Boolean> = settingsManager.rainAlertsEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    /** Radar time range (Build B): Live is the 10-frame 45-min loop; the
-     * others are past 24/48/72h (archived mosaic) and future 24/48h
-     * (HRRR simulated reflectivity, a forecast). */
-
-    /**
-
     /**
      * Regional map points (R5): the centre place first, then its
      * neighbours. Empty while the neighbour fetch is pending, and empty
