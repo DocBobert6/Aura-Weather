@@ -40,6 +40,10 @@ import com.example.data.mapper.radarFrameLabel
 import com.example.data.mapper.radarRangeFrames
 import com.example.ui.theme.AuraWeatherTheme
 import java.time.Instant
+import java.util.Locale
+import kotlin.math.atan
+import kotlin.math.exp
+import kotlin.math.PI
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
@@ -97,16 +101,29 @@ import org.maplibre.android.style.sources.TileSet
  *   DEMAND from fetched bytes (at most 2 bitmaps alive — the two
  *   slots); `setUri` is never used for loop frames (it would
  *   double-fetch and reintroduce the cache question).
+ * - Satellite (Phase 3): one WMS single-image JPEG per layer visit
+ *   (viewport x 1.5, ~0.85 MB VIS / ~0.33 MB IR), drawn through two
+ *   `ImageSource` slots with the same 150 ms crossfade as MRMS; the
+ *   scan time is probed per layer on the WMS path itself (direct
+ *   256x256 GetMaps, newest non-blank of 5 per round, 2 rounds max,
+ *   10-min TTL cache), blank-checked by pixel sampling before display,
+ *   held across refresh (the old image stays visible until the new
+ *   one decodes), and the WMTS tile grid — rebuilt with the resolved
+ *   scan time — is the fallback when WMS fails. Chrome is honest:
+ *   "LOADING SATELLITE…" while resolving, "SATELLITE UNAVAILABLE" +
+ *   RETRY only when there is no image to hold, and "GIBS WMS" /
+ *   "GIBS TILES" + actual fetched bytes per switch.
  * - Pan/zoom/rotate are MapLibre's own gestures (on by default);
  *   the zoom/recenter buttons drive the camera directly. A pan past
  *   the 0.5° margin (or a zoom outside 7..9, snapped back on settle)
  *   re-resolves the MRMS loop with a new bbox; small pans are free.
+ *   On satellite the same settle retargets the WMS image (pan past
+ *   the margin, or a zoom change); in tiles-fallback mode a pan
+ *   needs nothing — MapLibre fetches the new area itself.
  * - Centre is Cincinnati (Robert's area) until the Phase 5 cutover
  *   wires the screen to the place state.
  *
  * What Phase 2 deliberately does NOT do (later phases own it):
- * - Satellite: the GIBS timestamp is still frozen at style build
- *   (Phase 3 owns per-path probing and refresh).
  * - Future ranges show only the first [RADAR_ENGINE_FUTURE_WINDOW]
  *   frames (Phase 4 owns the full ranges through the frame store).
  *   The future window runs through the same store class and ticker
@@ -175,6 +192,76 @@ class RadarEngineActivity : ComponentActivity() {
     private var mrmsSourceB: ImageSource? = null
     private var mrmsLayerA: RasterLayer? = null
     private var mrmsLayerB: RasterLayer? = null
+    private var satSourceA: ImageSource? = null
+    private var satSourceB: ImageSource? = null
+    private var satLayerA: RasterLayer? = null
+    private var satLayerB: RasterLayer? = null
+
+    // -- Satellite (Phase 3) -------------------------------------------------
+
+    /** Satellite display path: WMS single image, or the WMTS tile grid. */
+    private enum class SatMode { WMS, TILES, NONE }
+
+    /** Satellite chrome state (drives the status / unavailable panels). */
+    private enum class SatState { LOADING, SHOWING, UNAVAILABLE }
+
+    /** Why a satellite resolution is running. */
+    private enum class SatResolveReason { LAYER_SWITCH, RETARGET, REFRESH, RETRY }
+
+    /** Own generation counter for satellite fetches (never the loop's):
+     *  byte accounting and the negative cache are satellite-scoped, so
+     *  the cost text reports this visit's bytes, probes included. */
+    private var satGenerationId: Long = 0L
+
+    /** Current satellite mode / chrome state (per layer-visit). */
+    private var satMode: SatMode = SatMode.NONE
+    private var satState: SatState = SatState.LOADING
+
+    /** Resolved WMS scan times, one entry per layer, 10-min TTL. */
+    private val satTimestampCache = WmsTimestampCache()
+
+    /** Fetched WMS JPEG bytes, keyed by layer + scan time + bbox
+     *  ([satKey]) — a switch-back to a layer whose timestamp is still
+     *  fresh is a decode-only operation (no network). Capped at the 2
+     *  most recent entries (one per layer); a bbox change clears the
+     *  entries for that layer. */
+    private val satBytes = LinkedHashMap<String, ByteArray>()
+
+    /** The bbox / quad the current satellite image was fetched for. */
+    private var satBbox: WmsBbox3857? = null
+    private var satQuad: LatLngQuad? = null
+
+    /** Camera the current satellite image's bbox was built on
+     *  (pan-margin origin) and the Int zoom it was computed at. */
+    private var satBboxCentre: LatLng? = null
+    private var satBboxZoom: Int = -1
+
+    /** Which layer the currently displayed satellite image belongs to
+     *  (null when the tiles fallback or nothing is showing). */
+    private var satShowingLayer: WmsSatelliteLayer? = null
+
+    /** Which layer+time+bbox key each WMS slot's bitmap belongs to
+     *  (null = no bitmap yet), and which key is decoding into it. */
+    private val satSlotKey = arrayOf<String?>(null, null)
+    private val satDecodingKey = arrayOf<String?>(null, null)
+
+    /** The bitmaps currently held by the WMS slots (for recycling on
+     *  supersede — safe: `ImageSource.setImage` copies the pixels
+     *  into native storage, verified against the 13.7.1 SDK source). */
+    private val satSlotBitmaps = arrayOf<Bitmap?>(null, null)
+
+    /** Which WMS slot's layer is currently at opacity 1 (0 or 1). */
+    private var satVisibleSlot: Int = 0
+
+    /** Is a WMS slot currently visible (either layer at opacity 1)? */
+    private var satSlotsVisible: Boolean = false
+
+    /** The in-flight satellite resolution (cancelled by a newer one). */
+    private var satResolveJob: Job? = null
+
+    /** Sequence guard for satellite resolutions (a superseded decode
+     *  never places its bitmap). */
+    private var satResolveSeq: Long = 0L
 
     // -- The loop ----------------------------------------------------------
 
@@ -318,8 +405,11 @@ class RadarEngineActivity : ComponentActivity() {
             mapLibreMap = map
             map.cameraPosition = CameraPosition.Builder()
                 .target(ENGINE_CENTER).zoom(RADAR_ENGINE_ZOOM).build()
-            // GIBS time is frozen at style build in Phase 1 (Phase 3
-            // owns per-path probing and refresh).
+            // GIBS time here is ONLY the initial value baked into the
+            // style JSON — it is never displayed. Phase 3 resolves the
+            // real per-layer scan time by probing (WmsSatellite)
+            // before first satellite display, and rebuilds the tile
+            // sources with the probed time on fallback.
             val gibsTime = gibsTimestamp(now)
             map.setStyle(
                 Style.Builder().fromJson(buildRadarStyleJson(gibsTime, gibsTime)),
@@ -330,6 +420,11 @@ class RadarEngineActivity : ComponentActivity() {
                     syncSourcesForCurrentGeneration()
                     applyLayerAndFrame()
                     refreshUiState()
+                    if (selectedLayer != EngineLayer.Radar) {
+                        wmsLayerFor(selectedLayer)?.let {
+                            resolveSatellite(it, SatResolveReason.LAYER_SWITCH)
+                        }
+                    }
                 }
             )
         }
@@ -475,6 +570,36 @@ class RadarEngineActivity : ComponentActivity() {
             Log.i(TAG, "added MRMS ImageSources A/B, bbox ${radarBboxToParam(mrmsBbox)} (1.5x)")
         } catch (e: Exception) {
             Log.w(TAG, "adding MRMS sources failed: ${e.javaClass.simpleName}: ${e.message}")
+        }
+
+        // Satellite WMS two-slot ImageSources (Phase 3): one pair
+        // serves both layers — VIS and IR are never visible at once,
+        // so a layer switch is a new fetch into the idle slot. Same
+        // 1x1 transparent placeholder as MRMS, never a placeholder URI.
+        // Added after the MRMS slots, so plain addLayer puts them on
+        // top (the topmost satellite content; the radar layers sit
+        // above them only via the fallback's addLayerBelow).
+        try {
+            val placeholder = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+            satSourceA = ImageSource(
+                RADAR_ENGINE_SAT_WMS_SLOT_A, mrmsQuad, placeholder
+            )
+            satSourceB = ImageSource(
+                RADAR_ENGINE_SAT_WMS_SLOT_B, mrmsQuad, placeholder
+            )
+            style.addSource(satSourceA!!)
+            style.addSource(satSourceB!!)
+            satLayerA = RasterLayer(
+                radarSatWmsLayerId(RADAR_ENGINE_SAT_WMS_SLOT_A), RADAR_ENGINE_SAT_WMS_SLOT_A
+            ).withProperties(PropertyFactory.rasterOpacity(0f))
+            satLayerB = RasterLayer(
+                radarSatWmsLayerId(RADAR_ENGINE_SAT_WMS_SLOT_B), RADAR_ENGINE_SAT_WMS_SLOT_B
+            ).withProperties(PropertyFactory.rasterOpacity(0f))
+            style.addLayer(satLayerA!!)
+            style.addLayer(satLayerB!!)
+            Log.i(TAG, "added satellite WMS ImageSources A/B")
+        } catch (e: Exception) {
+            Log.w(TAG, "adding satellite WMS sources failed: ${e.javaClass.simpleName}: ${e.message}")
         }
 
         // Basemap read-back (JSON-declared source, prefetch default ON).
@@ -627,8 +752,23 @@ class RadarEngineActivity : ComponentActivity() {
                 visibleLiveIemIndex = hideTiledFamily(liveFrameLayers, visibleLiveIemIndex)
                 visibleLibreWxrIndex = hideTiledFamily(libreWxrFrameLayers, visibleLibreWxrIndex)
                 visibleFutureIndex = hideTiledFamily(futureFrameLayers, visibleFutureIndex)
-                setOpacity(satVisLayer, if (selectedLayer == EngineLayer.SatelliteVis) 1f else 0f)
-                setOpacity(satIrLayer, if (selectedLayer == EngineLayer.SatelliteIr) 1f else 0f)
+                if (satMode == SatMode.TILES) {
+                    // Tiles fallback owns the display: hide the WMS
+                    // pair and flip the tile layers (the fallback
+                    // rebuild already set the opacities; this keeps a
+                    // layer switch consistent).
+                    hideSatWmsPair()
+                    setOpacity(satVisLayer, if (selectedLayer == EngineLayer.SatelliteVis) 1f else 0f)
+                    setOpacity(satIrLayer, if (selectedLayer == EngineLayer.SatelliteIr) 1f else 0f)
+                } else {
+                    // WMS owns the display: the tile layers stay
+                    // hidden and the pair shows once its image is
+                    // placed. A layer switch hides the previous
+                    // layer's image (wrong layer to hold).
+                    setOpacity(satVisLayer, 0f)
+                    setOpacity(satIrLayer, 0f)
+                    hideSatWmsPair()
+                }
             }
             EngineLayer.Radar -> {
                 setOpacity(satVisLayer, 0f)
@@ -799,6 +939,651 @@ class RadarEngineActivity : ComponentActivity() {
         if (!liveStore.isReady(index)) return
         if (slotFrameIndex.contains(index)) return
         decodeMrmsFrameIntoSlot(index, 1 - visibleSlot)
+    }
+
+    // -- Satellite WMS (Phase 3) -------------------------------------------
+
+    private data class SatTimeResolution(
+        val scanTimeMs: Long,
+        val candidates: List<Long>,
+        val blankByTime: Map<Long, Boolean>,
+        /** Rounds already probed (0 = from the cache, no probe map). */
+        val roundsProbed: Int
+    )
+
+    private data class SatProbeRound(
+        val candidates: List<Long>,
+        val blankByTime: Map<Long, Boolean>
+    )
+
+    private data class SatDecoded(val bitmap: Bitmap, val blank: Boolean)
+
+    private enum class SatPlaceOutcome { Placed, Blank, Dropped, DecodeFailed }
+
+    private fun wmsLayerFor(layer: EngineLayer): WmsSatelliteLayer? = when (layer) {
+        EngineLayer.SatelliteVis -> WmsSatelliteLayer.VISIBLE
+        EngineLayer.SatelliteIr -> WmsSatelliteLayer.INFRARED
+        EngineLayer.Radar -> null
+    }
+
+    private fun engineLayerFor(layer: WmsSatelliteLayer): EngineLayer = when (layer) {
+        WmsSatelliteLayer.VISIBLE -> EngineLayer.SatelliteVis
+        WmsSatelliteLayer.INFRARED -> EngineLayer.SatelliteIr
+    }
+
+    /** Viewport in physical pixels (the MapView size, or the display
+     *  metrics before first layout — the map is full-screen, so the
+     *  two agree; never a hardcoded size). */
+    private fun satelliteViewportPx(): Pair<Int, Int> {
+        val view = mapView
+        val w = view?.width ?: 0
+        val h = view?.height ?: 0
+        if (w > 0 && h > 0) return w to h
+        val dm = resources.displayMetrics
+        return dm.widthPixels to dm.heightPixels
+    }
+
+    /** EPSG:3857 metres back to lon/lat degrees (Worker A provides no
+     *  inverse — the pure core only goes lon/lat -> 3857). */
+    private fun lonLatFrom3857(x: Double, y: Double): Pair<Double, Double> {
+        val lon = Math.toDegrees(x / EPSG3857_EARTH_RADIUS_METRES)
+        val lat = Math.toDegrees(
+            2.0 * atan(exp(y / EPSG3857_EARTH_RADIUS_METRES)) - PI / 2.0
+        )
+        return lon to lat
+    }
+
+    /** The [LatLngQuad] for a WMS bbox (corners in lon/lat degrees). */
+    private fun quadForBbox(bbox: WmsBbox3857): LatLngQuad {
+        val (westLon, southLat) = lonLatFrom3857(bbox.minX, bbox.minY)
+        val (eastLon, northLat) = lonLatFrom3857(bbox.maxX, bbox.maxY)
+        return LatLngQuad(
+            LatLng(northLat, westLon),
+            LatLng(northLat, eastLon),
+            LatLng(southLat, eastLon),
+            LatLng(southLat, westLon)
+        )
+    }
+
+    /** Bbox signature for the held-bytes key (2 decimals, as the URL). */
+    private fun satBboxSignature(bbox: WmsBbox3857): String =
+        listOf(bbox.minX, bbox.minY, bbox.maxX, bbox.maxY)
+            .joinToString(",") { "%.2f".format(Locale.US, it) }
+
+    /** Held-bytes key: layer + scan time + bbox. */
+    private fun satKey(
+        layer: WmsSatelliteLayer,
+        scanTimeMs: Long,
+        bbox: WmsBbox3857
+    ): String = "${layer.name}|$scanTimeMs|${satBboxSignature(bbox)}"
+
+    /** Hold WMS bytes, capped at the 2 most recent entries (one per
+     *  layer); the eldest goes first. */
+    private fun putSatBytes(key: String, bytes: ByteArray) {
+        satBytes[key] = bytes
+        while (satBytes.size > 2) {
+            val eldest = satBytes.keys.firstOrNull() ?: break
+            satBytes.remove(eldest)
+        }
+    }
+
+    /** A new layer visit: fresh fetcher generation (byte accounting +
+     *  negative cache are satellite-scoped), WMS attempted first, and
+     *  the status pill shows LOADING until an image is placed. */
+    private fun beginSatelliteVisit(layer: WmsSatelliteLayer) {
+        fetcher.endGeneration(satGenerationId)
+        satGenerationId++
+        satMode = SatMode.WMS
+        satState = SatState.LOADING
+        Log.i(TAG, "satellite visit ($layer): generation $satGenerationId")
+    }
+
+    /**
+     * Resolve satellite for [layer] (layer switch, pan/zoom retarget,
+     * 10-min refresh, RETRY). Cancels any in-flight resolution — a
+     * superseded resolve never places its bitmap ([satResolveSeq]).
+     * The visible image is never cleared first: a refresh or retarget
+     * holds the old image until the new one decodes and crossfades.
+     */
+    private fun resolveSatellite(layer: WmsSatelliteLayer, reason: SatResolveReason) {
+        if (loadedStyle == null) return
+        satResolveJob?.cancel()
+        satResolveJob = lifecycleScope.launch {
+            resolveSatelliteInner(layer, reason)
+        }
+    }
+
+    private suspend fun resolveSatelliteInner(
+        layer: WmsSatelliteLayer,
+        reason: SatResolveReason
+    ) {
+        val seq = ++satResolveSeq
+        Log.i(TAG, "satellite resolve ($layer, $reason, seq $seq)")
+        val target = currentTarget()
+        val zoomInt = currentTileZoom()
+        val (viewW, viewH) = satelliteViewportPx()
+        val bbox = wmsBbox3857(target.longitude, target.latitude, viewW, viewH, zoomInt)
+        val (imgW, imgH) = wmsImageSizeForViewport(viewW, viewH)
+        val quad = quadForBbox(bbox)
+        // A bbox change clears this layer's held bytes for other bboxes.
+        val bboxSig = satBboxSignature(bbox)
+        satBytes.keys.filter { it.startsWith("${layer.name}|") && !it.endsWith("|$bboxSig") }
+            .forEach { satBytes.remove(it) }
+        val resolution = resolveSatelliteTime(layer, bbox)
+        if (resolution == null) {
+            if (seq != satResolveSeq) return
+            if (satShowingLayer == layer && satSlotsVisible) {
+                // Probe exhausted but an image is held: stay SHOWING
+                // on the old image; retry at the next 10-min tick.
+                Log.i(TAG, "satellite probe exhausted — holding previous image")
+                refreshUiState()
+                return
+            }
+            enterSatelliteTilesFallback(layer, "probe-exhausted")
+            return
+        }
+        val key = satKey(layer, resolution.scanTimeMs, bbox)
+        val held = satBytes[key]
+        if (held != null) {
+            if (placeHeldSatelliteBytes(
+                    layer, resolution.scanTimeMs, bbox, quad,
+                    target, zoomInt, key, held, seq
+                )
+            ) return
+            satBytes.remove(key)
+        }
+        fetchAndPlaceSatellite(
+            layer, resolution, bbox, quad, target, zoomInt, imgW, imgH, key, seq
+        )
+    }
+
+    /**
+     * Resolve the WMS scan time for [layer] over [bbox]: the cached
+     * time while the 10-min TTL holds, else 5 parallel direct
+     * 256x256 GetMap probes (round 1), newest non-blank wins; round 2
+     * only when round 1 is all blank. Never a fixed backoff, never
+     * GetCapabilities, never a third round.
+     */
+    private suspend fun resolveSatelliteTime(
+        layer: WmsSatelliteLayer,
+        bbox: WmsBbox3857
+    ): SatTimeResolution? {
+        val nowMs = System.currentTimeMillis()
+        if (!satTimestampCache.needsResolve(layer, nowMs)) {
+            val cached = satTimestampCache.resolvedTime(layer)
+            if (cached != null) {
+                return SatTimeResolution(cached, emptyList(), emptyMap(), 0)
+            }
+        }
+        val round1 = probeSatelliteRound(layer, bbox, 1, nowMs)
+        val pick1 = newestNonBlank(round1.candidates, round1.blankByTime)
+        if (pick1 != null) {
+            satTimestampCache.recordResolved(layer, pick1, nowMs)
+            return SatTimeResolution(pick1, round1.candidates, round1.blankByTime, 1)
+        }
+        val round2 = probeSatelliteRound(layer, bbox, 2, nowMs)
+        val pick2 = newestNonBlank(round2.candidates, round2.blankByTime)
+        if (pick2 != null) {
+            satTimestampCache.recordResolved(layer, pick2, nowMs)
+            return SatTimeResolution(pick2, round2.candidates, round2.blankByTime, 2)
+        }
+        Log.w(TAG, "satellite probe exhausted ($layer): no non-blank scan in 10 candidates")
+        return null
+    }
+
+    /** One probe round: all 5 candidates in parallel through the same
+     *  fetcher (single-flight collapses any duplicate URL). */
+    private suspend fun probeSatelliteRound(
+        layer: WmsSatelliteLayer,
+        bbox: WmsBbox3857,
+        round: Int,
+        nowMs: Long
+    ): SatProbeRound {
+        val candidates = wmsTimeCandidates(nowMs, round)
+        val blankByTime = coroutineScope {
+            candidates.map { timeMs ->
+                async(Dispatchers.Default) {
+                    timeMs to probeSatelliteCandidate(layer, bbox, timeMs)
+                }
+            }.awaitAll().toMap()
+        }
+        Log.i(
+            TAG,
+            "satellite probe round $round ($layer): " +
+                "${blankByTime.count { !it.value }} non-blank of ${candidates.size}"
+        )
+        return SatProbeRound(candidates, blankByTime)
+    }
+
+    /** One candidate probe: true = blank (or failed — unproven is not
+     *  usable). XML is sniffed BEFORE decoding; a decode failure is
+     *  blank too. The decoded probe bitmap is recycled here. */
+    private suspend fun probeSatelliteCandidate(
+        layer: WmsSatelliteLayer,
+        bbox: WmsBbox3857,
+        timeMs: Long
+    ): Boolean {
+        val url = wmsSmallProbeUrl(layer, bbox, timeMs)
+        val result = withTimeoutOrNull(RADAR_ENGINE_SAT_REQUEST_TIMEOUT_MS) {
+            fetcher.fetch(url, satGenerationId)
+        } ?: return true
+        val bytes = (result as? FetchResult.Success)?.bytes ?: return true
+        if (isXmlErrorBody(bytes)) return true
+        val decoded = decodeAndSampleSatellite(bytes) ?: return true
+        val blank = decoded.blank
+        decoded.bitmap.recycle()
+        return blank
+    }
+
+    /**
+     * Step back from a blank full image to the next older probed-good
+     * candidate (probing the next round first when the rounds already
+     * run hold none). Returns the older scan time, or null when no
+     * probed-good candidate remains — the caller then falls back to
+     * tiles.
+     */
+    private suspend fun stepBackSatelliteTime(
+        layer: WmsSatelliteLayer,
+        resolution: SatTimeResolution,
+        bbox: WmsBbox3857
+    ): Long? {
+        val nowMs = System.currentTimeMillis()
+        val tried = resolution.blankByTime + (resolution.scanTimeMs to true)
+        val older = newestNonBlank(resolution.candidates, tried)
+        if (older != null) {
+            satTimestampCache.recordResolved(layer, older, nowMs)
+            Log.i(
+                TAG,
+                "satellite WMS blank at ${formatWmsTime(resolution.scanTimeMs)} — " +
+                    "stepping back to ${formatWmsTime(older)}"
+            )
+            return older
+        }
+        if (resolution.roundsProbed >= 2) return null
+        var roundToProbe = if (resolution.roundsProbed == 0) 1 else 2
+        while (roundToProbe <= 2) {
+            val round = probeSatelliteRound(layer, bbox, roundToProbe, nowMs)
+            val pick = newestNonBlank(
+                round.candidates,
+                round.blankByTime + (resolution.scanTimeMs to true)
+            )
+            if (pick != null) {
+                satTimestampCache.recordResolved(layer, pick, nowMs)
+                return pick
+            }
+            roundToProbe++
+        }
+        return null
+    }
+
+    /**
+     * Fetch the full GetMap at the resolved time and place it. On a
+     * blank image, step back once to the next older probed-good time
+     * and retry the full GetMap once there. Any terminal failure
+     * (fetch / XML / decode / step-back exhausted) falls back to the
+     * WMTS tile grid — never a blank layer, never a shown blank.
+     */
+    private suspend fun fetchAndPlaceSatellite(
+        layer: WmsSatelliteLayer,
+        resolution: SatTimeResolution,
+        bbox: WmsBbox3857,
+        quad: LatLngQuad,
+        centre: LatLng,
+        zoomInt: Int,
+        imgW: Int,
+        imgH: Int,
+        key: String,
+        seq: Long
+    ) {
+        val url = wmsGetMapUrl(layer, bbox, imgW, imgH, resolution.scanTimeMs)
+        val result = withTimeoutOrNull(RADAR_ENGINE_SAT_REQUEST_TIMEOUT_MS) {
+            fetcher.fetch(url, satGenerationId)
+        }
+        if (result !is FetchResult.Success) {
+            Log.w(
+                TAG,
+                "satellite WMS fetch failed ($layer @ ${formatWmsTime(resolution.scanTimeMs)}): " +
+                    "${if (result == null) "timeout" else result.javaClass.simpleName} — tiles fallback"
+            )
+            if (seq == satResolveSeq) enterSatelliteTilesFallback(layer, "wms-fetch-failed")
+            return
+        }
+        val bytes = result.bytes
+        if (isXmlErrorBody(bytes)) {
+            Log.w(
+                TAG,
+                "satellite WMS XML error ($layer @ ${formatWmsTime(resolution.scanTimeMs)}) — tiles fallback"
+            )
+            if (seq == satResolveSeq) enterSatelliteTilesFallback(layer, "wms-xml-error")
+            return
+        }
+        putSatBytes(key, bytes)
+        val idle = 1 - satVisibleSlot
+        when (decodeSatFrameIntoSlot(
+            idle, key, bytes, bbox, quad, centre, zoomInt,
+            layer, resolution.scanTimeMs, seq
+        )) {
+            SatPlaceOutcome.Placed -> return
+            SatPlaceOutcome.Dropped -> return // superseded; the newer resolve owns the chrome
+            SatPlaceOutcome.DecodeFailed -> {
+                satBytes.remove(key)
+                Log.w(TAG, "satellite WMS decode failed ($layer) — tiles fallback")
+                if (seq == satResolveSeq) enterSatelliteTilesFallback(layer, "wms-decode-failed")
+                return
+            }
+            SatPlaceOutcome.Blank -> {
+                satBytes.remove(key)
+                Log.i(
+                    TAG,
+                    "satellite WMS blank at ${formatWmsTime(resolution.scanTimeMs)} — stepping back"
+                )
+            }
+        }
+        val older = stepBackSatelliteTime(layer, resolution, bbox)
+        if (older == null) {
+            if (seq == satResolveSeq) {
+                enterSatelliteTilesFallback(layer, "wms-blank-stepback-exhausted")
+            }
+            return
+        }
+        val url2 = wmsGetMapUrl(layer, bbox, imgW, imgH, older)
+        val result2 = withTimeoutOrNull(RADAR_ENGINE_SAT_REQUEST_TIMEOUT_MS) {
+            fetcher.fetch(url2, satGenerationId)
+        }
+        if (result2 !is FetchResult.Success || isXmlErrorBody(result2.bytes)) {
+            Log.w(TAG, "satellite WMS step-back fetch failed ($layer) — tiles fallback")
+            if (seq == satResolveSeq) enterSatelliteTilesFallback(layer, "wms-stepback-failed")
+            return
+        }
+        val key2 = satKey(layer, older, bbox)
+        putSatBytes(key2, result2.bytes)
+        when (decodeSatFrameIntoSlot(
+            1 - satVisibleSlot, key2, result2.bytes, bbox, quad, centre, zoomInt,
+            layer, older, seq
+        )) {
+            SatPlaceOutcome.Placed -> Unit
+            SatPlaceOutcome.Blank -> {
+                satBytes.remove(key2)
+                if (seq == satResolveSeq) enterSatelliteTilesFallback(layer, "wms-stepback-blank")
+            }
+            SatPlaceOutcome.DecodeFailed -> {
+                satBytes.remove(key2)
+                if (seq == satResolveSeq) {
+                    enterSatelliteTilesFallback(layer, "wms-stepback-decode-failed")
+                }
+            }
+            SatPlaceOutcome.Dropped -> Unit
+        }
+    }
+
+    /**
+     * Place held bytes for [key]: if a slot already holds this exact
+     * image, crossfade straight to it (no decode); else decode into
+     * the idle slot. Returns true when an image is showing.
+     */
+    private suspend fun placeHeldSatelliteBytes(
+        layer: WmsSatelliteLayer,
+        scanTimeMs: Long,
+        bbox: WmsBbox3857,
+        quad: LatLngQuad,
+        centre: LatLng,
+        zoomInt: Int,
+        key: String,
+        bytes: ByteArray,
+        seq: Long
+    ): Boolean {
+        val heldSlot = satSlotKey.indexOf(key)
+        if (heldSlot >= 0 && satSlotBitmaps[heldSlot] != null) {
+            withContext(Dispatchers.Main) {
+                if (seq != satResolveSeq || selectedLayer != engineLayerFor(layer)) {
+                    return@withContext
+                }
+                setOpacity(satVisLayer, 0f)
+                setOpacity(satIrLayer, 0f)
+                satBbox = bbox
+                satQuad = quad
+                satBboxCentre = centre
+                satBboxZoom = zoomInt
+                satMode = SatMode.WMS
+                satState = SatState.SHOWING
+                satShowingLayer = layer
+                crossfadeSatTo(heldSlot)
+                refreshUiState()
+            }
+            return true
+        }
+        val idle = 1 - satVisibleSlot
+        return decodeSatFrameIntoSlot(
+            idle, key, bytes, bbox, quad, centre, zoomInt,
+            layer, scanTimeMs, seq
+        ) == SatPlaceOutcome.Placed
+    }
+
+    /**
+     * Decode WMS [bytes] into [slot], off the main thread, sampling a
+     * coarse 64 px grid for the blank check BEFORE `setImage` — a
+     * blank image is never shown. Mirrors `decodeMrmsFrameIntoSlot`:
+     * on Main, the generation guard, `setCoordinates` + `setImage`,
+     * then the crossfade only if the fetch is still current. A
+     * rejected decode is recycled; a superseded slot's bitmap is
+     * recycled once its replacement is set (native copied it).
+     */
+    private suspend fun decodeSatFrameIntoSlot(
+        slot: Int,
+        key: String,
+        bytes: ByteArray,
+        bbox: WmsBbox3857,
+        quad: LatLngQuad,
+        centre: LatLng,
+        zoomInt: Int,
+        layer: WmsSatelliteLayer,
+        scanTimeMs: Long,
+        seq: Long
+    ): SatPlaceOutcome {
+        satDecodingKey[slot] = key
+        try {
+            val decoded = decodeAndSampleSatellite(bytes)
+                ?: return SatPlaceOutcome.DecodeFailed
+            if (decoded.blank) {
+                decoded.bitmap.recycle()
+                return SatPlaceOutcome.Blank
+            }
+            return withContext(Dispatchers.Main) {
+                if (seq != satResolveSeq || selectedLayer != engineLayerFor(layer)) {
+                    decoded.bitmap.recycle()
+                    return@withContext SatPlaceOutcome.Dropped
+                }
+                val source = if (slot == 0) satSourceA else satSourceB
+                if (source == null) {
+                    decoded.bitmap.recycle()
+                    return@withContext SatPlaceOutcome.Dropped
+                }
+                if (slot == satVisibleSlot && satSlotsVisible && satSlotKey[slot] != key) {
+                    // This slot became visible for another image while
+                    // decoding; do not swap the visible image.
+                    decoded.bitmap.recycle()
+                    return@withContext SatPlaceOutcome.Dropped
+                }
+                satSlotBitmaps[slot]?.recycle()
+                satSlotBitmaps[slot] = decoded.bitmap
+                source.setCoordinates(quad)
+                source.setImage(decoded.bitmap)
+                satSlotKey[slot] = key
+                satBbox = bbox
+                satQuad = quad
+                satBboxCentre = centre
+                satBboxZoom = zoomInt
+                setOpacity(satVisLayer, 0f)
+                setOpacity(satIrLayer, 0f)
+                satMode = SatMode.WMS
+                satState = SatState.SHOWING
+                satShowingLayer = layer
+                crossfadeSatTo(slot)
+                refreshUiState()
+                SatPlaceOutcome.Placed
+            }
+        } finally {
+            if (satDecodingKey[slot] == key) satDecodingKey[slot] = null
+        }
+    }
+
+    /** Decode JPEG bytes and sample the coarse grid, on Default. */
+    private suspend fun decodeAndSampleSatellite(bytes: ByteArray): SatDecoded? =
+        withContext(Dispatchers.Default) {
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                ?: return@withContext null
+            SatDecoded(bitmap, isBlankSample(sampleSatelliteBitmap(bitmap)))
+        }
+
+    /**
+     * Coarse-grid sampling, every 64 px — exactly the probe's grid
+     * (~1,170 samples for a 1620x2880 image). Never every pixel, never
+     * a downscaled thumbnail.
+     */
+    private fun sampleSatelliteBitmap(bitmap: Bitmap): List<Triple<Int, Int, Int>> {
+        val samples = ArrayList<Triple<Int, Int, Int>>()
+        var y = 0
+        while (y < bitmap.height) {
+            var x = 0
+            while (x < bitmap.width) {
+                val px = bitmap.getPixel(x, y)
+                samples.add(
+                    Triple((px shr 16) and 0xFF, (px shr 8) and 0xFF, px and 0xFF)
+                )
+                x += 64
+            }
+            y += 64
+        }
+        return samples
+    }
+
+    private fun crossfadeSatTo(slot: Int) {
+        val showLayer = if (slot == 0) satLayerA else satLayerB
+        val hideLayer = if (slot == 0) satLayerB else satLayerA
+        setOpacity(showLayer, 1f)
+        setOpacity(hideLayer, 0f)
+        satVisibleSlot = slot
+        satSlotsVisible = true
+    }
+
+    private fun hideSatWmsPair() {
+        if (!satSlotsVisible) return
+        setOpacity(satLayerA, 0f)
+        setOpacity(satLayerB, 0f)
+        satSlotsVisible = false
+    }
+
+    /**
+     * WMTS tile fallback: rebuild this layer's JSON tile source with
+     * the resolved WMS scan time (WMTS availability is a superset of
+     * WMS at that time — the WMS backend lags WMTS), hide the WMS
+     * pair, and show the tile grid. No satellite prefetch, parents
+     * from cache only (`prefetchZoomDelta = 0`). One fallback per
+     * visit: the mode stays TILES until RETRY or a fresh visit.
+     * The failed WMS resolution is invalidated AFTER the fallback
+     * reads it, so the next WMS attempt re-probes from scratch.
+     */
+    private fun enterSatelliteTilesFallback(layer: WmsSatelliteLayer, reason: String) {
+        if (loadedStyle == null) return
+        val isVisible = layer == WmsSatelliteLayer.VISIBLE
+        val timeMs = satTimestampCache.resolvedTime(layer)
+            ?: roundDownTo10Min(System.currentTimeMillis() - 3_600_000L)
+        val timeStr = formatWmsTime(timeMs)
+        if (!rebuildSatelliteTileSources(isVisible, timeStr)) {
+            satMode = SatMode.TILES
+            satState = SatState.UNAVAILABLE
+            satShowingLayer = null
+            Log.w(TAG, "satellite tiles fallback rebuild failed ($layer) — unavailable")
+            refreshUiState()
+            return
+        }
+        hideSatWmsPair()
+        satMode = SatMode.TILES
+        satState = SatState.SHOWING
+        satShowingLayer = null
+        setOpacity(if (isVisible) satVisLayer else satIrLayer, 1f)
+        setOpacity(if (isVisible) satIrLayer else satVisLayer, 0f)
+        satTimestampCache.recordFetchFailure(layer)
+        Log.w(TAG, "satellite tiles fallback ($layer @ $timeStr): $reason")
+        refreshUiState()
+    }
+
+    /**
+     * Rebuild one JSON satellite tile source with [gibsTime]: remove
+     * layer then source (a referenced source cannot be removed),
+     * re-add, and re-insert BELOW the first live frame layer — plain
+     * `addLayer` would put satellite on top of the radar layers.
+     * Returns false when the rebuild itself throws.
+     */
+    private fun rebuildSatelliteTileSources(isVisible: Boolean, gibsTime: String): Boolean {
+        val style = loadedStyle ?: return false
+        val sourceId = if (isVisible) RADAR_ENGINE_SAT_VIS_SOURCE_ID else RADAR_ENGINE_SAT_IR_SOURCE_ID
+        val layerId = if (isVisible) RADAR_ENGINE_SAT_VIS_LAYER_ID else RADAR_ENGINE_SAT_IR_LAYER_ID
+        return try {
+            try {
+                style.removeLayer(layerId)
+            } catch (e: Exception) {
+                Log.w(TAG, "removing satellite layer failed: ${e.javaClass.simpleName}")
+            }
+            try {
+                style.removeSource(sourceId)
+            } catch (e: Exception) {
+                Log.w(TAG, "removing satellite source failed: ${e.javaClass.simpleName}")
+            }
+            val tileSet = TileSet("2.2.0", gibsTileTemplate(isVisible, gibsTime)).apply {
+                maxZoom = satelliteMaxZoom(isVisible).toFloat()
+            }
+            val source = RasterSource(sourceId, tileSet, 256)
+            source.prefetchZoomDelta = 0
+            style.addSource(source)
+            val layer = RasterLayer(layerId, sourceId)
+                .withProperties(PropertyFactory.rasterOpacity(0f))
+            style.addLayerBelow(layer, radarLiveFrameLayerId(0))
+            if (isVisible) satVisLayer = layer else satIrLayer = layer
+            Log.i(TAG, "rebuilt satellite tile source $sourceId @ $gibsTime")
+            true
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "rebuilding satellite tile source failed: ${e.javaClass.simpleName}: ${e.message}"
+            )
+            false
+        }
+    }
+
+    /**
+     * 10-min satellite re-resolve while staying on satellite: only
+     * when the cached timestamp is stale, and never from tiles
+     * fallback (no flapping back to WMS mid-visit). A refresh that
+     * finds the same timestamp does nothing — no network.
+     */
+    private fun refreshSatelliteIfDue() {
+        if (selectedLayer == EngineLayer.Radar) return
+        if (satMode == SatMode.TILES) return
+        val layer = wmsLayerFor(selectedLayer) ?: return
+        if (!satTimestampCache.needsResolve(layer, System.currentTimeMillis())) return
+        resolveSatellite(layer, SatResolveReason.REFRESH)
+    }
+
+    /**
+     * Pan/zoom settle on satellite, WMS mode only: retarget when the
+     * camera target moved past the 0.5° margin from the image's bbox
+     * centre, or when the settled zoom differs from the zoom the
+     * image was fetched at. The old image holds until the new one
+     * decodes. In tiles mode MapLibre fetches the new area itself.
+     */
+    private fun onSatelliteMapIdle(target: LatLng, zoom: Double) {
+        if (loadedStyle == null) return
+        if (satMode != SatMode.WMS) return
+        if (satState != SatState.SHOWING) return
+        val layer = wmsLayerFor(selectedLayer) ?: return
+        val zoomInt = zoom.toInt().coerceIn(0, 22)
+        val centre = satBboxCentre
+        val moved = centre == null ||
+            panPastMargin(centre.latitude, centre.longitude, target.latitude, target.longitude)
+        if (!moved && zoomInt == satBboxZoom) return
+        Log.i(TAG, "satellite settle (moved=$moved zoom $satBboxZoom->$zoomInt) — retarget WMS")
+        resolveSatellite(layer, SatResolveReason.RETARGET)
     }
 
     // -- Loop resolution (metadata, generation, fallback) ------------------
@@ -1337,6 +2122,7 @@ class RadarEngineActivity : ComponentActivity() {
         try {
             refreshLiveLoop()
             if (futureStore.generationId > 0L) refreshFutureLoop()
+            refreshSatelliteIfDue()
             lastRefreshMs = SystemClock.uptimeMillis()
         } finally {
             refreshInFlight = false
@@ -1459,28 +2245,39 @@ class RadarEngineActivity : ComponentActivity() {
 
     /**
      * Map-idle settle (NOT a readiness signal — readiness is proven
-     * only by the fetcher). Two jobs: clamp the gesture zoom to the
-     * engine range (the +/- buttons already clamp; a pinch can exceed
-     * it, and the fixed 1.5x bbox is sized for 7..9), and re-resolve
+     * only by the fetcher). Three jobs: clamp the gesture zoom to the
+     * layer range (the +/- buttons already clamp; a pinch can exceed
+     * it — radar 7..9, satellite 5..9, the buttons' range), re-resolve
      * the MRMS loop when the camera target moved past the 0.5° pan
-     * margin. Tiled sources need no re-resolution on pan: their URLs
-     * do not embed the bbox, and MapLibre fetches the new area itself.
+     * margin, and retarget the satellite WMS image on pan/zoom settle.
+     * Tiled sources need no re-resolution on pan: their URLs do not
+     * embed the bbox, and MapLibre fetches the new area itself.
      */
     private fun onMapIdle() {
         val map = mapLibreMap ?: return
         if (loadedStyle == null) return
         val camera = map.cameraPosition
         val target = camera.target ?: ENGINE_CENTER
-        if (camera.zoom < RADAR_ENGINE_ZOOM_MIN || camera.zoom > RADAR_ENGINE_ZOOM_MAX) {
-            val clamped = camera.zoom.coerceIn(
-                RADAR_ENGINE_ZOOM_MIN.toDouble(), RADAR_ENGINE_ZOOM_MAX.toDouble()
-            )
+        val (minZoom, maxZoom) = if (selectedLayer == EngineLayer.Radar) {
+            RADAR_ENGINE_ZOOM_MIN.toDouble() to RADAR_ENGINE_ZOOM_MAX.toDouble()
+        } else {
+            // Satellite: down to z5, the IR native max; overzoom past
+            // the native max renders scaled tiles, so the top stays 9
+            // (same range as zoomByStep).
+            5.0 to RADAR_ENGINE_ZOOM_MAX.toDouble()
+        }
+        if (camera.zoom < minZoom || camera.zoom > maxZoom) {
+            val clamped = camera.zoom.coerceIn(minZoom, maxZoom)
             map.cameraPosition = CameraPosition.Builder()
                 .target(target).zoom(clamped)
                 .bearing(camera.bearing).tilt(camera.tilt).build()
-            return // the clamp move fires another idle; the pan check runs then
+            return // the clamp move fires another idle; the checks below run then
         }
-        if (selectedLayer != EngineLayer.Radar || selectedRange != EngineRange.Live) return
+        if (selectedLayer != EngineLayer.Radar) {
+            onSatelliteMapIdle(target, camera.zoom)
+            return
+        }
+        if (selectedRange != EngineRange.Live) return
         if (liveStore.generationId == 0L) return
         if (liveStore.source != RadarSourceKind.MRMS) return
         val centre = liveGenerationCentre ?: return
@@ -1516,11 +2313,20 @@ class RadarEngineActivity : ComponentActivity() {
 
     private fun selectLayer(layer: EngineLayer) {
         selectedLayer = layer
-        if (layer != EngineLayer.Radar) clampZoomForSatellite()
-        applyLayerAndFrame()
-        frameShownAtMs = SystemClock.uptimeMillis()
-        refreshUiState()
-        pokeTicker()
+        if (layer != EngineLayer.Radar) {
+            clampZoomForSatellite()
+            wmsLayerFor(layer)?.let { beginSatelliteVisit(it) }
+            applyLayerAndFrame()
+            frameShownAtMs = SystemClock.uptimeMillis()
+            refreshUiState()
+            pokeTicker()
+            wmsLayerFor(layer)?.let { resolveSatellite(it, SatResolveReason.LAYER_SWITCH) }
+        } else {
+            applyLayerAndFrame()
+            frameShownAtMs = SystemClock.uptimeMillis()
+            refreshUiState()
+            pokeTicker()
+        }
     }
 
     private fun selectRange(range: EngineRange) {
@@ -1573,14 +2379,26 @@ class RadarEngineActivity : ComponentActivity() {
     }
 
     /**
-     * RETRY: re-resolve metadata and take the best source available
-     * now (the path back UP to MRMS after an outage), or — when the
-     * loop and the frame list are unchanged — re-request everything
-     * not ready, current first (a retry that only re-requests failures
-     * is a no-op for a stalled queue). Future ranges retry their own
-     * store (HRRR is their only source).
+     * RETRY: on satellite, force a re-probe and re-attempt WMS first
+     * (a fresh visit — even when the previous visit fell back to
+     * tiles); on radar, re-resolve metadata and take the best source
+     * available now (the path back UP to MRMS after an outage), or —
+     * when the loop and the frame list are unchanged — re-request
+     * everything not ready, current first (a retry that only
+     * re-requests failures is a no-op for a stalled queue). Future
+     * ranges retry their own store (HRRR is their only source).
      */
     private fun onRetry() {
+        if (selectedLayer != EngineLayer.Radar) {
+            val layer = wmsLayerFor(selectedLayer) ?: return
+            satTimestampCache.recordFetchFailure(layer)
+            beginSatelliteVisit(layer)
+            applyLayerAndFrame()
+            resolveSatellite(layer, SatResolveReason.RETRY)
+            refreshUiState()
+            pokeTicker()
+            return
+        }
         if (selectedRange != EngineRange.Live) {
             val store = futureStore
             if (store.generationId == 0L) return
@@ -1683,6 +2501,32 @@ class RadarEngineActivity : ComponentActivity() {
         uiPlayEnabled = store.state == LiveLoopState.PRIMED ||
             store.state == LiveLoopState.PLAYING ||
             store.state == LiveLoopState.WAITING_NEXT
+        if (selectedLayer != EngineLayer.Radar) {
+            // Satellite chrome is driven by the satellite state, not
+            // the loop store: a satellite visit can load while the
+            // loop is still loading behind it, and must never show
+            // "LOADING LOOP…" for a satellite fetch. Cost is the
+            // whole switch's actual bytes (probes included), via the
+            // satellite generation — never the loop's generation.
+            uiStatusText = if (satState == SatState.LOADING) "LOADING SATELLITE…" else null
+            uiUnavailableText = if (satState == SatState.UNAVAILABLE) {
+                "SATELLITE UNAVAILABLE"
+            } else {
+                null
+            }
+            uiSourceLabel = when (satMode) {
+                SatMode.WMS -> "GIBS WMS"
+                SatMode.TILES -> "GIBS TILES"
+                SatMode.NONE -> null
+            }
+            val satBytesFetched = fetcher.totalBytesFetched(satGenerationId)
+            uiCostText = if (satBytesFetched > 0) {
+                satelliteCostText(satBytesFetched)
+            } else {
+                null
+            }
+            return
+        }
         uiStatusText = when (store.state) {
             LiveLoopState.LOADING -> "LOADING LOOP…"
             LiveLoopState.WAITING_NEXT -> "WAITING FOR NEXT FRAME…"
@@ -1695,7 +2539,6 @@ class RadarEngineActivity : ComponentActivity() {
             null
         }
         uiSourceLabel = when {
-            selectedLayer != EngineLayer.Radar -> null
             selectedRange != EngineRange.Live -> "HRRR"
             else -> store.source?.let { sourceLabel(it) }
         }
