@@ -105,9 +105,8 @@ const val RADAR_ENGINE_PAN_MARGIN_DEGREES: Double = 0.5
  * frame after this long counts as stalled. A healthy cold MRMS loop
  * primes in ~3 s (first frame) and completes in ~6 s wall (10 images
  * in parallel at ~2.8 s median server render); 20 s is 3× past a
- * healthy full load, and matches the forecast trigger's 20 s
- * precedent ([FORECAST_SLOW_WAIT_MS] in RadarTiles.kt) — the same
- * user-visible patience for both loops.
+ * healthy full load, and matches the old forecast trigger's 20 s
+ * precedent — the same user-visible patience for both loops.
  */
 const val RADAR_ENGINE_LIVE_SLOW_BUDGET_MS: Long = 20_000L
 
@@ -226,7 +225,7 @@ fun hrrrFrameTileTemplate(layerName: String): String =
 
 /**
  * GIBS WMTS tile-URL template for one satellite layer. GIBS order is
- * `{z}/{y}/{x}` (as in the canonical `gibsTileUrl`); [gibsTime] is the
+ * `{z}/{y}/{x}` (y before x, unlike XYZ); [gibsTime] is the
  * full UTC timestamp — the initial fallback value at style build, or
  * the probed WMS scan time when the activity rebuilds the source for
  * the WMTS fallback (Phase 3).

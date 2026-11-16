@@ -172,8 +172,9 @@ private fun trimOneDecimal(value: Double): String {
 /**
  * Honest first-load cost text for a future range, from ACTUAL
  * fetched bytes — the replacement for the stale estimates in
- * [loopPreloadCostText] ("FIRST LOAD ABOUT 3.5 MB THEN CACHED" for
- * 24H, "ABOUT 5 MB" for 48H). Those numbers were never measured:
+ * the old tile-screen estimator ("FIRST LOAD ABOUT 3.5 MB THEN
+ * CACHED" for 24H, "ABOUT 5 MB" for 48H). Those numbers were
+ * never measured:
  * the 2026-11-16 live probe fetched a full 77-tile frame for
  * ~26–29 KB (clear sky — tiles are mostly transparent PNGs), so a
  * whole 24H range can cost far less than 3.5 MB, and a stormy one
