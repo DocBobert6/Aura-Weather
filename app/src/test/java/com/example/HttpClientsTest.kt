@@ -112,6 +112,38 @@ class HttpClientsTest {
         assertTrue("The tile client carries no interceptors at all", client.interceptors.isEmpty())
     }
 
+    /**
+     * Place search (0.2.0): the geocoding and zip clients are the shared
+     * plain client — the same assertion as the Open-Meteo weather client.
+     * Both base URLs are HTTPS on non-NWS hosts, so no NWS header can
+     * leak to them; the Retrofit wiring in AppContainer uses
+     * plainClient() for both.
+     */
+    @Test
+    fun testGeocodingEndpointsUsePlainClient() {
+        val interceptors = HttpClients.plainClient().interceptors
+        assertFalse(
+            "The geocoding / zip client must not carry the NWS header interceptor",
+            interceptors.any { it is NwsHeaderInterceptor }
+        )
+        assertTrue(
+            "Geocoding base URL must be HTTPS",
+            ProviderEndpoints.OPEN_METEO_GEOCODING_BASE_URL.startsWith("https://")
+        )
+        assertTrue(
+            "Zippopotam base URL must be HTTPS",
+            ProviderEndpoints.ZIPPOPOTAM_BASE_URL.startsWith("https://")
+        )
+        assertFalse(
+            "Geocoding must not point at the NWS host",
+            ProviderEndpoints.OPEN_METEO_GEOCODING_BASE_URL.contains("api.weather.gov")
+        )
+        assertFalse(
+            "Zippopotam must not point at the NWS host",
+            ProviderEndpoints.ZIPPOPOTAM_BASE_URL.contains("api.weather.gov")
+        )
+    }
+
     @Test
     fun testNwsInterceptorSetsHeadersOnTheRequest() {
         val original = Request.Builder()

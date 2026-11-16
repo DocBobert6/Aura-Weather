@@ -8,7 +8,7 @@ name: CI
 # ./gradlew.
 on:
   push:
-    branches: [main, fix/correctness-phase-1, fix/post-phase3-batch, fix/rainbow-nowcast]
+    branches: [main, fix/correctness-phase-1, fix/post-phase3-batch, fix/rainbow-nowcast, fix/place-search-remove]
   pull_request:
     branches: [main]
 

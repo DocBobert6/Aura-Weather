@@ -14,6 +14,19 @@ object ProviderEndpoints {
     const val OPEN_METEO_BASE_URL = "https://api.open-meteo.com/"
     const val OPEN_METEO_AQ_BASE_URL = "https://air-quality-api.open-meteo.com/"
 
+    // Open-Meteo Geocoding (Free, Keyless, CC BY 4.0): place search.
+    // City names worldwide, and a US zip code works as the query too
+    // (probe-verified 2026-11-16: "41030" returns Crittenden, KY).
+    // Same plain client as the weather APIs — never the NWS client
+    // (no NWS headers to a non-NWS host).
+    const val OPEN_METEO_GEOCODING_BASE_URL = "https://geocoding-api.open-meteo.com/"
+
+    // Zippopotam.us (Free, Keyless): a 5-digit US zip -> place name,
+    // state, and coordinates. First choice for zip queries; Open-Meteo
+    // is the fallback when it 404s (ZIP+4 404s — the 5-digit prefix is
+    // used instead). Probe-verified 2026-11-16.
+    const val ZIPPOPOTAM_BASE_URL = "https://api.zippopotam.us/"
+
     // AQI comes from Open-Meteo Air Quality (modelled, not station
     // observations). There is no keyed provider: Tomorrow.io and
     // AirNow were removed (2026-11-10 audit build D) — their free
