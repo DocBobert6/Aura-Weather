@@ -51,12 +51,16 @@ fun CrtFilterLayer(modifier: Modifier = Modifier) {
                 val grilleColor = Color.Black.copy(alpha = CrtFilter.GRILLE_ALPHA)
                 val tintColor = Color(CrtFilter.PHOSPHOR_TINT_ARGB)
                     .copy(alpha = CrtFilter.PHOSPHOR_TINT_ALPHA)
+                // CacheDrawScope has size but no center — compute it
+                // from the size (center is a DrawScope property, only
+                // available inside onDrawBehind).
+                val layerCenter = Offset(size.width / 2f, size.height / 2f)
                 val vignetteBrush = Brush.radialGradient(
                     colors = listOf(
                         Color.Transparent,
                         Color.Black.copy(alpha = CrtFilter.VIGNETTE_EDGE_ALPHA)
                     ),
-                    center = center,
+                    center = layerCenter,
                     radius = CrtFilter.vignetteRadiusPx(size.width, size.height)
                 )
                 onDrawBehind {
