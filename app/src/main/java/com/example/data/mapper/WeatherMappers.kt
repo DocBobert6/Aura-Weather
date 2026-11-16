@@ -9,6 +9,7 @@ import com.example.domain.model.WeatherAlert
 import com.example.domain.model.WeatherCondition
 import com.example.domain.astro.SolarCalculator
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -149,6 +150,21 @@ fun fillDailyHighs(
         else pt.copy(highC = pt.highC ?: om.highC, lowC = pt.lowC ?: om.lowC)
     }
 }
+
+/**
+ * Drops daily buckets dated before [today]. The overnight NWS period
+ * that started last evening is still the first bucket after midnight,
+ * its daytime period long gone, so without this the outlook labels
+ * yesterday "TODAY" and shows "HI --" for it while the real today sits
+ * one row down labelled with tomorrow's name. [today] is the PLACE's
+ * local date, never the device date: the daily dates are in the place
+ * zone, and a place hours ahead of the device is already on its
+ * tomorrow. A today bucket with only a nighttime period is KEPT (low
+ * present, high null) — the hero then shows "H: --", never an
+ * invented high.
+ */
+fun dropPastDailyDays(days: List<DailyPoint>, today: LocalDate): List<DailyPoint> =
+    days.filter { !it.date.isBefore(today) }
 
 /**
  * Fills null daily precip/snow sums from Open-Meteo by date, and
