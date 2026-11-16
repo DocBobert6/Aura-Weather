@@ -32,12 +32,12 @@ Late alpha. No release has been cut yet and there are no tags. `versionName "4.0
    - 60-minute precipitation intensity curve and plain-language summary sentence (*e.g., "Light rain starting in 15 min..."*).
    - With a Pirate Weather key entered in Settings, the minute-cast is true 1-minute precipitation. Without a key it falls back to Open-Meteo 15-minute resolution interpolation, anchored on the current time (not midnight) and converted to mm/h.
 
-5. **Interactive Radar Viewer**
-   - 10-frame composite radar loop (~50 minutes of radar history).
-   - Ranges: LIVE (observed NEXRAD), IN 24H and IN 48H (HRRR simulated reflectivity — a forecast, labelled FORECAST, never mixed with the live loop). Future 72h is not offered: HRRR caps at 48h.
-   - Layers: Composite Radar (IEM NEXRAD composite), Local Site (the place's nearest radar site), and NASA GIBS GOES-East ABI Satellite — Visible GeoColor and Clean Infrared, at the latest 10-minute GOES scan.
-   - Play/pause animation, frame scrub slider with timestamps, and a site label. The dBZ legend and the transport pill are radar-only: satellite is a single image, so they are hidden on the satellite layers.
-   - Tiles are clipped to the content area, so they cannot paint over the header. There is no Picture-in-Picture support.
+5. **Interactive Radar Viewer** (rebuilt on MapLibre Native 13.7.1, Vulkan single-backend — the old tile screen is gone)
+   - Live: 10-frame composite radar loop (~50 minutes of radar history). MRMS is the primary source — wide-margin (1.5×) single images, decoded on demand and held in memory across the 5-minute refresh; LibreWXR 512-px tiles are the next fallback and IEM NEXRAD tiles the last. The loop is source-locked: a fallback stays fallen-back until RETRY.
+   - Ranges: LIVE (observed NEXRAD), IN 24H and IN 48H (HRRR simulated reflectivity in its live `-0` run form — a forecast, labelled FORECAST, never mixed with the live loop; about 74 frames for 24h and about 97 for 48h, with a probe-driven tail cap and a "FORECAST ENDS ABOUT … UTC" note when the tail is cut). Future 72h is not offered: HRRR caps at 48h.
+   - Layers: Composite Radar, and NASA GIBS GOES-East ABI Satellite — Visible GeoColor and Clean Infrared. There is no Local Site layer: the place drives the map centre instead. Satellite is one WMS JPEG per visit (viewport × 1.5, scan time probed live, blank-checked before display), with GIBS WMTS tiles as the fallback.
+   - Play/pause animation, frame scrub slider with timestamps, and a source + data-cost panel naming the loop's locked source (MRMS / LIBREWXR / IEM / HRRR) with the actual bytes fetched — never a fixed estimate. Frames crossfade over 150 ms. The dBZ legend and the transport pill are radar-only: satellite is a single image, so they are hidden on the satellite layers.
+   - The map is clipped to the content area, so it cannot paint over the header. There is no Picture-in-Picture support.
 
 6. **Home: 48-Hour Strip, 14-Day Outlook, Regional Map**
    - A 48-hour hourly strip (five cells across, scrollable by swiping) below the hero temperature.
@@ -74,9 +74,8 @@ Late alpha. No release has been cut yet and there are no tags. `versionName "4.0
 - **National Weather Service (NOAA)**: `https://api.weather.gov/` (Public domain US Government data). Requests carry the User-Agent `AuraWeather/1.0 (https://github.com/DocBobert6/Aura-Weather)`.
 - **Open-Meteo**: `https://api.open-meteo.com/` (Weather data by Open-Meteo.com under CC BY 4.0) — forecast, hourly/daily, and air quality.
 - **Pirate Weather**: `https://api.pirateweather.net/` — true 1-minute precipitation for the minute-cast, when the user has entered their own key in Settings. Free tier, no card required.
-- **Iowa Environmental Mesonet (IEM)**: Iowa State University / NOAA NEXRAD Level III composite tile cache — live radar and HRRR simulated reflectivity.
+- **Iowa Environmental Mesonet (IEM)**: Iowa State University / NOAA NEXRAD Level III composite tile cache — the last-resort live-radar fallback, and the tile host for HRRR simulated reflectivity in the IN 24H / IN 48H forecast ranges.
 - **Esri World Dark Gray Base**: dark basemap under the radar and the regional map (keyless, `server.arcgisonline.com`). CARTO dark_all now returns an "API KEY REQUIRED" watermark tile and cannot be used.
-- **Esri Reference / World Boundaries and Places**: city labels and boundaries on the radar map only (keyless). It is deliberately not drawn on the regional map, where its place names would collide with the overlay labels.
 - **NASA GIBS**: Global Imagery Browse Services (EOSDIS) GOES-East ABI Satellite layers.
 - **Display font**: Star4000 Large / Small, originally created by Nick Smith (twcclassics.com), redistributed in the MIT-licensed ws4kp / FUN-WeatherStar-4000 fan projects.
 - **Background music**: WeatherStar-inspired smooth-jazz tracks from the ws4kp project (netbymatt/ws4kp), AI-generated and unencumbered by copyright.
@@ -126,7 +125,7 @@ No keys are needed for the core: forecast, alerts, radar, satellite, and AQI all
 ## 📋 Assumptions & Known Limitations
 
 1. **No release yet**: late alpha, no GitHub release or tag. The app is verified in CI (unit tests + debug and release builds) and by device screenshot/video audits, but on-device confirmation of each fix is the owner's call.
-2. **Radar on a cold start**: each radar frame is 77 tiles and the loop steps faster than they arrive, so the loop can take a while to fill in the first time a range is opened. Repeat visits are served from the disk cache.
+2. **Radar on a cold start**: the live loop fetches one wide-margin MRMS image per frame (a tile proving set on a tiled fallback), so the loop can take a while to fill in the first time a range is opened. Repeat visits within a session replay from memory — MRMS bytes are held in memory and tiled frames replay from the map's in-memory tiles; the radar fetcher keeps no disk cache.
 3. **No invented data**: when a provider returns nothing for a value, the app shows it as unavailable instead of substituting a plausible number. When a load fails with no cache, it shows an error instead of a fabricated forecast.
 4. **Emergency Disclaimer**: *Not an official NWS product. In a severe weather emergency or tornado warning, always prioritize official NOAA Weather Radio and local emergency broadcast sirens.*
 5. **AQI is modelled, not official**: the AQI number is Open-Meteo's modelled CAMS value, not the EPA station reading for the area.
