@@ -34,7 +34,7 @@ class CrtFilterTest {
     fun `aperture grille is fainter than the scanlines`() {
         assertEquals(3f, CrtFilter.GRILLE_SPACING_DP, 0f)
         assertEquals(1f, CrtFilter.GRILLE_THICKNESS_DP, 0f)
-        assertEquals(0.05f, CrtFilter.GRILLE_ALPHA, 0f)
+        assertEquals(0.03f, CrtFilter.GRILLE_ALPHA, 0f)
         assertTrue(CrtFilter.GRILLE_ALPHA < CrtFilter.SCANLINE_ALPHA)
     }
 

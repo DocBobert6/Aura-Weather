@@ -24,10 +24,10 @@ import kotlin.math.sqrt
  * 3dp pitch is ~8px, a 1dp line ~2.6px):
  * - Scanlines: 3dp pitch, 1dp line, 0.10 alpha — visible on the dark
  *   radar basemap without banding the dBZ colours.
- * - Aperture grille: 3dp pitch, 1dp line, 0.05 alpha — half the
- *   scanline strength, so the vertical stripes read as phosphor
- *   mask, not a grid. (A Trinitron-style grille is vertical stripes
- *   only; a shadow-mask dot grid would need both axes at full
+ * - Aperture grille: 3dp pitch, 1dp line, 0.03 alpha — about a
+ *   third of the scanline strength, so the vertical stripes read as
+ *   phosphor mask, not a grid. (A Trinitron-style grille is vertical
+ *   stripes only; a shadow-mask dot grid would need both axes at full
  *   strength and would moire at this pitch.)
  * - Phosphor tint: warm white 0xFFFFF3D6 at 0.03 alpha — a whisper of
  *   warm glass over the whole map.
@@ -46,7 +46,7 @@ object CrtFilter {
 
     const val GRILLE_SPACING_DP = 3f
     const val GRILLE_THICKNESS_DP = 1f
-    const val GRILLE_ALPHA = 0.05f
+    const val GRILLE_ALPHA = 0.03f
 
     /** Warm phosphor glass, ARGB. */
     const val PHOSPHOR_TINT_ARGB = 0xFFFFF3D6L
