@@ -3,7 +3,10 @@ package com.example
 import android.content.Context
 import com.example.core.HttpClients
 import com.example.core.ProviderEndpoints
+import com.example.data.api.OpenMeteoGeocodingApi
 import com.example.data.api.PirateWeatherApi
+import com.example.data.api.ZippopotamApi
+import com.example.data.geocoding.GeocodingRepository
 import com.example.data.api.NwsApi
 import com.example.data.api.OpenMeteoAirQualityApi
 import com.example.data.api.OpenMeteoWeatherApi
@@ -87,6 +90,31 @@ class AppContainer(private val context: Context) {
 
     val pirateWeatherApi: PirateWeatherApi by lazy {
         pirateWeatherRetrofit.create(PirateWeatherApi::class.java)
+    }
+
+    // Place search (0.2.0): Open-Meteo Geocoding and Zippopotam.us, both
+    // on the plain client (no NWS headers — neither is an NWS endpoint).
+    private val geocodingRetrofit: Retrofit by lazy {
+        Retrofit.Builder()
+            .baseUrl(ProviderEndpoints.OPEN_METEO_GEOCODING_BASE_URL)
+            .client(plainOkHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+    }
+
+    private val zippopotamRetrofit: Retrofit by lazy {
+        Retrofit.Builder()
+            .baseUrl(ProviderEndpoints.ZIPPOPOTAM_BASE_URL)
+            .client(plainOkHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+    }
+
+    val geocodingRepository: GeocodingRepository by lazy {
+        GeocodingRepository(
+            openMeteoGeocodingApi = geocodingRetrofit.create(OpenMeteoGeocodingApi::class.java),
+            zippopotamApi = zippopotamRetrofit.create(ZippopotamApi::class.java)
+        )
     }
 
     val database: WeatherDatabase by lazy {

@@ -14,13 +14,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Place
@@ -61,6 +65,9 @@ import java.util.Locale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
+import com.example.data.geocoding.PlaceSearchResult
+import com.example.data.geocoding.PlaceSearchUiState
+import com.example.data.repo.WeatherRepository
 import com.example.domain.model.Place
 import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
@@ -84,6 +91,11 @@ fun SettingsScreen(
 
     onSelectPlace: (String) -> Unit,
     onAddPlace: (String, String, Double, Double) -> Unit,
+    onRemovePlace: (String) -> Unit = {},
+    placeSearchState: PlaceSearchUiState = PlaceSearchUiState.Idle,
+    onSearchPlaces: (String) -> Unit = {},
+    onClearPlaceSearch: () -> Unit = {},
+    onAddSearchedPlace: (PlaceSearchResult) -> Unit = {},
     tickerVisible: Boolean = false,
     crtFilterEnabled: Boolean = true,
     onSetCrtFilterEnabled: (Boolean) -> Unit = {},
@@ -94,6 +106,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     var showAddPlaceDialog by remember { mutableStateOf(false) }
+    var showSearchPlaceDialog by remember { mutableStateOf(false) }
 
     // 3.1: the notification permission is requested only here — when the
     // user turns alerts on — never on first launch. Below Android 13
@@ -407,7 +420,7 @@ fun SettingsScreen(
                         }
 
                         Button(
-                            onClick = { showAddPlaceDialog = true },
+                            onClick = { showSearchPlaceDialog = true },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = RetroTokens.Yellow,
                                 contentColor = RetroTokens.Background
@@ -437,7 +450,7 @@ fun SettingsScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = (if (place.stateCode.isNotBlank()) "${place.name}, ${place.stateCode}" else place.name).uppercase(),
                                         style = MaterialTheme.typography.bodyMedium,
@@ -457,6 +470,26 @@ fun SettingsScreen(
                                         contentDescription = "Selected",
                                         tint = RetroTokens.Yellow
                                     )
+                                }
+
+                                // Remove (0.2.0): immediate on tap, no
+                                // confirmation — the app has no
+                                // destructive-confirmation pattern (the
+                                // Pirate-key "Clear" is the precedent).
+                                // Current Location has no remove button:
+                                // it is the device's GPS place, re-created
+                                // on every "use current location" tap.
+                                if (place.id != WeatherRepository.CURRENT_LOCATION_ID) {
+                                    IconButton(
+                                        onClick = { onRemovePlace(place.id) },
+                                        modifier = Modifier.testTag("remove_place_${place.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Remove ${place.name}",
+                                            tint = RetroTokens.HeaderRed
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -606,6 +639,7 @@ fun SettingsScreen(
 
                     AttributionRow("Weather & Alerts", "National Weather Service (NOAA / api.weather.gov)")
                     AttributionRow("Minute-Cast & AQI", "Open-Meteo.com (CC BY 4.0)")
+                    AttributionRow("Place Search", "Open-Meteo Geocoding (CC BY 4.0) and Zippopotam.us")
                     AttributionRow("1-Minute Rain (with key)", "Pirate Weather (pirateweather.net)")
                     AttributionRow("Radar Reflectivity", "Iowa Environmental Mesonet (IEM) / NEXRAD")
                     AttributionRow("Radar Basemap", "Esri World Dark Gray Base")
@@ -779,6 +813,26 @@ fun SettingsScreen(
         }
     }
 
+    if (showSearchPlaceDialog) {
+        SearchPlaceDialog(
+            searchState = placeSearchState,
+            onQueryChange = onSearchPlaces,
+            onPickResult = { result ->
+                showSearchPlaceDialog = false
+                onAddSearchedPlace(result)
+            },
+            onEnterCoordinates = {
+                showSearchPlaceDialog = false
+                onClearPlaceSearch()
+                showAddPlaceDialog = true
+            },
+            onDismiss = {
+                showSearchPlaceDialog = false
+                onClearPlaceSearch()
+            }
+        )
+    }
+
     if (showAddPlaceDialog) {
         AddPlaceDialog(
             onDismiss = { showAddPlaceDialog = false },
@@ -882,6 +936,128 @@ private fun AttributionRow(title: String, source: String) {
     }
 }
 
+/**
+ * Place search (0.2.0): the default add path. One field takes a city,
+ * "City, ST", or a zip code; results arrive debounced from the
+ * ViewModel and the user picks one — never an auto-selected first
+ * result. "ENTER COORDINATES" opens the manual lat/lon dialog, which
+ * stays as the secondary path for power users.
+ */
+@Composable
+private fun SearchPlaceDialog(
+    searchState: PlaceSearchUiState,
+    onQueryChange: (String) -> Unit,
+    onPickResult: (PlaceSearchResult) -> Unit,
+    onEnterCoordinates: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("ADD A PLACE", color = RetroTokens.TextPrimary) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = {
+                        query = it
+                        onQueryChange(it)
+                    },
+                    label = { Text("City or zip code") },
+                    placeholder = { Text("Try Crittenden, KY") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = RetroTokens.TextPrimary,
+                        unfocusedTextColor = RetroTokens.TextPrimary,
+                        focusedBorderColor = RetroTokens.Yellow,
+                        unfocusedBorderColor = RetroTokens.Border
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("place_search_field")
+                )
+
+                when (val state = searchState) {
+                    is PlaceSearchUiState.Idle -> {
+                        Text(
+                            text = "Search a city, \"City, ST\", or a zip code. Tap a result to add it.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RetroTokens.TextSecondary
+                        )
+                    }
+                    is PlaceSearchUiState.Searching -> {
+                        Text(
+                            text = "Searching...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RetroTokens.TextSecondary
+                        )
+                    }
+                    is PlaceSearchUiState.Results -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 320.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            state.results.forEach { result ->
+                                Surface(
+                                    color = RetroTokens.Panel,
+                                    shape = AuraShapes.small,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onPickResult(result) }
+                                ) {
+                                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                                        Text(
+                                            text = result.placeLine().uppercase(),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = RetroTokens.TextPrimary
+                                        )
+                                        if (result.detailLine().isNotBlank()) {
+                                            Text(
+                                                text = result.detailLine(),
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                                color = RetroTokens.TextSecondary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    is PlaceSearchUiState.NoResults -> {
+                        Text(
+                            text = "No places found for '${state.query}' - check the spelling or add a state, e.g. Crittenden, KY.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RetroTokens.HeaderRed
+                        )
+                    }
+                    is PlaceSearchUiState.Failed -> {
+                        Text(
+                            text = "Search failed - check your connection and try again.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RetroTokens.HeaderRed
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onEnterCoordinates) {
+                Text("ENTER COORDINATES", color = RetroTokens.TextSecondary)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = RetroTokens.TextSecondary)
+            }
+        },
+        containerColor = RetroTokens.PanelLight
+    )
+}
+
 @Composable
 private fun AddPlaceDialog(
     onDismiss: () -> Unit,
@@ -895,7 +1071,7 @@ private fun AddPlaceDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("ADD CUSTOM LOCATION", color = RetroTokens.TextPrimary) },
+        title = { Text("ADD BY COORDINATES", color = RetroTokens.TextPrimary) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
