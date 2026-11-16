@@ -55,6 +55,16 @@ fun formatPopulation(population: Int?): String? {
     return "Pop. ${String.format(Locale.US, "%,d", population)}"
 }
 
+/** Place-search UI states (0.2.0): the picker always shows the full
+ * list for the user to pick from — never an auto-selected first result. */
+sealed interface PlaceSearchUiState {
+    object Idle : PlaceSearchUiState
+    object Searching : PlaceSearchUiState
+    data class Results(val results: List<PlaceSearchResult>) : PlaceSearchUiState
+    data class NoResults(val query: String) : PlaceSearchUiState
+    data class Failed(val query: String) : PlaceSearchUiState
+}
+
 sealed interface PlaceQuery {
     /** A 5-digit US zip (ZIP+4 already stripped to its first 5 digits). */
     data class Zip(val zip5: String) : PlaceQuery

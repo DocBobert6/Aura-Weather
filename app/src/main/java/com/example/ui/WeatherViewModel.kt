@@ -5,6 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.core.UnitFormatter
+import com.example.data.geocoding.GeocodingRepository
+import com.example.data.geocoding.PlaceSearchResult
+import com.example.data.geocoding.PlaceSearchUiState
 import com.example.data.repo.WeatherRepository
 import com.example.data.settings.SettingsManager
 import com.example.data.work.AlertScheduler
@@ -14,6 +17,7 @@ import com.example.domain.model.RegionalPoint
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -27,7 +31,8 @@ class WeatherViewModel(
     private val weatherRepository: WeatherRepository,
     private val settingsManager: SettingsManager,
     private val fusedLocationClient: FusedLocationProviderClient? = null,
-    private val appContext: Context? = null
+    private val appContext: Context? = null,
+    private val geocodingRepository: GeocodingRepository? = null
 ) : ViewModel() {
 
     val weatherState: StateFlow<FullWeatherState?> = weatherRepository.weatherState
@@ -167,6 +172,75 @@ class WeatherViewModel(
         }
     }
 
+    /** Place search state (0.2.0). */
+    private val _placeSearchState = MutableStateFlow<PlaceSearchUiState>(PlaceSearchUiState.Idle)
+    val placeSearchState = _placeSearchState.asStateFlow()
+
+    private var placeSearchJob: Job? = null
+
+    /**
+     * Searches for places as the user types, debounced ~300 ms. Queries
+     * under 2 characters are not searched (Open-Meteo returns nothing
+     * for them) — the state goes back to Idle.
+     */
+    fun searchPlaces(query: String) {
+        placeSearchJob?.cancel()
+        if (query.trim().length < 2) {
+            _placeSearchState.value = PlaceSearchUiState.Idle
+            return
+        }
+        placeSearchJob = viewModelScope.launch {
+            delay(300)
+            _placeSearchState.value = PlaceSearchUiState.Searching
+            val repository = geocodingRepository
+            if (repository == null) {
+                _placeSearchState.value = PlaceSearchUiState.Failed(query.trim())
+                return@launch
+            }
+            runCatching { repository.search(query) }.fold(
+                onSuccess = { results ->
+                    _placeSearchState.value = if (results.isEmpty()) {
+                        PlaceSearchUiState.NoResults(query.trim())
+                    } else {
+                        PlaceSearchUiState.Results(results)
+                    }
+                },
+                onFailure = {
+                    _placeSearchState.value = PlaceSearchUiState.Failed(query.trim())
+                }
+            )
+        }
+    }
+
+    fun clearPlaceSearch() {
+        placeSearchJob?.cancel()
+        _placeSearchState.value = PlaceSearchUiState.Idle
+    }
+
+    /**
+     * Adds the picked search result via the normal add path, so the
+     * 500 m near-duplicate check applies (a searched place within
+     * 500 m of a saved row dedupes onto it, including Current Location).
+     */
+    fun addSearchedPlace(result: PlaceSearchResult) {
+        clearPlaceSearch()
+        addPlace(result.name, result.storedStateCode(), result.latitude, result.longitude)
+    }
+
+    /**
+     * Removes a saved place (0.2.0). Current Location is not removable
+     * — the repository guards it too; this returns early so the UI
+     * never even launches the work for it.
+     */
+    fun removePlace(placeId: String) {
+        if (placeId == WeatherRepository.CURRENT_LOCATION_ID) return
+        viewModelScope.launch {
+            weatherRepository.removePlace(placeId)
+            _selectedPlace.value = weatherRepository.getSelectedPlace()
+            syncAlertWork()
+        }
+    }
+
     fun setUseMetric(enabled: Boolean) {
         viewModelScope.launch {
             settingsManager.setUseMetric(enabled)
@@ -296,11 +370,12 @@ class WeatherViewModel(
         private val weatherRepository: WeatherRepository,
         private val settingsManager: SettingsManager,
         private val fusedLocationClient: FusedLocationProviderClient?,
-        private val appContext: Context? = null
+        private val appContext: Context? = null,
+        private val geocodingRepository: GeocodingRepository? = null
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return WeatherViewModel(weatherRepository, settingsManager, fusedLocationClient, appContext) as T
+            return WeatherViewModel(weatherRepository, settingsManager, fusedLocationClient, appContext, geocodingRepository) as T
         }
     }
 }
