@@ -6,13 +6,14 @@ The look is the classic late-90s / early-2000s Weather Channel local forecast �
 
 ## Status
 
-0.1.1 released — tag `v0.1.1` (`versionName "0.1.1"` / `versionCode 6` in
-`app/build.gradle.kts`), arm64-only APK. Fixes the 0.1.0 first-launch
-crash: R8 had renamed the weather-condition names Moshi reads when saving
-the forecast cache, so the first cache save crashed the app. The in-app
-updater (see below) finds that release. Release builds are cut from a
-`v*` tag by `.github/workflows/release.yml`, which signs the arm64 APK
-with the release keystore and attaches it to the GitHub release.
+0.1.2 released — tag `v0.1.2` (`versionName "0.1.2"` / `versionCode 7` in
+`app/build.gradle.kts`), arm64-only APK. The hero no longer invents a
+day's high from the current temperature when the real high is missing —
+it shows "H: --" instead — and the 14-day outlook starts at today, so
+TODAY is actually today. The in-app updater (see below) finds that
+release. Release builds are cut from a `v*` tag by
+`.github/workflows/release.yml`, which signs the arm64 APK with the
+release keystore and attaches it to the GitHub release.
 
 ---
 
