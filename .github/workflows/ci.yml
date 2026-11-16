@@ -1,9 +1,10 @@
 name: CI
 
 # Runs the unit tests (including the Robolectric test) and builds the debug
-# and release APKs (the release build is the R8 check: it is unsigned in
-# CI, which has no release keystore). The repo ships no Gradle wrapper,
-# so Gradle is installed by gradle/actions/setup-gradle instead of
+# and release APKs (the release build is the R8 check: it is unsigned here,
+# branch CI has no release keystore — the signed release is built by
+# .github/workflows/release.yml on a v* tag push). The repo ships no Gradle
+# wrapper, so Gradle is installed by gradle/actions/setup-gradle instead of
 # ./gradlew.
 on:
   push:
@@ -54,8 +55,44 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
+      - name: Keystore check (release secrets present)
+        # Push only: pull requests from forks get no secrets, so the
+        # decode would fail there for a reason that is not a bug.
+        # Proves the AURA_KEYSTORE_BASE64 secret decodes to a real
+        # keystore before any tag run needs it. Prints ONLY the
+        # keystore type and the alias line — never a password, and
+        # never the fingerprint. Secret values are also masked by
+        # GitHub in logs automatically; passwords arrive via env.
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          echo "$AURA_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/auraweather-release.jks"
+          keytool -list -keystore "$RUNNER_TEMP/auraweather-release.jks" -storepass "$AURA_KEYSTORE_PASSWORD" | grep -E '^Keystore type: |PrivateKeyEntry'
+        env:
+          AURA_KEYSTORE_BASE64: ${{ secrets.AURA_KEYSTORE_BASE64 }}
+          AURA_KEYSTORE_PASSWORD: ${{ secrets.AURA_KEYSTORE_PASSWORD }}
+
       - name: Unit tests, debug and release builds
         run: gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease --stacktrace
+
+      # The release build must be the arm64-only split APK, never the
+      # universal one: exactly one APK in the release dir, named
+      # app-arm64-v8a-release.apk. Its name and size land in the log
+      # so the artifact can be checked without downloading it.
+      - name: Verify release APK is arm64-only
+        run: |
+          set -euo pipefail
+          ls -l app/build/outputs/apk/release/
+          [ "$(ls app/build/outputs/apk/release/*.apk | wc -l)" -eq 1 ] || { echo "expected exactly one release APK"; exit 1; }
+          APK=$(ls app/build/outputs/apk/release/*.apk)
+          # Branch CI builds the release unsigned, so Gradle names it
+          # app-arm64-v8a-release-unsigned.apk; a signed (tag) build
+          # is app-arm64-v8a-release.apk. Both are the arm64 split.
+          case "$APK" in
+            *app-arm64-v8a-release.apk|*app-arm64-v8a-release-unsigned.apk) ;;
+            *) echo "release APK is not the arm64 split: $APK"; exit 1 ;;
+          esac
+          echo "release APK: $APK ($(stat -c%s "$APK") bytes)"
 
       - name: Upload test results
         if: always()
@@ -69,7 +106,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          # ABI splits rename the debug output (see app/build.gradle.kts).
+          path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
 
       - name: Upload release APK
         if: success()

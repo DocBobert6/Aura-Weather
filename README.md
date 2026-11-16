@@ -6,7 +6,11 @@ The look is the classic late-90s / early-2000s Weather Channel local forecast �
 
 ## Status
 
-Late alpha. No release has been cut yet and there are no tags. `versionName "4.0"` / `versionCode 4` in `app/build.gradle.kts` is a bumped number, not a shipped version. The in-app updater (see below) goes live once the first GitHub release exists.
+0.1.0 released — tag `v0.1.0` (`versionName "0.1.0"` / `versionCode 5` in
+`app/build.gradle.kts`), arm64-only APK. The in-app updater (see below)
+finds that release. Release builds are cut from a `v*` tag by
+`.github/workflows/release.yml`, which signs the arm64 APK with the
+release keystore and attaches it to the GitHub release.
 
 ---
 
@@ -38,6 +42,7 @@ Late alpha. No release has been cut yet and there are no tags. `versionName "4.0
    - Layers: Composite Radar, and NASA GIBS GOES-East ABI Satellite — Visible GeoColor and Clean Infrared. There is no Local Site layer: the place drives the map centre instead. Satellite is one WMS JPEG per visit (viewport × 1.5, scan time probed live, blank-checked before display), with GIBS WMTS tiles as the fallback.
    - Play/pause animation, frame scrub slider with timestamps, and a source + data-cost panel naming the loop's locked source (MRMS / LIBREWXR / IEM / HRRR) with the actual bytes fetched — never a fixed estimate. Frames crossfade over 150 ms. The dBZ legend and the transport pill are radar-only: satellite is a single image, so they are hidden on the satellite layers.
    - The map is clipped to the content area, so it cannot paint over the header. There is no Picture-in-Picture support.
+   - 90s CRT filter: the radar map carries a period-CRT treatment — scanlines, aperture grille, warm phosphor tint and vignette (no glow, no curvature, and it never touches the radar pixels). On by default; Settings has a CRT FILTER toggle to turn it off.
 
 6. **Home: 48-Hour Strip, 14-Day Outlook, Regional Map**
    - A 48-hour hourly strip (five cells across, scrollable by swiping) below the hero temperature.
@@ -65,7 +70,7 @@ Late alpha. No release has been cut yet and there are no tags. `versionName "4.0
 11. **In-App Updater (manual check only)**
     - Settings has an APP UPDATES panel with a CHECK FOR UPDATES button. There is no launch check and no background check.
     - When an update is found, the app downloads the release APK and installs it only if its SHA-256 digest matches the digest GitHub reported for the asset and its signing certificate matches the installed app. With no digest reported, the install is refused outright.
-    - The updater only finds anything once the first GitHub release exists — with no releases published, it correctly reports "up to date".
+    - The updater finds the first GitHub release (0.1.0, tag `v0.1.0`) and any later stable release; with no releases published, it correctly reports "up to date".
 
 ---
 
@@ -97,20 +102,20 @@ gradle :app:testDebugUnitTest
 ```bash
 gradle assembleDebug
 ```
-Output path: `app/build/outputs/apk/debug/app-debug.apk`
+Output path: `app/build/outputs/apk/debug/app-arm64-v8a-debug.apk`
 
 ### Build Release APK
 ```bash
 gradle assembleRelease
 ```
-Output path: `app/build/outputs/apk/release/app-release.apk`
+Output path: `app/build/outputs/apk/release/app-arm64-v8a-release.apk` (arm64-only; there is no universal APK)
 
 ### Install over ADB
 ```bash
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
 ```
 
-The CI debug APK is the installable one: the CI release APK is built unsigned (CI has no release keystore). A pure-Kotlin subset of the logic (mappers, solar/lunar calculators, unit formatting, music picker) can also be verified without Gradle via `../run-pure-tests.sh` (kotlinc + JUnit 4; needs `java` on `PATH`).
+The CI debug APK is the installable one for branch builds: the branch CI release APK is built unsigned (branch CI has no release keystore) as the R8 check. A `v*` tag push runs `.github/workflows/release.yml` instead, which signs the arm64 release APK with the release keystore, verifies it, and attaches it to the GitHub release. A pure-Kotlin subset of the logic (mappers, solar/lunar calculators, unit formatting, music picker) can also be verified without Gradle via `../run-pure-tests.sh` (kotlinc + JUnit 4; needs `java` on `PATH`).
 
 ---
 
@@ -124,7 +129,7 @@ No keys are needed for the core: forecast, alerts, radar, satellite, and AQI all
 
 ## 📋 Assumptions & Known Limitations
 
-1. **No release yet**: late alpha, no GitHub release or tag. The app is verified in CI (unit tests + debug and release builds) and by device screenshot/video audits, but on-device confirmation of each fix is the owner's call.
+1. **First release is 0.1.0**: tag `v0.1.0`, arm64-only APK, signed with the release keystore. The app is verified in CI (unit tests + debug and release builds) and by device screenshot/video audits, but on-device confirmation of each fix is the owner's call. The signed release APK will not install over a debug build (different signing key) — uninstall first wipes app data, including places and settings, which need re-adding afterwards.
 2. **Radar on a cold start**: the live loop fetches one wide-margin MRMS image per frame (a tile proving set on a tiled fallback), so the loop can take a while to fill in the first time a range is opened. Repeat visits within a session replay from memory — MRMS bytes are held in memory and tiled frames replay from the map's in-memory tiles; the radar fetcher keeps no disk cache.
 3. **No invented data**: when a provider returns nothing for a value, the app shows it as unavailable instead of substituting a plausible number. When a load fails with no cache, it shows an error instead of a fabricated forecast.
 4. **Emergency Disclaimer**: *Not an official NWS product. In a severe weather emergency or tornado warning, always prioritize official NOAA Weather Radio and local emergency broadcast sirens.*

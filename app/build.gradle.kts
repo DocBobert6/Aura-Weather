@@ -14,26 +14,53 @@ android {
     applicationId = "com.docbobert6.auraweather"
     minSdk = 24
     targetSdk = 36
-    versionCode = 4
-    versionName = "4.0"
+    versionCode = 5
+    versionName = "0.1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
-  // Release signing uses the app's own keystore, kept outside the repo
-  // (aura-weather/keystore/, never committed). The properties file holds
-  // the passwords. CI has no keystore, so its release APK is unsigned;
-  // the build still verifies R8.
+  // ABI splits: the release ships the arm64-only APK (never the ~66 MB
+  // universal). The debug APK is split the same way, so its output is
+  // app-arm64-v8a-debug.apk (see .github/workflows/ci.yml).
+  splits {
+    abi {
+      isEnable = true
+      reset()
+      include("arm64-v8a")
+      isUniversalApk = false
+    }
+  }
+
+  // Release signing uses the app's own keystore. Local builds keep the
+  // file-based keystore outside the repo (aura-weather/keystore/, never
+  // committed) with its passwords in keystore.properties. CI tag runs
+  // instead take the keystore from the AURA_KEYSTORE_* repo secrets
+  // (see .github/workflows/release.yml): the keystore is decoded from
+  // AURA_KEYSTORE_BASE64 and the path + passwords arrive via env, so
+  // no secret ever lives in the repo. Branch CI builds have neither,
+  // so their release APK stays unsigned (the R8 check).
   signingConfigs {
     create("release") {
-      val keystoreFile = file("${rootDir}/../keystore/auraweather-release.jks")
-      val propsFile = file("${rootDir}/../keystore/keystore.properties")
-      if (keystoreFile.exists() && propsFile.exists()) {
-        val props = Properties().apply { load(propsFile.inputStream()) }
-        storeFile = keystoreFile
-        storePassword = props.getProperty("storePassword")
-        keyAlias = props.getProperty("keyAlias")
-        keyPassword = props.getProperty("keyPassword")
+      val envPath = System.getenv("AURA_KEYSTORE_PATH")
+      val envStorePassword = System.getenv("AURA_KEYSTORE_PASSWORD")
+      val envAlias = System.getenv("AURA_KEY_ALIAS")
+      val envKeyPassword = System.getenv("AURA_KEY_PASSWORD")
+      if (envPath != null && envStorePassword != null && envAlias != null && envKeyPassword != null) {
+        storeFile = file(envPath)
+        storePassword = envStorePassword
+        keyAlias = envAlias
+        keyPassword = envKeyPassword
+      } else {
+        val keystoreFile = file("${rootDir}/../keystore/auraweather-release.jks")
+        val propsFile = file("${rootDir}/../keystore/keystore.properties")
+        if (keystoreFile.exists() && propsFile.exists()) {
+          val props = Properties().apply { load(propsFile.inputStream()) }
+          storeFile = keystoreFile
+          storePassword = props.getProperty("storePassword")
+          keyAlias = props.getProperty("keyAlias")
+          keyPassword = props.getProperty("keyPassword")
+        }
       }
     }
     create("debugConfig") {
@@ -50,9 +77,10 @@ android {
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      // Signed only when the app's own keystore exists (local release
-      // builds). CI has no keystore, so its release APK is unsigned.
-      if (file("${rootDir}/../keystore/auraweather-release.jks").exists()) {
+      // Signed when the app's own keystore exists (local release
+      // builds) or the CI tag run supplied one via env; otherwise
+      // the release APK is unsigned (branch CI: the R8 check).
+      if (file("${rootDir}/../keystore/auraweather-release.jks").exists() || System.getenv("AURA_KEYSTORE_PATH") != null) {
         signingConfig = signingConfigs.getByName("release")
       }
     }
