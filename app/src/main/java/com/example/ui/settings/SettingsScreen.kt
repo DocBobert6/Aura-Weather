@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
@@ -84,6 +85,8 @@ fun SettingsScreen(
     onSelectPlace: (String) -> Unit,
     onAddPlace: (String, String, Double, Double) -> Unit,
     tickerVisible: Boolean = false,
+    crtFilterEnabled: Boolean = true,
+    onSetCrtFilterEnabled: (Boolean) -> Unit = {},
     alertsEnabled: Boolean = false,
     onSetAlertsEnabled: (Boolean) -> Unit = {},
     rainAlertsEnabled: Boolean = false,
@@ -222,6 +225,57 @@ fun SettingsScreen(
                     Switch(
                         checked = useMetric,
                         onCheckedChange = onSetUseMetric,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = RetroTokens.Yellow,
+                            checkedTrackColor = RetroTokens.PanelLight
+                        )
+                    )
+                }
+            }
+        }
+
+        // CRT Filter: the 90s CRT look (scanlines, aperture grille,
+        // vignette) over the radar map. On by default — Robert asked
+        // for the filter; this toggle turns it off without a rebuild.
+        // Radar only: the chrome above the map stays crisp either way.
+        item {
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tv,
+                            contentDescription = "CRT filter",
+                            tint = RetroTokens.Yellow,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column {
+                            Text(
+                                text = "CRT FILTER",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = RetroTokens.TextPrimary
+                            )
+                            Text(
+                                text = if (crtFilterEnabled) "90s CRT look on the radar map — scanlines, phosphor mask and vignette" else "Radar map shown without the CRT effect",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = RetroTokens.TextSecondary
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = crtFilterEnabled,
+                        onCheckedChange = onSetCrtFilterEnabled,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = RetroTokens.Yellow,
                             checkedTrackColor = RetroTokens.PanelLight

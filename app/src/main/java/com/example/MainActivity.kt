@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
             val pirateWeatherAttempted by viewModel.pirateWeatherAttempted.collectAsStateWithLifecycle()
             val regionalPoints by viewModel.regionalPoints.collectAsStateWithLifecycle()
             val musicEnabled by viewModel.musicEnabled.collectAsStateWithLifecycle()
+            val crtFilterEnabled by viewModel.crtFilterEnabled.collectAsStateWithLifecycle()
             val alertsEnabled by viewModel.alertsEnabled.collectAsStateWithLifecycle()
             val rainAlertsEnabled by viewModel.rainAlertsEnabled.collectAsStateWithLifecycle()
             val pendingNav by pendingDestination.collectAsStateWithLifecycle()
@@ -106,6 +107,8 @@ class MainActivity : ComponentActivity() {
                     regionalPoints = regionalPoints,
                     musicEnabled = musicEnabled,
                     onToggleMusic = remember(musicEnabled) { { viewModel.setMusicEnabled(!musicEnabled) } },
+                    crtFilterEnabled = crtFilterEnabled,
+                    onSetCrtFilterEnabled = remember(viewModel) { { enabled: Boolean -> viewModel.setCrtFilterEnabled(enabled) } },
                     alertsEnabled = alertsEnabled,
                     onSetAlertsEnabled = remember(viewModel) { { enabled: Boolean -> viewModel.setAlertsEnabled(enabled) } },
                     rainAlertsEnabled = rainAlertsEnabled,

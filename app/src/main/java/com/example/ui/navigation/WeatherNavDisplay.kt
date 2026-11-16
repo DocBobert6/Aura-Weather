@@ -104,6 +104,8 @@ fun WeatherNavDisplay(
     regionalPoints: List<RegionalPoint> = emptyList(),
     musicEnabled: Boolean = false,
     onToggleMusic: () -> Unit = {},
+    crtFilterEnabled: Boolean = true,
+    onSetCrtFilterEnabled: (Boolean) -> Unit = {},
     alertsEnabled: Boolean = false,
     onSetAlertsEnabled: (Boolean) -> Unit = {},
     rainAlertsEnabled: Boolean = false,
@@ -216,6 +218,8 @@ fun WeatherNavDisplay(
                             onNavigate = onNavigate,
                             tickerVisible = tickerVisible,
                             regionalPoints = regionalPoints,
+                            crtFilterEnabled = crtFilterEnabled,
+                            onSetCrtFilterEnabled = onSetCrtFilterEnabled,
                             alertsEnabled = alertsEnabled,
                             onSetAlertsEnabled = onSetAlertsEnabled,
                             rainAlertsEnabled = rainAlertsEnabled,
@@ -255,6 +259,8 @@ fun WeatherNavDisplay(
                     onNavigate = onNavigate,
                     tickerVisible = tickerVisible,
                     regionalPoints = regionalPoints,
+                    crtFilterEnabled = crtFilterEnabled,
+                    onSetCrtFilterEnabled = onSetCrtFilterEnabled,
                     alertsEnabled = alertsEnabled,
                     onSetAlertsEnabled = onSetAlertsEnabled,
                     rainAlertsEnabled = rainAlertsEnabled,
@@ -599,6 +605,8 @@ private fun ScreenContent(
     onNavigate: (ScreenDestination) -> Unit,
     tickerVisible: Boolean,
     regionalPoints: List<RegionalPoint> = emptyList(),
+    crtFilterEnabled: Boolean = true,
+    onSetCrtFilterEnabled: (Boolean) -> Unit = {},
     alertsEnabled: Boolean = false,
     onSetAlertsEnabled: (Boolean) -> Unit = {},
     rainAlertsEnabled: Boolean = false,
@@ -651,7 +659,8 @@ private fun ScreenContent(
         // stays in place for the deletion pass.
         ScreenDestination.Radar -> RadarEngineTab(
             place = selectedPlace ?: weatherState?.place,
-            tickerVisible = tickerVisible
+            tickerVisible = tickerVisible,
+            crtFilterEnabled = crtFilterEnabled
         )
 
         ScreenDestination.Alerts -> AlertsScreen(
@@ -689,6 +698,8 @@ private fun ScreenContent(
             onSelectPlace = onSelectPlace,
             onAddPlace = onAddPlace,
             tickerVisible = tickerVisible,
+            crtFilterEnabled = crtFilterEnabled,
+            onSetCrtFilterEnabled = onSetCrtFilterEnabled,
             alertsEnabled = alertsEnabled,
             onSetAlertsEnabled = onSetAlertsEnabled,
             rainAlertsEnabled = rainAlertsEnabled,

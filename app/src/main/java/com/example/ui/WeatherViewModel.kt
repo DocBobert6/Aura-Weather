@@ -63,6 +63,10 @@ class WeatherViewModel(
     val musicEnabled: StateFlow<Boolean> = settingsManager.musicEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    /** 90s CRT filter on the radar map (Settings toggle): on by default. */
+    val crtFilterEnabled: StateFlow<Boolean> = settingsManager.crtFilterEnabledFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
     /** 3.1 alert notifications toggle (Settings): off by default. */
     val alertsEnabled: StateFlow<Boolean> = settingsManager.alertsEnabledFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -179,6 +183,12 @@ class WeatherViewModel(
     fun setMusicEnabled(enabled: Boolean) {
         viewModelScope.launch {
             settingsManager.setMusicEnabled(enabled)
+        }
+    }
+
+    fun setCrtFilterEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsManager.setCrtFilterEnabled(enabled)
         }
     }
 
