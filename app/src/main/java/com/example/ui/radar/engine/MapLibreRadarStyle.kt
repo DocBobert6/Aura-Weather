@@ -153,8 +153,20 @@ const val RADAR_ENGINE_CENTER_LAT: Double = 39.1
 const val RADAR_ENGINE_CENTER_LON: Double = -84.5
 const val RADAR_ENGINE_ZOOM: Double = 7.0
 
-/** Zoom-button range on radar layers (the old screen's 7..9). */
-const val RADAR_ENGINE_ZOOM_MIN: Int = 7
+/**
+ * Zoom range on every layer, radar and satellite alike (5..9). The
+ * radar floor used to be 7 (the old screen's 7..9) — but 7 is also
+ * the opening zoom, so a pinch-out on radar could never move: every
+ * settle snapped the camera back to 7 (the controller enforced it
+ * in onMapIdle). The floor is now 5, the satellite floor: the tiled
+ * sources render at any zoom, and the MRMS single image simply
+ * covers a smaller fraction of a wider viewport below 7 — the loop
+ * keeps playing inside it. The bound is enforced by the map's own
+ * min/max zoom preferences (set in [RadarEngineController.start]),
+ * so a pinch-out stops at the floor during the gesture itself —
+ * never a post-settle snap-back.
+ */
+const val RADAR_ENGINE_ZOOM_MIN: Int = 5
 const val RADAR_ENGINE_ZOOM_MAX: Int = 9
 
 /** MRMS image size (px): the viewport size, not a fixed 512. */

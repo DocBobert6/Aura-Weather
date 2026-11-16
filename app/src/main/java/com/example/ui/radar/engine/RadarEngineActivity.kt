@@ -120,8 +120,10 @@ import org.maplibre.android.style.sources.TileSet
  *   "GIBS TILES" + actual fetched bytes per switch.
  * - Pan/zoom/rotate are MapLibre's own gestures (on by default);
  *   the zoom/recenter buttons drive the camera directly. A pan past
- *   the 0.5° margin (or a zoom outside 7..9, snapped back on settle)
- *   re-resolves the MRMS loop with a new bbox; small pans are free.
+ *   the 0.5° margin re-resolves the MRMS loop with a new bbox; small
+ *   pans are free. Zoom is bounded 5..9 by the map's own min/max zoom
+ *   preferences — a pinch-out stops at the floor during the gesture
+ *   and stays where the fingers left it (no post-settle snap-back).
  *   On satellite the same settle retargets the WMS image (pan past
  *   the margin, or a zoom change); in tiles-fallback mode a pan
  *   needs nothing — MapLibre fetches the new area itself.
@@ -481,6 +483,14 @@ class RadarEngineController(
             mapLibreMap = map
             map.cameraPosition = CameraPosition.Builder()
                 .target(placeCentre).zoom(RADAR_ENGINE_ZOOM).build()
+            // Zoom bounds live on the map itself, so a pinch-out
+            // stops at the floor DURING the gesture — the controller
+            // never moves the camera after a user gesture (the
+            // auto-zoom bug, 2026-11-15: onMapIdle used to snap any
+            // zoom below 7 back to 7 on settle, and 7 is the opening
+            // zoom, so a radar pinch-out could never move at all).
+            map.setMinZoomPreference(RADAR_ENGINE_ZOOM_MIN.toDouble())
+            map.setMaxZoomPreference(RADAR_ENGINE_ZOOM_MAX.toDouble())
             // GIBS time here is ONLY the initial value baked into the
             // style JSON — it is never displayed. Phase 3 resolves the
             // real per-layer scan time by probing (WmsSatellite)
@@ -2491,11 +2501,13 @@ class RadarEngineController(
 
     /**
      * Map-idle settle (NOT a readiness signal — readiness is proven
-     * only by the fetcher). Three jobs: clamp the gesture zoom to the
-     * layer range (the +/- buttons already clamp; a pinch can exceed
-     * it — radar 7..9, satellite 5..9, the buttons' range), re-resolve
-     * the MRMS loop when the camera target moved past the 0.5° pan
-     * margin, and retarget the satellite WMS image on pan/zoom settle.
+     * only by the fetcher). Two jobs: re-resolve the MRMS loop when
+     * the camera target moved past the 0.5° pan margin, and retarget
+     * the satellite WMS image on pan/zoom settle. The zoom range is
+     * deliberately NOT clamped here: the map's own min/max zoom
+     * preferences (set in start) bound every gesture during the
+     * pinch, so a zoom-out stays where the user's fingers left it.
+     * A post-settle clamp here was the auto-zoom bug (2026-11-15).
      * Tiled sources need no re-resolution on pan: their URLs do not
      * embed the bbox, and MapLibre fetches the new area itself.
      */
@@ -2504,21 +2516,6 @@ class RadarEngineController(
         if (loadedStyle == null) return
         val camera = map.cameraPosition
         val target = camera.target ?: placeCentre
-        val (minZoom, maxZoom) = if (selectedLayer == EngineLayer.Radar) {
-            RADAR_ENGINE_ZOOM_MIN.toDouble() to RADAR_ENGINE_ZOOM_MAX.toDouble()
-        } else {
-            // Satellite: down to z5, the IR native max; overzoom past
-            // the native max renders scaled tiles, so the top stays 9
-            // (same range as zoomByStep).
-            5.0 to RADAR_ENGINE_ZOOM_MAX.toDouble()
-        }
-        if (camera.zoom < minZoom || camera.zoom > maxZoom) {
-            val clamped = camera.zoom.coerceIn(minZoom, maxZoom)
-            map.cameraPosition = CameraPosition.Builder()
-                .target(target).zoom(clamped)
-                .bearing(camera.bearing).tilt(camera.tilt).build()
-            return // the clamp move fires another idle; the checks below run then
-        }
         if (selectedLayer != EngineLayer.Radar) {
             onSatelliteMapIdle(target, camera.zoom)
             return
@@ -2857,15 +2854,14 @@ class RadarEngineController(
     fun zoomByStep(delta: Int) {
         val map = mapLibreMap ?: return
         val current = map.cameraPosition
-        val minZoom = if (selectedLayer == EngineLayer.Radar) {
-            RADAR_ENGINE_ZOOM_MIN
-        } else {
-            // Satellite: down to z5, the IR native max; overzoom past
-            // the native max renders scaled tiles, so the top stays 9.
-            5
-        }.toDouble()
+        // Uniform 5..9 on every layer (RADAR_ENGINE_ZOOM_MIN/MAX) —
+        // the same range the map preferences enforce for gestures,
+        // so the buttons and the pinch agree on the floor.
         val newZoom = (current.zoom + delta)
-            .coerceIn(minZoom, RADAR_ENGINE_ZOOM_MAX.toDouble())
+            .coerceIn(
+                RADAR_ENGINE_ZOOM_MIN.toDouble(),
+                RADAR_ENGINE_ZOOM_MAX.toDouble()
+            )
         map.cameraPosition = CameraPosition.Builder()
             .target(current.target).zoom(newZoom)
             .bearing(current.bearing).tilt(current.tilt).build()

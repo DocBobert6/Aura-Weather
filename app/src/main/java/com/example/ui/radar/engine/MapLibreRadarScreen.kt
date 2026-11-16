@@ -41,7 +41,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.data.mapper.RadarFrame
-import com.example.ui.designsystem.AuraBars
 import com.example.ui.designsystem.AuraColors
 import com.example.ui.designsystem.GlassIconButton
 import com.example.ui.designsystem.PillSegmentedControl
@@ -63,10 +62,16 @@ import org.maplibre.android.maps.MapView
  * screen, both structural, neither visual:
  * - No bottom nav bar or ticker here: both are owned by
  *   `WeatherNavDisplay`, not by the radar screen. The bottom controls
- *   therefore pad `AuraBars.contentBottomPadding(tickerVisible)` —
- *   the nav clearance (bar height + ticker when visible + the
- *   navigationBars inset, PR #18) — so the last control is never
- *   hidden behind the docked bar.
+ *   therefore pad just 16dp above the bottom of this screen's Box —
+ *   NOT `AuraBars.contentBottomPadding(tickerVisible)`. That helper
+ *   is scroll clearance (bar height + ticker + navigationBars inset,
+ *   PR #18) for lists whose content scrolls under the bar; this
+ *   screen's Box already ends above the ticker and the bar (the
+ *   shell lays them out in flow below it), so applying it here
+ *   double-counted ~121dp and floated the whole bottom stack
+ *   mid-screen (transport pill ~121dp above the ticker on the
+ *   2026-11-15 device shot). 16dp matches the standalone engine
+ *   entry, which had the chrome bottom-aligned.
  * - No "Local Site" layer pill: the place drives the centre instead
  *   (Phase 5). The pill set is Radar / Sat Visible / Sat IR.
  *
@@ -147,6 +152,9 @@ fun RadarEngineScreen(
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onRecenter: () -> Unit,
+    // Retained for the shell contract (WeatherNavDisplay passes it);
+    // the chrome no longer pads for it — the content Box already
+    // ends above the ticker, so the ticker needs no clearance here.
     tickerVisible: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -333,8 +341,11 @@ fun RadarEngineScreen(
         // bottom column with just the three shared panels — status,
         // unavailable + RETRY, source + cost — so a satellite visit
         // says what it is doing and what it cost. Bottom padding is
-        // the nav clearance (`AuraBars.contentBottomPadding`), so the
-        // last control clears the docked bar and the ticker.
+        // just 16dp: the shell's content Box already ends above the
+        // ticker and the docked bar, so the chrome sits 16dp above
+        // the ticker (see the file header — contentBottomPadding
+        // here double-counted the clearance and floated the stack
+        // mid-screen).
         if (isSatellite) {
             Column(
                 modifier = Modifier
@@ -344,7 +355,7 @@ fun RadarEngineScreen(
                         start = 16.dp,
                         end = 16.dp,
                         top = 16.dp,
-                        bottom = AuraBars.contentBottomPadding(tickerVisible)
+                        bottom = 16.dp
                     ),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -368,7 +379,7 @@ fun RadarEngineScreen(
                         start = 16.dp,
                         end = 16.dp,
                         top = 16.dp,
-                        bottom = AuraBars.contentBottomPadding(tickerVisible)
+                        bottom = 16.dp
                     ),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
