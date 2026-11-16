@@ -85,8 +85,11 @@ jobs:
           ls -l app/build/outputs/apk/release/
           [ "$(ls app/build/outputs/apk/release/*.apk | wc -l)" -eq 1 ] || { echo "expected exactly one release APK"; exit 1; }
           APK=$(ls app/build/outputs/apk/release/*.apk)
+          # Branch CI builds the release unsigned, so Gradle names it
+          # app-arm64-v8a-release-unsigned.apk; a signed (tag) build
+          # is app-arm64-v8a-release.apk. Both are the arm64 split.
           case "$APK" in
-            *app-arm64-v8a-release.apk) ;;
+            *app-arm64-v8a-release.apk|*app-arm64-v8a-release-unsigned.apk) ;;
             *) echo "release APK is not the arm64 split: $APK"; exit 1 ;;
           esac
           echo "release APK: $APK ($(stat -c%s "$APK") bytes)"
