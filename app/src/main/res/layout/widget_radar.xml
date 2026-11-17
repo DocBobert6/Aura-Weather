@@ -4,7 +4,12 @@
      basemap, CRT baked in) with a small Star4000 label line overlaid
      at the bottom. Tap anywhere opens the radar engine. The label
      bar is a translucent navy strip so the label stays readable over
-     any radar colours. -->
+     any radar colours. The label and empty prompt are BITMAP-rendered
+     Star4000 (WidgetTextBitmapRenderer): the @font/ XML route failed
+     on the Pixel launcher (proved 2026-11-16), so they are ImageViews
+     fed by setImageViewBitmap, with the string as content description.
+     NOTE: this layout is also the widget-picker preview, so the label
+     bar is empty there until the first update fills it. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_radar_root"
     android:layout_width="match_parent"
@@ -18,15 +23,12 @@
         android:scaleType="centerCrop" />
 
     <!-- Empty prompt: no selected place. -->
-    <TextView
+    <ImageView
         android:id="@+id/widget_radar_empty"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:fontFamily="@font/star4000_small"
-        android:text="OPEN AURA WEATHER TO ADD A PLACE"
-        android:textColor="@color/retro_text_primary"
-        android:textSize="11sp"
+        android:contentDescription="Open Aura Weather to add a place"
         android:visibility="gone" />
 
     <!-- Label bar over the bottom of the image. -->
@@ -40,14 +42,10 @@
         android:paddingTop="2dp"
         android:paddingBottom="2dp">
 
-        <TextView
+        <ImageView
             android:id="@+id/widget_radar_label"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:fontFamily="@font/star4000_small"
-            android:text="LOADING RADAR"
-            android:textColor="@color/retro_text_primary"
-            android:textSize="11sp" />
+            android:layout_height="wrap_content" />
 
     </LinearLayout>
 

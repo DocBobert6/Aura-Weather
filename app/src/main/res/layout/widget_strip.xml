@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Classic RemoteViews hourly-strip widget (Item 3). A wide 4x1
      strip: place name above 4-6 hour columns (the receiver hides the
-     columns past the placement width). Star4000 faces via
-     android:fontFamily on the font resources (API 26+; API 24-25
-     falls back to system sans). -->
+     columns past the placement width). Text is BITMAP-rendered
+     Star4000 (WidgetTextBitmapRenderer): the @font/ XML route failed
+     on the Pixel launcher (all widgets rendered system sans, proved
+     2026-11-16), so every text run is an ImageView fed by
+     setImageViewBitmap, with the string as its content description.
+     Sizes and colours match the old TextViews. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_strip_root"
     android:layout_width="match_parent"
@@ -19,16 +22,11 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <TextView
+        <ImageView
             android:id="@+id/widget_strip_place"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:ellipsize="end"
-            android:fontFamily="@font/star4000_small"
-            android:maxLines="1"
-            android:textColor="@color/retro_text_primary"
-            android:textSize="12sp" />
+            android:layout_gravity="center_horizontal" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -45,28 +43,20 @@
                 android:gravity="center"
                 android:orientation="vertical">
 
-                <TextView
+                <ImageView
                     android:id="@+id/widget_strip_hour_label_1"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="@font/star4000_small"
-                    android:maxLines="1"
-                    android:textColor="@color/retro_text_primary"
-                    android:textSize="11sp" />
+                    android:layout_height="wrap_content" />
 
                 <ImageView
                     android:id="@+id/widget_strip_hour_icon_1"
                     android:layout_width="28dp"
                     android:layout_height="28dp" />
 
-                <TextView
+                <ImageView
                     android:id="@+id/widget_strip_hour_temp_1"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="@font/star4000_large"
-                    android:maxLines="1"
-                    android:textColor="@color/retro_yellow"
-                    android:textSize="15sp" />
+                    android:layout_height="wrap_content" />
 
             </LinearLayout>
 
@@ -78,28 +68,20 @@
                 android:gravity="center"
                 android:orientation="vertical">
 
-                <TextView
+                <ImageView
                     android:id="@+id/widget_strip_hour_label_2"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="@font/star4000_small"
-                    android:maxLines="1"
-                    android:textColor="@color/retro_text_primary"
-                    android:textSize="11sp" />
+                    android:layout_height="wrap_content" />
 
                 <ImageView
                     android:id="@+id/widget_strip_hour_icon_2"
                     android:layout_width="28dp"
                     android:layout_height="28dp" />
 
-                <TextView
+                <ImageView
                     android:id="@+id/widget_strip_hour_temp_2"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="@font/star4000_large"
-                    android:maxLines="1"
-                    android:textColor="@color/retro_yellow"
-                    android:textSize="15sp" />
+                    android:layout_height="wrap_content" />
 
             </LinearLayout>
 
@@ -111,28 +93,20 @@
                 android:gravity="center"
                 android:orientation="vertical">
 
-                <TextView
+                <ImageView
                     android:id="@+id/widget_strip_hour_label_3"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="@font/star4000_small"
-                    android:maxLines="1"
-                    android:textColor="@color/retro_text_primary"
-                    android:textSize="11sp" />
+                    android:layout_height="wrap_content" />
 
                 <ImageView
                     android:id="@+id/widget_strip_hour_icon_3"
                     android:layout_width="28dp"
                     android:layout_height="28dp" />
 
-                <TextView
+                <ImageView
                     android:id="@+id/widget_strip_hour_temp_3"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="@font/star4000_large"
-                    android:maxLines="1"
-                    android:textColor="@color/retro_yellow"
-                    android:textSize="15sp" />
+                    android:layout_height="wrap_content" />
 
             </LinearLayout>
 
@@ -144,28 +118,20 @@
                 android:gravity="center"
                 android:orientation="vertical">
 
-                <TextView
+                <ImageView
                     android:id="@+id/widget_strip_hour_label_4"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="@font/star4000_small"
-                    android:maxLines="1"
-                    android:textColor="@color/retro_text_primary"
-                    android:textSize="11sp" />
+                    android:layout_height="wrap_content" />
 
                 <ImageView
                     android:id="@+id/widget_strip_hour_icon_4"
                     android:layout_width="28dp"
                     android:layout_height="28dp" />
 
-                <TextView
+                <ImageView
                     android:id="@+id/widget_strip_hour_temp_4"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="@font/star4000_large"
-                    android:maxLines="1"
-                    android:textColor="@color/retro_yellow"
-                    android:textSize="15sp" />
+                    android:layout_height="wrap_content" />
 
             </LinearLayout>
 
@@ -177,28 +143,20 @@
                 android:gravity="center"
                 android:orientation="vertical">
 
-                <TextView
+                <ImageView
                     android:id="@+id/widget_strip_hour_label_5"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="@font/star4000_small"
-                    android:maxLines="1"
-                    android:textColor="@color/retro_text_primary"
-                    android:textSize="11sp" />
+                    android:layout_height="wrap_content" />
 
                 <ImageView
                     android:id="@+id/widget_strip_hour_icon_5"
                     android:layout_width="28dp"
                     android:layout_height="28dp" />
 
-                <TextView
+                <ImageView
                     android:id="@+id/widget_strip_hour_temp_5"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="@font/star4000_large"
-                    android:maxLines="1"
-                    android:textColor="@color/retro_yellow"
-                    android:textSize="15sp" />
+                    android:layout_height="wrap_content" />
 
             </LinearLayout>
 
@@ -210,31 +168,22 @@
                 android:gravity="center"
                 android:orientation="vertical">
 
-                <TextView
+                <ImageView
                     android:id="@+id/widget_strip_hour_label_6"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="@font/star4000_small"
-                    android:maxLines="1"
-                    android:textColor="@color/retro_text_primary"
-                    android:textSize="11sp" />
+                    android:layout_height="wrap_content" />
 
                 <ImageView
                     android:id="@+id/widget_strip_hour_icon_6"
                     android:layout_width="28dp"
                     android:layout_height="28dp" />
 
-                <TextView
+                <ImageView
                     android:id="@+id/widget_strip_hour_temp_6"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="@font/star4000_large"
-                    android:maxLines="1"
-                    android:textColor="@color/retro_yellow"
-                    android:textSize="15sp" />
+                    android:layout_height="wrap_content" />
 
             </LinearLayout>
-
         </LinearLayout>
 
     </LinearLayout>
@@ -248,13 +197,11 @@
         android:orientation="vertical"
         android:visibility="gone">
 
-        <TextView
+        <ImageView
+            android:id="@+id/widget_strip_empty_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:fontFamily="@font/star4000_small"
-            android:text="OPEN AURA WEATHER TO LOAD"
-            android:textColor="@color/retro_text_primary"
-            android:textSize="12sp" />
+            android:contentDescription="Open Aura Weather to load" />
 
     </LinearLayout>
 
