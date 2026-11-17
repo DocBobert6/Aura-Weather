@@ -14,8 +14,8 @@ android {
     applicationId = "com.docbobert6.auraweather"
     minSdk = 24
     targetSdk = 36
-    versionCode = 14
-    versionName = "0.3.4"
+    versionCode = 15
+    versionName = "0.3.5"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

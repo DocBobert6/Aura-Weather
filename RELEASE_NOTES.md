@@ -1,3 +1,26 @@
+# Aura Weather 0.3.5
+
+Fixes the radar range-switch bug: going from a forecast range (IN 6H)
+back to Live left the forecast frame on top of the map while the live
+loop advanced underneath it, so the screen said LIVE while the map
+still showed the forecast. Switching ranges now always hides the
+outgoing range's picture first, so only the range you picked is ever
+on screen. The same fix covers forecast-to-forecast switches (IN 24H
+to IN 6H) and coming back to radar from satellite, which could leave
+the satellite picture on top of the live radar. A test now pins the
+rule down: for every range and radar source, exactly one picture
+family may be visible.
+
+## Notes
+
+- This is an arm64-only APK (`arm64-v8a`); there is no universal build.
+- The signed release APK installs straight over 0.3.4 (same signing
+  key) — no uninstall, no data wipe. It will not install over a debug
+  build (different signing key); uninstall the debug build first, which
+  wipes app data.
+
+---
+
 # Aura Weather 0.3.4
 
 Fixes the 0.3.3 launch crash. 0.3.3 would not open at all: the
