@@ -3,6 +3,7 @@ package com.example.ui.widget
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
+import android.util.Log
 import com.example.data.work.RadarWidgetScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +22,10 @@ import kotlinx.coroutines.launch
  */
 class RadarWidgetReceiver : AppWidgetProvider() {
 
+    companion object {
+        private const val TAG = "RadarWidget"
+    }
+
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,
@@ -31,7 +36,21 @@ class RadarWidgetReceiver : AppWidgetProvider() {
         val result = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
-                RadarWidgetUpdater.updateRadar(context)
+                val outcome = RadarWidgetUpdater.updateRadar(context)
+                if (outcome == RadarWidgetUpdater.Outcome.UNAVAILABLE) {
+                    // A placement bake that showed nothing must not
+                    // wait up to 15 min for the next periodic tick:
+                    // retry once shortly (Item 4 refinement). The
+                    // worker maps a failed retry to Result.retry(),
+                    // so a retry that also fails backs off and tries
+                    // again on its own.
+                    Log.d(
+                        TAG,
+                        "radar placement bake unavailable; retry in " +
+                            "$RADAR_WIDGET_RETRY_DELAY_MINUTES min"
+                    )
+                    RadarWidgetScheduler.enqueueRetry(context)
+                }
             } finally {
                 result.finish()
             }
