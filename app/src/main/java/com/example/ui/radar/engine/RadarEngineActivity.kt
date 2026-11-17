@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.os.SystemClock
 import android.util.Log
 import androidx.compose.runtime.getValue
@@ -69,10 +72,14 @@ import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.RasterLayer
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.layers.TransitionOptions
+import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.android.style.sources.ImageSource
 import org.maplibre.android.style.sources.RasterSource
 import org.maplibre.android.style.sources.TileSet
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.Point
 
 /**
  * Phase 5 — the MapLibre map engine + the rebuilt radar loop, now
@@ -241,6 +248,15 @@ class RadarEngineController(
     private var satSourceB: ImageSource? = null
     private var satLayerA: RasterLayer? = null
     private var satLayerB: RasterLayer? = null
+
+    /** Era-accurate radar blip (0.4.0): the SymbolLayer drawing the
+     *  dot-plus-ring icon at the selected place (see [RadarBlip.kt]
+     *  for the blink rule). Null until the style loads. */
+    private var blipLayer: SymbolLayer? = null
+
+    /** Last blip display state applied to the layer (updateBlip is a
+     *  no-op when nothing changed — it runs on every chrome refresh). */
+    private var lastBlipDisplay: RadarBlipDisplay? = null
 
     // -- Satellite (Phase 3) -------------------------------------------------
 
@@ -587,6 +603,10 @@ class RadarEngineController(
         ) return
         placeId = place.id
         placeCentre = LatLng(place.point.lat, place.point.lon)
+        // The blip is geo-anchored to the place: move its point with
+        // it (no-op before the style loads — the source is created at
+        // the current place then).
+        updateBlipPosition()
         // No map yet: the camera + loop follow when it is ready
         // (start uses placeCentre).
         val map = mapLibreMap ?: return
@@ -715,6 +735,13 @@ class RadarEngineController(
         } catch (e: Exception) {
             Log.w(TAG, "basemap read-back failed: ${e.javaClass.simpleName}: ${e.message}")
         }
+
+        // Era-accurate radar blip (0.4.0): added last, so it starts
+        // on top of every radar/satellite layer — the marker draws
+        // over the radar, under the CRT filter. Sources built later
+        // (future HRRR, LibreWXR fallback) land above it via plain
+        // addLayer, so they call [ensureBlipOnTop] after adding.
+        addBlipSourceAndLayer(style)
     }
 
     /**
@@ -753,6 +780,8 @@ class RadarEngineController(
                 }
                 futureSourcesBuiltFor = frames
                 syncFutureLayerVisibility()
+                // New layers land above the blip — move it back on top.
+                ensureBlipOnTop()
                 Log.i(
                     TAG,
                     "extended future (HRRR) sources: ${built.size} -> ${frames.size}"
@@ -778,6 +807,8 @@ class RadarEngineController(
             }
             futureSourcesBuiltFor = frames
             syncFutureLayerVisibility()
+            // New layers land above the blip — move it back on top.
+            ensureBlipOnTop()
             Log.i(TAG, "added ${frames.size} volatile future (HRRR) frame sources")
         } catch (e: Exception) {
             Log.w(TAG, "adding future frame sources failed: ${e.javaClass.simpleName}: ${e.message}")
@@ -875,6 +906,8 @@ class RadarEngineController(
                 libreWxrFrameLayers.add(layer)
             }
             libreWxrSourcesBuiltFor = frames
+            // New layers land above the blip — move it back on top.
+            ensureBlipOnTop()
             Log.i(TAG, "added ${frames.size} volatile LibreWXR 512 sources (maxzoom 7)")
         } catch (e: Exception) {
             Log.w(TAG, "adding LibreWXR sources failed: ${e.javaClass.simpleName}: ${e.message}")
@@ -978,6 +1011,156 @@ class RadarEngineController(
         setOpacity(mrmsLayerA, 0f)
         setOpacity(mrmsLayerB, 0f)
         mrmsSlotsVisible = false
+    }
+
+    // -- Radar blip (0.4.0) -------------------------------------------------
+
+    /** The blip icon bitmap: a white dot with a thin ring, drawn to
+     *  the pixel spec in [RadarBlip.kt] (CI-only: android.graphics). */
+    private fun makeBlipIconBitmap(): Bitmap {
+        val size = RADAR_BLIP_ICON_SIZE_PX
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val cx = size / 2f
+        val cy = size / 2f
+        val ringPaint = Paint().apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = RADAR_BLIP_RING_STROKE_PX
+            isAntiAlias = true
+        }
+        canvas.drawCircle(cx, cy, RADAR_BLIP_RING_RADIUS_PX, ringPaint)
+        val dotPaint = Paint().apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        canvas.drawCircle(cx, cy, RADAR_BLIP_DOT_RADIUS_PX, dotPaint)
+        return bitmap
+    }
+
+    /** A fresh blip SymbolLayer (re-created whenever the layer is
+     *  moved to the top — a removed layer's native peer is gone). */
+    private fun newBlipLayer(): SymbolLayer =
+        SymbolLayer(RADAR_BLIP_LAYER_ID, RADAR_BLIP_SOURCE_ID)
+            .withProperties(
+                PropertyFactory.iconImage(RADAR_BLIP_IMAGE_ID),
+                PropertyFactory.iconSize(1f),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconOpacity(1f)
+            )
+
+    /**
+     * Add the blip source + layer to [style]: the runtime icon, a
+     * GeoJson point at the selected place, and the SymbolLayer on
+     * top. The icon-opacity transition is 0/0 — a hard flip, not a
+     * fade: the blink is a beat, and a crossfade would smear it.
+     * Runs once, from [addEngineSourcesAndLayers].
+     */
+    private fun addBlipSourceAndLayer(style: Style) {
+        try {
+            style.addImage(RADAR_BLIP_IMAGE_ID, makeBlipIconBitmap())
+            style.addSource(
+                GeoJsonSource(
+                    RADAR_BLIP_SOURCE_ID,
+                    Feature.fromGeometry(
+                        Point.fromLngLat(placeCentre.longitude, placeCentre.latitude)
+                    )
+                )
+            )
+            blipLayer = newBlipLayer()
+            style.addLayer(blipLayer!!)
+            blipLayer?.setIconOpacityTransition(TransitionOptions(0, 0))
+            lastBlipDisplay = null
+            updateBlip()
+            Log.i(
+                TAG,
+                "added radar blip at ${placeCentre.latitude}, ${placeCentre.longitude}"
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "adding radar blip failed: ${e.javaClass.simpleName}: ${e.message}")
+            blipLayer = null
+        }
+    }
+
+    /**
+     * Move the blip's GeoJson point to the selected place
+     * (geo-anchored, so pan/zoom need nothing — the map moves the
+     * point itself; only a place change moves it). Called from
+     * [onPlaceChanged]; no-op before the style loads (the source is
+     * created at the current place then).
+     */
+    private fun updateBlipPosition() {
+        val style = loadedStyle ?: return
+        try {
+            style.getSourceAs<GeoJsonSource>(RADAR_BLIP_SOURCE_ID)?.setGeoJson(
+                Feature.fromGeometry(
+                    Point.fromLngLat(placeCentre.longitude, placeCentre.latitude)
+                )
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "moving radar blip failed: ${e.javaClass.simpleName}")
+        }
+    }
+
+    /**
+     * Apply the blip's current display state ([radarBlipDisplay]):
+     * the blink flips `iconOpacity` 1/0 with the playhead parity
+     * while the loop plays, holds steady VISIBLE otherwise — the
+     * same rule on the radar and satellite layers. No-op when
+     * nothing changed — this runs on every chrome refresh
+     * ([refreshUiState]).
+     */
+    private fun updateBlip() {
+        val layer = blipLayer ?: return
+        val store = activeStore()
+        val playing = !store.isPaused &&
+            (store.state == LiveLoopState.PLAYING ||
+                store.state == LiveLoopState.WAITING_NEXT)
+        val display = radarBlipDisplay(
+            isLoopPlaying = playing,
+            currentFrameIndex = store.currentIndex
+        )
+        if (display == lastBlipDisplay) return
+        lastBlipDisplay = display
+        try {
+            layer.setProperties(
+                PropertyFactory.iconOpacity(
+                    if (display == RadarBlipDisplay.VISIBLE) 1f else 0f
+                )
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "setting radar blip opacity failed: ${e.javaClass.simpleName}")
+        }
+    }
+
+    /**
+     * Keep the blip on top: sources built after the style load
+     * (future HRRR, LibreWXR fallback) use plain `addLayer`, which
+     * lands above the blip — remove the blip layer and re-add a
+     * fresh one so the marker always draws over the radar. The
+     * source + icon survive (only the layer is removed/re-added),
+     * and the current display state is re-applied after the move.
+     */
+    private fun ensureBlipOnTop() {
+        val style = loadedStyle ?: return
+        if (blipLayer == null) return
+        try {
+            style.removeLayer(RADAR_BLIP_LAYER_ID)
+        } catch (e: Exception) {
+            Log.w(TAG, "removing radar blip layer failed: ${e.javaClass.simpleName}")
+        }
+        try {
+            blipLayer = newBlipLayer()
+            style.addLayer(blipLayer!!)
+            blipLayer?.setIconOpacityTransition(TransitionOptions(0, 0))
+            lastBlipDisplay = null
+            updateBlip()
+        } catch (e: Exception) {
+            Log.w(TAG, "re-adding radar blip layer failed: ${e.javaClass.simpleName}")
+            blipLayer = null
+        }
     }
 
     /**
@@ -2812,6 +2995,10 @@ class RadarEngineController(
     }
 
     private fun refreshUiState() {
+        // The blip's display state follows the loop beat, so it is
+        // refreshed with the chrome (every advance, pause, scrub,
+        // range/layer switch and settle funnels through here).
+        updateBlip()
         val store = activeStore()
         val frames = store.frames.map { RadarFrame(it.validTime, "", it.label) }
         uiFrames = frames

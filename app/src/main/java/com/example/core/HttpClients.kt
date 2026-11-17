@@ -25,6 +25,21 @@ class NwsHeaderInterceptor : Interceptor {
 }
 
 /**
+ * Sets a fixed User-Agent on every request it sees (0.4.0). Nominatim's
+ * usage policy requires a valid User-Agent identifying the app; the
+ * NWS interceptor is not reused here because it also adds the
+ * geo+json Accept header, which is wrong for a non-NWS host.
+ */
+class UserAgentInterceptor(private val userAgent: String) : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val request = chain.request().newBuilder()
+            .header("User-Agent", userAgent)
+            .build()
+        return chain.proceed(request)
+    }
+}
+
+/**
  * The two OkHttp clients (3.4). Both share the timeouts and the BASIC
  * logging interceptor; only the NWS client carries the NWS headers.
  * Open-Meteo must never receive NWS headers, so it gets its own plain
@@ -46,6 +61,16 @@ object HttpClients {
 
     fun plainClient(): OkHttpClient =
         baseBuilder()
+            .build()
+
+    /**
+     * Nominatim client (0.4.0): the plain client plus the app
+     * User-Agent Nominatim's usage policy requires. No NWS headers
+     * (it is not an NWS endpoint) and no geo+json Accept.
+     */
+    fun nominatimClient(): OkHttpClient =
+        baseBuilder()
+            .addInterceptor(UserAgentInterceptor(ProviderEndpoints.NOMINATIM_USER_AGENT))
             .build()
 
     /**

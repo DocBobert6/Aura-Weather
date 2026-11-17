@@ -6,6 +6,9 @@ The look is the classic late-90s / early-2000s Weather Channel local forecast �
 
 ## Status
 
+0.4.0 — tag `v0.4.0` (`versionName "0.4.0"` / `versionCode 16` in
+`app/build.gradle.kts`), arm64-only APK. Exact-address search
+(Nominatim) and the era radar blip.
 0.3.5 — tag `v0.3.5` (`versionName "0.3.5"` / `versionCode 15` in
 `app/build.gradle.kts`), arm64-only APK. Fixes the radar range-switch
 bug: going from a forecast range (IN 6H) back to Live left the

@@ -1,3 +1,42 @@
+# Aura Weather 0.4.0
+
+You can now add a place by typing its exact street address, and the
+radar marks your place with the classic blinking dot.
+
+## Exact addresses
+
+- In Settings, under Saved Places, ADD still opens the same search
+  box. Type a street address starting with a house number — "20
+  Ferguson Blvd, Dry Ridge, KY" — and it searches OpenStreetMap's
+  Nominatim, which returns the actual named place, not just a point
+  on the street. Cities, "city, state" and zip codes work exactly as
+  before. Pick the right match from the list; the address you typed
+  is saved as the place name.
+- The search box credits OpenStreetMap contributors when its results
+  come from Nominatim. Typing an address sends it to Nominatim's
+  servers, the same kind of lookup the city search already sends to
+  Open-Meteo. Entering latitude and longitude by hand is still there.
+
+## Radar blip
+
+- The radar now marks your selected place with the classic
+  Weather Channel blip: a white dot with a thin ring, blinking in
+  time with the radar loop. It sits on the map itself, under the CRT
+  filter, and follows your place when you pan or zoom. It shows on
+  the live loop and the forecast loops, and a still version of the
+  dot is baked into the radar widget picture. Always on — there is
+  no setting for it, because it is the point of the radar.
+
+## Notes
+
+- This is an arm64-only APK (`arm64-v8a`); there is no universal build.
+- The signed release APK installs straight over 0.3.5 (same signing
+  key) — no uninstall, no data wipe. It will not install over a debug
+  build (different signing key); uninstall the debug build first, which
+  wipes app data.
+
+---
+
 # Aura Weather 0.3.5
 
 Fixes the radar range-switch bug: going from a forecast range (IN 6H)

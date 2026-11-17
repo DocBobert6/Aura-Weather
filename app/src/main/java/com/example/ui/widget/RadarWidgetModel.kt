@@ -248,6 +248,71 @@ fun esriBasemapTileUrl(zoom: Int, tileX: Int, tileY: Int): String =
         .replace("{x}", tileX.toString())
 
 // ---------------------------------------------------------------------------
+// Place blip (0.4.0) — the still dot baked into the widget picture
+// ---------------------------------------------------------------------------
+
+/** Still blip: filled white dot radius on the 830x290 bitmap (px). */
+const val RADAR_WIDGET_BLIP_DOT_RADIUS_PX: Float = 5f
+
+/** Still blip: thin white ring radius around the dot (px). */
+const val RADAR_WIDGET_BLIP_RING_RADIUS_PX: Float = 10f
+
+/** Still blip: thin white ring stroke width (px). */
+const val RADAR_WIDGET_BLIP_RING_STROKE_PX: Float = 2f
+
+/** Bitmap pixel of a place on the widget image. */
+data class RadarWidgetPlaceDot(val xPx: Double, val yPx: Double)
+
+/**
+ * Bitmap pixel of ([lat], [lon]) on the widget image for [grid]:
+ * the place's world pixel minus the bitmap's world-pixel origin.
+ * The grid is built centred on the selected place, so the place's
+ * dot lands at the bitmap centre (415, 145) — computed from the
+ * coordinates, not assumed, so the dot stays on the place if the
+ * grid's centre ever moves.
+ */
+fun radarWidgetPlaceDotPx(grid: RadarWidgetTileGrid, lat: Double, lon: Double): RadarWidgetPlaceDot =
+    RadarWidgetPlaceDot(
+        worldPixelX(lon, RADAR_WIDGET_ZOOM) - grid.leftWorldPx,
+        worldPixelY(lat, RADAR_WIDGET_ZOOM) - grid.topWorldPx
+    )
+
+/**
+ * The still blip's exact draw parameters on the widget bitmap: the
+ * dot centre plus the dot/ring sizes. The compositor draws exactly
+ * this spec (two `drawCircle` calls, dot then ring) — nothing in the
+ * compositor re-derives the geometry, so the pure test below pins
+ * the pixels the baked image will carry, including a pixel-coverage
+ * check over this spec (see `RadarWidgetBlipTest`).
+ */
+data class RadarWidgetBlipDraw(
+    val centerXPx: Double,
+    val centerYPx: Double,
+    val dotRadiusPx: Float,
+    val ringRadiusPx: Float,
+    val ringStrokePx: Float
+)
+
+/**
+ * The still blip's draw spec for the place at ([lat], [lon]) on
+ * [grid]: the projected centre plus the fixed dot/ring sizes.
+ */
+fun radarWidgetBlipDrawSpec(
+    grid: RadarWidgetTileGrid,
+    lat: Double,
+    lon: Double
+): RadarWidgetBlipDraw {
+    val dot = radarWidgetPlaceDotPx(grid, lat, lon)
+    return RadarWidgetBlipDraw(
+        centerXPx = dot.xPx,
+        centerYPx = dot.yPx,
+        dotRadiusPx = RADAR_WIDGET_BLIP_DOT_RADIUS_PX,
+        ringRadiusPx = RADAR_WIDGET_BLIP_RING_RADIUS_PX,
+        ringStrokePx = RADAR_WIDGET_BLIP_RING_STROKE_PX
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Frame selection
 // ---------------------------------------------------------------------------
 

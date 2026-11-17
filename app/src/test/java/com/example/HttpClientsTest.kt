@@ -3,6 +3,7 @@ package com.example
 import com.example.core.HttpClients
 import com.example.core.NwsHeaderInterceptor
 import com.example.core.ProviderEndpoints
+import com.example.core.UserAgentInterceptor
 import okhttp3.Call
 import okhttp3.Connection
 import okhttp3.Interceptor
@@ -12,6 +13,7 @@ import okhttp3.Response
 import okhttp3.logging.HttpLoggingInterceptor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.TimeUnit
@@ -155,6 +157,48 @@ class HttpClientsTest {
             ?: throw AssertionError("The interceptor never called proceed()")
         assertEquals("AuraWeather/1.0 ($repoUrl)", sent.header("User-Agent"))
         assertEquals("application/geo+json", sent.header("Accept"))
+        assertEquals(original.url, sent.url)
+    }
+
+    // Nominatim client (0.4.0): the app User-Agent its usage policy
+    // requires, and no NWS headers to a non-NWS host.
+
+    @Test
+    fun testNominatimUserAgentConstant() {
+        assertEquals("AuraWeather/1.0 ($repoUrl)", ProviderEndpoints.NOMINATIM_USER_AGENT)
+        assertTrue(
+            "Nominatim base URL must be HTTPS",
+            ProviderEndpoints.NOMINATIM_BASE_URL.startsWith("https://nominatim.openstreetmap.org/")
+        )
+    }
+
+    @Test
+    fun testNominatimClientCarriesUserAgentInterceptorNotNws() {
+        val interceptors = HttpClients.nominatimClient().interceptors
+        assertTrue(
+            "The Nominatim client must carry the User-Agent interceptor",
+            interceptors.any { it is UserAgentInterceptor }
+        )
+        assertFalse(
+            "The Nominatim client must not carry the NWS header interceptor",
+            interceptors.any { it is NwsHeaderInterceptor }
+        )
+    }
+
+    @Test
+    fun testUserAgentInterceptorSetsOnlyTheUserAgent() {
+        val original = Request.Builder()
+            .url("https://nominatim.openstreetmap.org/search?q=20+Ferguson+Blvd&format=json")
+            .build()
+        val chain = CapturingChain(original)
+        UserAgentInterceptor(ProviderEndpoints.NOMINATIM_USER_AGENT).intercept(chain)
+        val sent = chain.captured
+            ?: throw AssertionError("The interceptor never called proceed()")
+        assertEquals("AuraWeather/1.0 ($repoUrl)", sent.header("User-Agent"))
+        assertNull(
+            "the Nominatim request must not carry the NWS geo+json Accept header",
+            sent.header("Accept")
+        )
         assertEquals(original.url, sent.url)
     }
 }
