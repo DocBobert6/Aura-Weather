@@ -2,6 +2,9 @@ package com.example
 
 import com.example.ui.radar.engine.RADAR_ENGINE_BASEMAP_LAYER_ID
 import com.example.ui.radar.engine.RADAR_ENGINE_BASEMAP_TILE_TEMPLATE
+import com.example.ui.radar.engine.RADAR_ENGINE_REFERENCE_LAYER_ID
+import com.example.ui.radar.engine.RADAR_ENGINE_REFERENCE_SOURCE_ID
+import com.example.ui.radar.engine.RADAR_ENGINE_REFERENCE_TILE_TEMPLATE
 import com.example.ui.radar.engine.RADAR_ENGINE_CROSSFADE_MS
 import com.example.ui.radar.engine.RADAR_ENGINE_FRAME_COUNT
 import com.example.ui.radar.engine.RADAR_ENGINE_MRMS_SLOT_A
@@ -67,6 +70,12 @@ class MapLibreRadarStyleTest {
         assertFalse(json.contains("radar-live-frame"))
         assertFalse(json.contains("radar-future-frame"))
         assertFalse(json.contains("radar-mrms"))
+        // 0.4.1: the reference (city labels) layer is programmatic
+        // too — a JSON layer would draw UNDER the radar — so the
+        // JSON must not declare it either.
+        assertFalse(json.contains(RADAR_ENGINE_REFERENCE_SOURCE_ID))
+        assertFalse(json.contains(RADAR_ENGINE_REFERENCE_LAYER_ID))
+        assertFalse(json.contains("radar-reference"))
         assertFalse(json.contains("volatile"))
         // Balanced braces/brackets (minimal structural sanity).
         assertEquals(json.count { it == '{' }, json.count { it == '}' })
@@ -85,6 +94,25 @@ class MapLibreRadarStyleTest {
         assertTrue(json.contains("\"$RADAR_ENGINE_SAT_VIS_LAYER_ID\""))
         assertTrue(json.contains("\"$RADAR_ENGINE_SAT_IR_LAYER_ID\""))
         assertTrue(json.contains("\"raster-opacity\":0"))
+    }
+
+    @Test
+    fun `reference template uses Esri z-y-x order on the basemap host`() {
+        // Same host as the basemap (so the 24 h Esri cache TTL
+        // already covers it), keyless, World_Boundaries_and_Places.
+        assertTrue(
+            RADAR_ENGINE_REFERENCE_TILE_TEMPLATE.startsWith(
+                "https://server.arcgisonline.com/ArcGIS/rest/services/" +
+                    "Reference/World_Boundaries_and_Places/MapServer/tile/"
+            )
+        )
+        assertTrue(RADAR_ENGINE_REFERENCE_TILE_TEMPLATE.contains("/tile/{z}/{y}/{x}"))
+        assertFalse(RADAR_ENGINE_REFERENCE_TILE_TEMPLATE.contains("{key}"))
+        assertFalse(RADAR_ENGINE_REFERENCE_TILE_TEMPLATE.contains("apikey"))
+        // Distinct ids from the basemap: two Esri raster sources
+        // must never share an id.
+        assertTrue(RADAR_ENGINE_REFERENCE_SOURCE_ID != RADAR_ENGINE_BASEMAP_LAYER_ID)
+        assertTrue(RADAR_ENGINE_REFERENCE_LAYER_ID != RADAR_ENGINE_BASEMAP_LAYER_ID)
     }
 
     @Test
@@ -121,10 +149,12 @@ class MapLibreRadarStyleTest {
     // (onMapIdle snapped it back to 7 on settle). The bound is now
     // enforced by the map's own min/max zoom preferences, so a
     // zoom-out stops at the floor during the gesture and stays there.
+    // 0.4.1: the ceiling is 12 (was 9) — pinch and +/- buttons read
+    // the same constant, so they agree.
     @Test
-    fun `radar zoom range is 5 to 9, matching the satellite floor`() {
+    fun `radar zoom range is 5 to 12, matching the satellite floor`() {
         assertEquals(5, RADAR_ENGINE_ZOOM_MIN)
-        assertEquals(9, RADAR_ENGINE_ZOOM_MAX)
+        assertEquals(12, RADAR_ENGINE_ZOOM_MAX)
     }
 
     @Test
@@ -163,6 +193,11 @@ class MapLibreRadarStyleTest {
     fun `layer draw order is background basemap satellite live future mrms`() {
         // Full 48 h range: 97 future layers between the live layers
         // and the MRMS slots.
+        // 0.4.1: the reference (city labels) layer and the blip are
+        // deliberately NOT in this list — both are programmatic
+        // overlays added after the MRMS slots (reference above every
+        // radar family, blip above the reference), so the size and
+        // the last entry stay exactly as before.
         val order = layerDrawOrder(97)
         assertEquals(4 + RADAR_ENGINE_FRAME_COUNT + 97 + 2, order.size)
         assertEquals("radar-background", order.first())
