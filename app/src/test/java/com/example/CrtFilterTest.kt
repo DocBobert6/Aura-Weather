@@ -42,7 +42,6 @@ class CrtFilterTest {
     fun `vignette peaks at 0_28 black at the corners`() {
         assertEquals(0.28f, CrtFilter.VIGNETTE_EDGE_ALPHA, 0f)
         assertEquals(0.55f, CrtFilter.VIGNETTE_INNER_FRACTION, 0f)
-        assertEquals(0.75f, CrtFilter.VIGNETTE_RADIUS_FRACTION, 0f)
     }
 
     @Test
@@ -82,11 +81,34 @@ class CrtFilterTest {
     }
 
     @Test
-    fun `vignette radius is 0_75 of the centre-to-corner distance`() {
+    fun `vignette stops pin the 55 percent rule`() {
+        // The layer draws these stops on a gradient whose radius is
+        // the full centre-to-corner distance, so the fractions ARE
+        // centre-to-corner fractions: transparent until 55%, then a
+        // straight ramp to 0.28 at the corner.
+        val stops = CrtFilter.vignetteStops()
+        assertEquals(4, stops.size)
+        assertEquals(0f, stops[0].first, 0f)
+        assertEquals(0f, stops[0].second, 0f)
+        assertEquals(0.55f, stops[1].first, 0f)
+        assertEquals(0f, stops[1].second, 0f)
+        assertEquals(0.775f, stops[2].first, 0.001f)
+        assertEquals(0.14f, stops[2].second, 0.001f)
+        assertEquals(1f, stops[3].first, 0f)
+        assertEquals(0.28f, stops[3].second, 0.001f)
+        // Every stop matches the helper, so the drawn gradient and the
+        // documented ramp can never drift apart.
+        stops.forEach { (fraction, alpha) ->
+            assertEquals(CrtFilter.vignetteAlphaAt(fraction), alpha, 0.001f)
+        }
+    }
+
+    @Test
+    fun `centre-to-corner distance is the vignette gradient radius`() {
         // 1080x2400 layer: corner distance is sqrt(540^2 + 1200^2) = ~1316.2.
-        val corner = CrtFilter.cornerDistancePx(1080f, 2400f)
-        assertEquals(1316.2f, corner, 0.5f)
-        assertEquals(0.75f * corner, CrtFilter.vignetteRadiusPx(1080f, 2400f), 0.001f)
+        // The layer uses this as the gradient radius, so the stop
+        // fractions are centre-to-corner fractions.
+        assertEquals(1316.2f, CrtFilter.cornerDistancePx(1080f, 2400f), 0.5f)
     }
 
     @Test

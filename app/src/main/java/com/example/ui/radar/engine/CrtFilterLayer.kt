@@ -55,13 +55,22 @@ fun CrtFilterLayer(modifier: Modifier = Modifier) {
                 // from the size (center is a DrawScope property, only
                 // available inside onDrawBehind).
                 val layerCenter = Offset(size.width / 2f, size.height / 2f)
+                // Vignette: transparent until 55% of the way from
+                // centre to corner, then a straight ramp to 0.28
+                // black at the corner — the documented vignette, and
+                // the slight version Robert approved (edge-only, not
+                // centre-darkening). The gradient radius IS the full
+                // centre-to-corner distance, so the stop fractions
+                // from CrtFilter.vignetteStops() are centre-to-corner
+                // fractions. (The old two-stop gradient on a 0.75x
+                // radius darkened from the centre: at 55% of
+                // centre-to-corner it was already ~0.21 black.)
                 val vignetteBrush = Brush.radialGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        Color.Black.copy(alpha = CrtFilter.VIGNETTE_EDGE_ALPHA)
-                    ),
+                    colorStops = CrtFilter.vignetteStops().map { (fraction, alpha) ->
+                        fraction to Color.Black.copy(alpha = alpha)
+                    }.toTypedArray(),
                     center = layerCenter,
-                    radius = CrtFilter.vignetteRadiusPx(size.width, size.height)
+                    radius = CrtFilter.cornerDistancePx(size.width, size.height)
                 )
                 onDrawBehind {
                     // Warm phosphor glass over the whole map.
@@ -88,7 +97,9 @@ fun CrtFilterLayer(modifier: Modifier = Modifier) {
                         )
                         x += grilleSpacing
                     }
-                    // Vignette: the glass darkens toward the corners.
+                    // Vignette: the glass darkens toward the corners
+                    // only — transparent until 55% of centre-to-corner,
+                    // then a ramp to 0.28 black at the corner.
                     drawRect(brush = vignetteBrush)
                 }
             }
