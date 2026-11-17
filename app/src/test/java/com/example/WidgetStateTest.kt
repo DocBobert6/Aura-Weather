@@ -97,8 +97,10 @@ class WidgetStateTest {
             WidgetConditionIcon.PartlyCloudy,
             conditionToWidgetIcon(WeatherCondition.PartlyCloudyDay, true)
         )
+        // Partly-cloudy night is moon + small cloud (ic_widget_partly_night),
+        // not the sun + cloud used by day — the old mapping showed a sun at night.
         assertEquals(
-            WidgetConditionIcon.PartlyCloudy,
+            WidgetConditionIcon.PartlyCloudyNight,
             conditionToWidgetIcon(WeatherCondition.PartlyCloudyNight, false)
         )
     }
@@ -109,12 +111,14 @@ class WidgetStateTest {
             WidgetConditionIcon.Cloudy,
             conditionToWidgetIcon(WeatherCondition.Cloudy, true)
         )
+        // Fog/haze get their own cloud-with-lines drawable (ic_widget_fog),
+        // not the plain overcast cloud.
         assertEquals(
-            WidgetConditionIcon.Cloudy,
+            WidgetConditionIcon.Fog,
             conditionToWidgetIcon(WeatherCondition.Fog, true)
         )
         assertEquals(
-            WidgetConditionIcon.Cloudy,
+            WidgetConditionIcon.Fog,
             conditionToWidgetIcon(WeatherCondition.Haze, true)
         )
         assertEquals(

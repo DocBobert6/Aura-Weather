@@ -59,7 +59,9 @@ object WidgetRemoteViews {
         WidgetConditionIcon.Sunny -> R.drawable.ic_widget_sunny
         WidgetConditionIcon.Moon -> R.drawable.ic_widget_moon
         WidgetConditionIcon.PartlyCloudy -> R.drawable.ic_widget_partly
+        WidgetConditionIcon.PartlyCloudyNight -> R.drawable.ic_widget_partly_night
         WidgetConditionIcon.Cloudy -> R.drawable.ic_widget_cloud
+        WidgetConditionIcon.Fog -> R.drawable.ic_widget_fog
         WidgetConditionIcon.Rain -> R.drawable.ic_widget_rain
         WidgetConditionIcon.Snow -> R.drawable.ic_widget_snow
         WidgetConditionIcon.Storm -> R.drawable.ic_widget_storm

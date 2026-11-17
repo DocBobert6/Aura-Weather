@@ -143,19 +143,19 @@ private fun WidgetState.nextHourFact(): String? {
  * is unit-testable; the widget maps each value to its drawable.
  */
 enum class WidgetConditionIcon {
-    Sunny, Moon, PartlyCloudy, Cloudy, Rain, Snow, Storm
+    Sunny, Moon, PartlyCloudy, PartlyCloudyNight, Cloudy, Fog, Rain, Snow, Storm
 }
 
 fun conditionToWidgetIcon(condition: WeatherCondition, isDaytime: Boolean): WidgetConditionIcon =
     when (condition) {
         WeatherCondition.ClearDay -> WidgetConditionIcon.Sunny
         WeatherCondition.ClearNight -> WidgetConditionIcon.Moon
-        WeatherCondition.PartlyCloudyDay,
-        WeatherCondition.PartlyCloudyNight -> WidgetConditionIcon.PartlyCloudy
+        WeatherCondition.PartlyCloudyDay -> WidgetConditionIcon.PartlyCloudy
+        WeatherCondition.PartlyCloudyNight -> WidgetConditionIcon.PartlyCloudyNight
         WeatherCondition.Cloudy,
-        WeatherCondition.Fog,
-        WeatherCondition.Haze,
         WeatherCondition.Windy -> WidgetConditionIcon.Cloudy
+        WeatherCondition.Fog,
+        WeatherCondition.Haze -> WidgetConditionIcon.Fog
         WeatherCondition.Drizzle,
         WeatherCondition.Rain,
         WeatherCondition.HeavyRain -> WidgetConditionIcon.Rain
