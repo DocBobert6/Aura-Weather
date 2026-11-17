@@ -1,5 +1,6 @@
 package com.example.data.repo
 
+import android.util.Log
 import com.example.data.api.PirateWeatherApi
 import com.example.data.api.NwsAlertFeature
 import com.example.data.api.NwsApi
@@ -751,6 +752,7 @@ class WeatherRepository(
             }
             val windMs = parseNwsWindSpeedMph(period.windSpeed)?.let { it * 0.44704 }
             val condition = WeatherMappers.mapNwsTextToCondition(period.shortForecast, period.isDaytime)
+            Log.d(TAG, "hourly NWS $start shortForecast=${period.shortForecast} -> $condition")
             HourlyPoint(
                 time = start,
                 tempC = tempC,
@@ -824,13 +826,15 @@ class WeatherRepository(
             if (instant.isBefore(cutoff)) continue
             val code = omHourly.weatherCode?.getOrNull(i)
             val daytime = isDaytimeAt(place.point, instant, zoneId)
+            val omCondition = WeatherMappers.mapWmoCodeToCondition(code, daytime)
+            Log.d(TAG, "hourly OM $instant wmo=$code -> $omCondition")
             points.add(
                 HourlyPoint(
                     time = instant,
                     tempC = omHourly.temperature2m?.getOrNull(i),
                     popPct = omHourly.precipitationProbability?.getOrNull(i),
                     precipMm = omHourly.precipitation?.getOrNull(i),
-                    condition = WeatherMappers.mapWmoCodeToCondition(code, daytime),
+                    condition = omCondition,
                     snowfallCm = omHourly.snowfall?.getOrNull(i),
                     windMs = omHourly.windSpeed10m?.getOrNull(i)?.let { it * 1000.0 / 3600.0 },
                     isDaytime = daytime
@@ -965,6 +969,14 @@ class WeatherRepository(
          * place, at the 8 compass bearings — roughly the spacing of the
          * classic stills' cities (~50 mi). One constant, easy to tune. */
         const val REGIONAL_NEIGHBOUR_DISTANCE_METERS = 80_000.0
+
+        // Widget-audit item 7a: hourly icon trace. The 2 AM cloud icon
+        // of 2026-11-16 was only diagnosable from a live probe + a code
+        // read; these lines log each hour's raw source value and the
+        // condition it mapped to, so the next wrong-icon report is
+        // traceable from logcat alone. Debug logging only — no
+        // user-visible debug screen.
+        private const val TAG = "WeatherRepository"
     }
 }
 
