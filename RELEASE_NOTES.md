@@ -1,3 +1,35 @@
+# Aura Weather 0.3.3
+
+A UI and font audit, and the header is navy now. The orange-red
+gradient is gone: the header is solid navy like the rest of the era
+screens, and the little logo box in its corner shows our sun mark
+instead of the words AURA WEATHER. The big temperature is centred
+properly under the moon now — it used to sit a touch to the left. The
+air-quality numbers read properly too: the pollutant units said
+"G/M", because the tiny µ and ³ characters draw as nothing in the
+retro type; they now read "UG/M3" in plain letters, and every visible
+string has been checked for characters the type cannot draw. The
+14-day rows no longer clip long words — "PARTLY" and "DRIZZLE" used
+to lose their last letters. The UV card says NIGHT after dark
+instead of showing the daytime maximum at midnight, and in daylight
+it says TODAY'S MAX so you know what the number is. The wind arrow
+now points where the wind is blowing to, not where it came from. And
+the air-quality gauge is an era-style segmented bar instead of a
+modern semicircle, with a CURRENT HOUR label on the pollutant
+numbers so the overall index and the per-pollutant pills stop
+looking like they disagree. The all-clear alerts card is tighter,
+so it no longer leaves half the screen empty.
+
+## Notes
+
+- This is an arm64-only APK (`arm64-v8a`); there is no universal build.
+- The signed release APK installs straight over 0.3.2 (same signing
+  key) — no uninstall, no data wipe. It will not install over a debug
+  build (different signing key); uninstall the debug build first, which
+  wipes app data.
+
+---
+
 # Aura Weather 0.3.2
 
 A widget audit, done properly. The widgets now actually show the
