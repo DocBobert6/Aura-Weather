@@ -54,6 +54,11 @@ class MainActivity : ComponentActivity() {
                 highlightAlertId.value = null
                 pendingDestination.value = ScreenDestination.Home
             }
+            // Item 4: the radar widget's tap target.
+            AlertNotifier.DESTINATION_RADAR -> {
+                highlightAlertId.value = null
+                pendingDestination.value = ScreenDestination.Radar
+            }
         }
     }
 

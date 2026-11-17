@@ -206,6 +206,19 @@ class FutureRadarTailTest {
     }
 
     @Test
+    fun future6hIsAPrefixOfFuture24hForTheSameNow() {
+        // The wiring relies on this: the 6h list is the 24h list's
+        // head (same run, same step rule), so a 6h -> 24h switch
+        // only extends the sources instead of rebuilding them.
+        val now = Instant.parse("2026-11-16T00:29:50Z")
+        val h6 = radarRangeFrames(RadarRange.Future6h, now)
+        val h24 = radarRangeFrames(RadarRange.Future24h, now)
+        assertEquals(24, h6.size)
+        assertEquals(74, h24.size)
+        assertEquals(h6, h24.take(h6.size))
+    }
+
+    @Test
     fun future24hIsAPrefixOfFuture48hForTheSameNow() {
         // The wiring relies on this: the 24h list is the 48h list's
         // head (same run, same step rule), so a 24h -> 48h switch

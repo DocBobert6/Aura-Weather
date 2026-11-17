@@ -14,8 +14,8 @@ android {
     applicationId = "com.docbobert6.auraweather"
     minSdk = 24
     targetSdk = 36
-    versionCode = 8
-    versionName = "0.2.1"
+    versionCode = 10
+    versionName = "0.3.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -121,7 +121,6 @@ dependencies {
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.datastore.preferences)
-  implementation(libs.androidx.glance.appwidget)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)

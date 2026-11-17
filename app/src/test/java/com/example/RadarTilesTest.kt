@@ -165,6 +165,29 @@ class RadarTilesTest {
     }
 
     @Test
+    fun testRadarRangeFrames_future6hIs24FramesAt15MinSteps() {
+        val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
+        val frames = radarRangeFrames(RadarRange.Future6h, now)
+        // Exactly 24 frames: the next 15-min mark after now (01:15),
+        // 15-min steps to now+6h (07:00). HRRR steps 15 min for the
+        // first 18h from the run, and 6h is well inside that.
+        assertEquals(24, frames.size)
+        // Starts in the future, ends at or before now+6h.
+        assertTrue(frames[0].validTime.isAfter(now))
+        assertTrue(!frames.last().validTime.isAfter(now.plusSeconds(6 * 3600)))
+        // First step is 15 min.
+        val step0 = java.time.Duration.between(frames[0].validTime, frames[1].validTime).toMinutes()
+        assertEquals(15L, step0)
+        // All layers are HRRR REFD with a 4-digit forecast minute.
+        assertTrue(frames.all { it.layerName.startsWith("hrrr::REFD-F") })
+        assertTrue(frames.all { it.label.startsWith("IN ") })
+        // Titles say how far ahead.
+        assertEquals("FUTURE 6H", RadarRange.Future6h.title)
+        assertEquals("IN 6H", RadarRange.Future6h.shortTitle)
+        assertTrue(RadarRange.Future6h.isForecast)
+    }
+
+    @Test
     fun testRadarRangeFrames_future24hStepsAndCap() {
         val now = java.time.Instant.parse("2026-11-10T01:00:00Z")
         val frames = radarRangeFrames(RadarRange.Future24h, now)

@@ -7,4 +7,15 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- Retro palette for the classic RemoteViews widgets (Item 3).
+         Values copied from RetroTokens (the token file is the source
+         of truth; XML drawables/layouts cannot reference Compose
+         colours, so they live here as the single XML copy). -->
+    <color name="retro_background">#FF0A1E5C</color>
+    <color name="retro_panel">#FF14307E</color>
+    <color name="retro_panel_light">#FF1E3F9E</color>
+    <color name="retro_border">#FF4A6AC9</color>
+    <color name="retro_yellow">#FFFFD600</color>
+    <color name="retro_text_primary">#FFFFFFFF</color>
 </resources>

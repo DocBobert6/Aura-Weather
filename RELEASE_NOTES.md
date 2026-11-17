@@ -1,4 +1,4 @@
-# Aura Weather 0.2.1
+# Aura Weather 0.3.1
 
 Today's high is honest now. The hero used to show the current
 temperature as the day's high whenever the real high was missing —
@@ -14,9 +14,60 @@ is actually today and Monday is actually Monday.
 ## Notes
 
 - This is an arm64-only APK (`arm64-v8a`); there is no universal build.
+- The signed release APK installs straight over 0.3.0 (same signing
+  key) — no uninstall, no data wipe. It will not install over a debug
+  build (different signing key); uninstall the debug build first, which
+  wipes app data.
+
+---
+
+# Aura Weather 0.3.0
+
+Six-hour future radar, a lighter CRT vignette, and widgets that finally
+look like the app — including a radar widget.
+
+## IN 6H future radar
+
+- A new IN 6H range on the radar tab, next to LIVE, IN 24H and IN 48H.
+  It plays the next six hours of HRRR simulated reflectivity in
+  15-minute steps (24 frames), labelled FORECAST like the other future
+  ranges. Six hours is the range where the model is at its best — its
+  first hour or two are its weakest, so there is no 2-hour range.
+
+## Lighter CRT vignette
+
+- The radar's CRT vignette is now very slight, as intended: the picture
+  stays clear until 55% of the way to the corner, then darkens gently
+  to the edge. Before, it darkened gradually from the centre. Scanlines,
+  grille and phosphor tint are unchanged.
+
+## Widgets rebuilt (classic RemoteViews)
+
+- The home-screen widgets are rebuilt without Glance, so they can use
+  the Star4000 faces like the rest of the app — the old widgets were
+  stuck on the system font. The main widget is square (2×2) by default
+  now and can still be resized up to 4×2; the hourly strip stays 4×1.
+  Both still show cached data and refresh on the same hourly schedule.
+
+## Radar widget
+
+- A new 4×2 radar widget: a still radar picture for your place, with
+  the CRT look baked in, refreshed every 15 minutes. Each refresh steps
+  through now, +15 minutes and +30 minutes, and the label says which
+  frame you are looking at ("LIVE NOW · 8:00 PM", "IN 15M · 8:15 PM").
+  Tap it to open the radar tab. There are no controls on the widget
+  itself — it is a picture, not a player — and if a refresh fails it
+  keeps showing the last picture, labelled stale.
+- The 15-minute refresh is for this widget only. The other widgets
+  still refresh hourly, and nothing else in the app runs on a schedule.
+
+## Notes
+
+- This is an arm64-only APK (`arm64-v8a`); there is no universal build.
 - The signed release APK installs straight over 0.2.0 (same signing
   key) — no uninstall, no data wipe. It will not install over a debug
-  build (different signing key); uninstall the debug build first.
+  build (different signing key); uninstall the debug build first, which
+  wipes app data.
 
 ---
 

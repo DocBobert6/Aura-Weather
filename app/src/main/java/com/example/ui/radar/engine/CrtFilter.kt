@@ -32,8 +32,13 @@ import kotlin.math.sqrt
  * - Phosphor tint: warm white 0xFFFFF3D6 at 0.03 alpha — a whisper of
  *   warm glass over the whole map.
  * - Vignette: transparent until 55% of the way from centre to corner,
- *   ramping to 0.28 black at the corner; gradient radius 0.75x the
- *   centre-to-corner distance, so the corners sit at full edge alpha.
+ *   ramping to 0.28 black at the corner ([vignetteAlphaAt] defines the
+ *   ramp; [vignetteStops] is the gradient-stop table the layer draws).
+ *   The gradient radius is the FULL centre-to-corner distance, so the
+ *   stop fractions are centre-to-corner fractions. (The first version
+ *   drew a plain two-stop gradient on a 0.75x radius instead, which
+ *   darkened from the centre — at 55% of centre-to-corner it was
+ *   already ~0.21 black. Fixed in the 0.3.0 batch.)
  */
 object CrtFilter {
 
@@ -56,9 +61,6 @@ object CrtFilter {
 
     /** Vignette stays transparent inside this fraction of the centre-to-corner distance. */
     const val VIGNETTE_INNER_FRACTION = 0.55f
-
-    /** Radial-gradient radius, as a fraction of the centre-to-corner distance. */
-    const val VIGNETTE_RADIUS_FRACTION = 0.75f
 
     /** Scanline pitch in px for a display density. */
     fun scanlineSpacingPx(density: Float): Float = SCANLINE_SPACING_DP * density
@@ -84,10 +86,6 @@ object CrtFilter {
     fun cornerDistancePx(widthPx: Float, heightPx: Float): Float =
         sqrt((widthPx / 2f) * (widthPx / 2f) + (heightPx / 2f) * (heightPx / 2f))
 
-    /** Radial-gradient radius for the vignette, in px. */
-    fun vignetteRadiusPx(widthPx: Float, heightPx: Float): Float =
-        VIGNETTE_RADIUS_FRACTION * cornerDistancePx(widthPx, heightPx)
-
     /**
      * Vignette black alpha at a point [distanceFraction] of the way
      * from the centre (0) to the corner (1): transparent inside
@@ -100,6 +98,27 @@ object CrtFilter {
         return (VIGNETTE_EDGE_ALPHA * t.coerceIn(0f, 1f))
     }
 
+    /**
+     * Gradient stops for the vignette, as (centre-to-corner fraction,
+     * black alpha) pairs, sampled from [vignetteAlphaAt]: transparent
+     * until [VIGNETTE_INNER_FRACTION], then a straight ramp to
+     * [VIGNETTE_EDGE_ALPHA] at the corner. The layer draws these stops
+     * on a radial gradient whose radius is the full centre-to-corner
+     * distance, so the fractions here ARE centre-to-corner fractions
+     * and the drawn gradient matches this helper exactly. The midpoint
+     * stop is redundant for a linear ramp but keeps the table explicit
+     * (and pins the ramp's midpoint in the test).
+     */
+    fun vignetteStops(): List<Pair<Float, Float>> {
+        val mid = (VIGNETTE_INNER_FRACTION + 1f) / 2f
+        return listOf(
+            0f to 0f,
+            VIGNETTE_INNER_FRACTION to 0f,
+            mid to vignetteAlphaAt(mid),
+            1f to VIGNETTE_EDGE_ALPHA
+        )
+    }
+
     /** Sanity: every spacing exceeds its line thickness, every alpha is 0..1. */
     fun isValid(): Boolean =
         SCANLINE_SPACING_DP > SCANLINE_THICKNESS_DP &&
@@ -110,6 +129,5 @@ object CrtFilter {
             GRILLE_ALPHA in 0f..1f &&
             PHOSPHOR_TINT_ALPHA in 0f..1f &&
             VIGNETTE_EDGE_ALPHA in 0f..1f &&
-            VIGNETTE_INNER_FRACTION in 0f..1f &&
-            VIGNETTE_RADIUS_FRACTION > 0f
+            VIGNETTE_INNER_FRACTION in 0f..1f
 }
