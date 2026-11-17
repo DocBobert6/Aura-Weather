@@ -6,6 +6,9 @@ The look is the classic late-90s / early-2000s Weather Channel local forecast �
 
 ## Status
 
+0.4.1 — tag `v0.4.1` (`versionName "0.4.1"` / `versionCode 17` in
+`app/build.gradle.kts`), arm64-only APK. Radar city labels restored
+and radar max zoom raised to 12.
 0.4.0 — tag `v0.4.0` (`versionName "0.4.0"` / `versionCode 16` in
 `app/build.gradle.kts`), arm64-only APK. Exact-address search
 (Nominatim) and the era radar blip.

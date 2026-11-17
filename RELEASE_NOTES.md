@@ -1,3 +1,22 @@
+# Aura Weather 0.4.1
+
+The radar names places again, and you can zoom in closer.
+
+## Radar city labels
+
+- The radar map shows city labels and boundaries again — the rebuild had dropped them, so places were bare terrain under the radar. They sit on top of the radar picture and under the place blip, on the live loop and the forecast loops. They stay off the satellite layers, which carry their own labels.
+
+## Radar zoom
+
+- You can now zoom the radar in to 12 (was 9), with the pinch gesture and the +/- buttons agreeing. The picture softens a little at the closest zooms — the single-image live source upscales past 10 — and the fallback source stops fetching new detail past 7, so the closest zooms reuse the same tiles.
+
+## Notes
+
+- This is an arm64-only APK (`arm64-v8a`); there is no universal build.
+- The signed release APK installs straight over 0.4.0 (same signing key) — no uninstall, no data wipe. It will not install over a debug build (different signing key); uninstall the debug build first, which wipes app data.
+
+---
+
 # Aura Weather 0.4.0
 
 You can now add a place by typing its exact street address, and the
