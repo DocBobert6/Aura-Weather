@@ -4,7 +4,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
     <!-- Crescent moon: outer disc with an offset disc cut out (evenOdd).
-         White-filled so Glance can tint it. -->
+         White-filled so RemoteViews tints it via setColorFilter. -->
     <path
         android:fillColor="#FFFFFF"
         android:fillType="evenOdd"

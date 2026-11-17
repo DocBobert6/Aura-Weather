@@ -32,6 +32,8 @@ object AlertNotifier {
     const val EXTRA_ALERT_ID = "com.example.extra.ALERT_ID"
     const val DESTINATION_ALERTS = "alerts"
     const val DESTINATION_HOME = "home"
+    // Item 4: the radar widget's tap target — MainActivity opens the Radar tab.
+    const val DESTINATION_RADAR = "radar"
 
     fun createChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return

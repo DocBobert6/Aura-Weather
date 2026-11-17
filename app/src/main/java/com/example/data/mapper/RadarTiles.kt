@@ -80,15 +80,20 @@ fun centreFirstTileOffsets(tilesX: Int, tilesY: Int): List<Pair<Int, Int>> {
 /** A radar time range the loop can show. Forecast ranges are model output. */
 enum class RadarRange(val title: String, val isForecast: Boolean) {
     Live("LIVE", false),
+    Future6h("FUTURE 6H", true),
     Future24h("FUTURE 24H", true),
     Future48h("FUTURE 48H", true);
 
-    /** Short label for the segmented control: three options share one
-     * row, so the full titles ("FUTURE 24H") would clip. "IN 24H" /
-     * "IN 48H" still say how far ahead. */
+    /** Short label for the segmented control: four options share one
+     * row, so the full titles ("FUTURE 24H") would clip. "IN 6H" /
+     * "IN 24H" / "IN 48H" still say how far ahead. (Measured against
+     * the Star4000Small advances at 12sp: the widest label "IN 48H"
+     * is 34.2dp + 8dp padding against a ~70dp cell even on a 320dp
+     * screen, so the four-pill row does not clip.) */
     val shortTitle: String
         get() = when (this) {
             Live -> "LIVE"
+            Future6h -> "IN 6H"
             Future24h -> "IN 24H"
             Future48h -> "IN 48H"
         }
@@ -153,10 +158,10 @@ fun radarFrameLabel(validTime: Instant, now: Instant): String {
  * starting from (future) the present.
  *
  * Future: HRRR steps every 15 min for the first 18h from the run,
- * then hourly — so Future 24h is ~75 frames and Future 48h ~99.
- * The loop is a scrubber, not a prefetch-everything list: only the
- * current frame's tiles are fetched for a range; the rest load on
- * demand.
+ * then hourly — so Future 6h is 24 frames, Future 24h ~75 frames
+ * and Future 48h ~99. The loop is a scrubber, not a
+ * prefetch-everything list: only the current frame's tiles are
+ * fetched for a range; the rest load on demand.
  *
  * Future 72h is NOT offered: HRRR caps at 48h from the run.
  */
@@ -170,6 +175,7 @@ fun radarRangeFrames(range: RadarRange, now: Instant): List<RadarFrame> {
                 RadarFrame(validTime, iemLayerNameFor(i), label)
             }
         }
+        RadarRange.Future6h -> futureFrames(now, hours = 6)
         RadarRange.Future24h -> futureFrames(now, hours = 24)
         RadarRange.Future48h -> futureFrames(now, hours = 48)
     }

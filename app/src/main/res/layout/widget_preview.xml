@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Static preview shown in the widget picker (3.2). The live widget is
-     rendered by Glance; this is only the placeholder / picker image. -->
+     rendered by classic RemoteViews; this is only the placeholder /
+     picker image. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
