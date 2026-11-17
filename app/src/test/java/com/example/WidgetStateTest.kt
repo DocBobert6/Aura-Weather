@@ -3,18 +3,22 @@ package com.example
 import com.example.domain.model.HourlyPoint
 import com.example.domain.model.WeatherCondition
 import com.example.ui.widget.WidgetConditionIcon
+import com.example.ui.widget.WidgetHourlyPoint
 import com.example.ui.widget.WidgetState
 import com.example.ui.widget.conditionToWidgetIcon
 import com.example.ui.widget.hourlyStripPoints
+import com.example.ui.widget.stripHourCount
+import com.example.ui.widget.tickerFact
 import com.example.ui.widget.toDisplay
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.Instant
 
 /**
- * Pure tests for the 3.2 widget model + formatting (WidgetState).
- * They also run in CI (testDebugUnitTest); run-pure-tests.sh compiles
- * this file so they run locally too.
+ * Pure tests for the 3.2 widget model + formatting (WidgetState),
+ * plus the Item 3 ticker fact and strip hour-count rules. They also
+ * run in CI (testDebugUnitTest); run-pure-tests.sh compiles this file
+ * so they run locally too.
  */
 class WidgetStateTest {
 
@@ -24,18 +28,21 @@ class WidgetStateTest {
         highC: Double? = 17.2,
         lowC: Double? = 5.6,
         useMetric: Boolean = false,
-        isDaytime: Boolean = true
+        isDaytime: Boolean = true,
+        fetchedAt: Instant = Instant.parse("2026-11-09T17:43:00Z"),
+        hourly: List<WidgetHourlyPoint> = emptyList()
     ) = WidgetState(
         placeName = "Crittenden, KY",
         tempC = tempC,
         condition = condition,
         highC = highC,
         lowC = lowC,
-        fetchedAt = Instant.parse("2026-11-09T17:43:00Z"),
+        fetchedAt = fetchedAt,
         isStale = false,
         zoneId = "America/New_York",
         useMetric = useMetric,
-        isDaytime = isDaytime
+        isDaytime = isDaytime,
+        hourly = hourly
     )
 
     @Test
@@ -217,5 +224,49 @@ class WidgetStateTest {
     @Test
     fun testHourlyStrip_emptyHourly_returnsEmpty() {
         assertEquals(0, hourlyStripPoints(emptyList(), "America/New_York", 6).size)
+    }
+
+    // Item 3: ticker fact — one fact per update, picked from the fetch
+    // hour. Without strip hours there are 3 facts [high/low, updated,
+    // condition]; the 17:00 UTC fetch hour lands on index 2
+    // (condition), 18:00 on index 0 (high/low), 20:00 back on 2.
+    @Test
+    fun testTickerFact_threeFacts_rotateByFetchHour() {
+        val at1700 = state(fetchedAt = Instant.parse("2026-11-09T17:00:00Z"))
+        val at1800 = state(fetchedAt = Instant.parse("2026-11-09T18:00:00Z"))
+        val at2000 = state(fetchedAt = Instant.parse("2026-11-09T20:00:00Z"))
+        assertEquals("CLEAR", at1700.tickerFact())
+        assertEquals("H 63° / L 42°", at1800.tickerFact())
+        assertEquals("CLEAR", at2000.tickerFact())
+    }
+
+    // Item 3: with strip hours there are 4 facts (next-hour added
+    // last). 17:00 UTC lands on index 1 (updated — noon EST),
+    // 19:00 on index 3 (next hour: 8 AM, 11 C = 52 F).
+    @Test
+    fun testTickerFact_fourFacts_nextHourLast() {
+        val hours = hourlyStripPoints(hourlyPoints(), "America/New_York", 6)
+        val at1700 = state(
+            fetchedAt = Instant.parse("2026-11-09T17:00:00Z"),
+            hourly = hours
+        )
+        val at1900 = state(
+            fetchedAt = Instant.parse("2026-11-09T19:00:00Z"),
+            hourly = hours
+        )
+        assertEquals("UPDATED 12:00 PM", at1700.tickerFact())
+        assertEquals("NEXT 8 AM 52°", at1900.tickerFact())
+    }
+
+    // Item 3: strip hour count by placement width.
+    @Test
+    fun testStripHourCount_byWidth() {
+        assertEquals(6, stripHourCount(320))
+        assertEquals(6, stripHourCount(300))
+        assertEquals(5, stripHourCount(299))
+        assertEquals(5, stripHourCount(250))
+        assertEquals(4, stripHourCount(249))
+        assertEquals(4, stripHourCount(180))
+        assertEquals(4, stripHourCount(0))
     }
 }

@@ -1,13 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Item 3: main widget defaults to a 2x2 square (min 110x110dp per
+     the 70n-30 cell formula) and resizes up to 4x2. The 60-minute
+     update cadence is unchanged (the worker drives updates, not
+     updatePeriodMillis). -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="180dp"
+    android:minWidth="110dp"
     android:minHeight="110dp"
-    android:maxResizeWidth="320dp"
-    android:maxResizeHeight="180dp"
+    android:maxResizeWidth="250dp"
+    android:maxResizeHeight="110dp"
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/widget_preview"
     android:previewLayout="@layout/widget_preview"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
-    android:targetCellWidth="4"
-    android:targetCellHeight="1" />
+    android:targetCellWidth="2"
+    android:targetCellHeight="2" />

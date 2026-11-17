@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Classic RemoteViews main widget (Item 3). Default 2x2 square,
+     stretches to 4x2. Star4000 faces via android:fontFamily on the
+     font resources (API 26+; API 24-25 falls back to system sans).
+     Static retro chrome: navy panel, blue border, yellow logo box
+     and temp, ticker-blue strip with one fact per update. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_main_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_panel_bg"
+    android:orientation="vertical"
+    android:padding="8dp">
+
+    <!-- Logo box: yellow wordmark on a bordered panel. -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:background="@drawable/widget_logo_bg"
+        android:paddingLeft="8dp"
+        android:paddingRight="8dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/star4000_small"
+            android:text="AURA WEATHER"
+            android:textColor="@color/retro_yellow"
+            android:textSize="12sp" />
+
+    </LinearLayout>
+
+    <!-- Live content; hidden when there is no cached state. -->
+    <LinearLayout
+        android:id="@+id/widget_main_content"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/widget_main_icon"
+                android:layout_width="44dp"
+                android:layout_height="44dp" />
+
+            <TextView
+                android:id="@+id/widget_main_temp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:fontFamily="@font/star4000_large"
+                android:textColor="@color/retro_yellow"
+                android:textSize="34sp" />
+
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/widget_main_place"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:fontFamily="@font/star4000_small"
+            android:maxLines="1"
+            android:textColor="@color/retro_text_primary"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/widget_main_condition"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/star4000_small"
+            android:maxLines="1"
+            android:textColor="@color/retro_text_primary"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/widget_main_highlow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/star4000_small"
+            android:maxLines="1"
+            android:textColor="@color/retro_text_primary"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/widget_main_updated"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/star4000_small"
+            android:maxLines="1"
+            android:textColor="@color/retro_text_primary"
+            android:textSize="10sp" />
+
+    </LinearLayout>
+
+    <!-- Empty prompt; shown only when there is no cached state. -->
+    <LinearLayout
+        android:id="@+id/widget_main_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/star4000_small"
+            android:text="OPEN AURA WEATHER TO LOAD"
+            android:textColor="@color/retro_text_primary"
+            android:textSize="12sp" />
+
+    </LinearLayout>
+
+    <!-- Ticker strip: one fact per update, swapped on refresh. -->
+    <TextView
+        android:id="@+id/widget_main_ticker"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:background="@drawable/widget_ticker_bg"
+        android:ellipsize="end"
+        android:fontFamily="@font/star4000_small"
+        android:gravity="center"
+        android:maxLines="1"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
+        android:textColor="@color/retro_text_primary"
+        android:textSize="11sp" />
+
+</LinearLayout>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget ticker strip (Item 3): RetroTokens.PanelLight fill — the
+     lighter ticker-blue the main widget's one-fact line sits on. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/retro_panel_light" />
+    <corners android:radius="2dp" />
+</shape>

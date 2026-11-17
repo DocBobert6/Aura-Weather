@@ -10,7 +10,7 @@ import java.util.Locale
 /**
  * The widget's data (3.2), pure Kotlin — no Android, no Glance, no Room.
  * The repository builds it from the in-memory state or the Room cache;
- * the Glance widget only renders it. A null WidgetState (no selected
+ * the classic RemoteViews widget only renders it. A null WidgetState (no selected
  * place, no cache) is the empty prompt, never invented weather.
  */
 data class WidgetState(
@@ -90,8 +90,48 @@ fun WidgetState.toDisplay(): WidgetDisplay {
 }
 
 /**
+ * How many hours the hourly strip shows for a placement [minWidthDp]
+ * wide (classic RemoteViews: the receiver reads the width from the
+ * platform options and hides the extra columns). Mirrors the old
+ * Glance sizes: a wide 4x1 strip shows 6 hours, the middle size 5,
+ * a narrower placement 4. Pure, so it is unit-testable.
+ */
+fun stripHourCount(minWidthDp: Int): Int = when {
+    minWidthDp >= 300 -> 6
+    minWidthDp >= 250 -> 5
+    else -> 4
+}
+
+/**
+ * The ticker-strip fact (Item 3): the main widget's blue strip shows
+ * ONE fact per update — the widget host cannot animate or rotate, so
+ * the fact is picked deterministically from the fetch hour and swaps
+ * on the next refresh. The facts are, in rotation order, high/low,
+ * the updated line, the condition, and (when the strip hours exist)
+ * the next hour's temp. Pure, so it is unit-testable.
+ */
+fun WidgetState.tickerFact(): String {
+    val display = toDisplay()
+    val facts = mutableListOf(
+        display.highLowText,
+        display.updatedText,
+        display.conditionText
+    )
+    nextHourFact()?.let { facts.add(it) }
+    val index = ((fetchedAt.epochSecond / 3600) % facts.size).toInt()
+    return facts[index]
+}
+
+/** "NEXT 2 PM 61°" — the hour after the current one, or null. */
+private fun WidgetState.nextHourFact(): String? {
+    val next = hourly.getOrNull(1) ?: return null
+    val formatter = UnitFormatter(useMetric)
+    return "NEXT ${next.hourLabel} ${formatter.formatTemperature(next.tempC)}"
+}
+
+/**
  * Which condition picture the widget shows. Pure (no drawable id) so it
- * is unit-testable; the Glance widget maps each value to its drawable.
+ * is unit-testable; the widget maps each value to its drawable.
  */
 enum class WidgetConditionIcon {
     Sunny, Moon, PartlyCloudy, Cloudy, Rain, Snow, Storm
