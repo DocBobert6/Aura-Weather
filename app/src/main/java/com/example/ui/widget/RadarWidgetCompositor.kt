@@ -199,6 +199,36 @@ object RadarWidgetCompositor {
             }
             is OverlayResult.Drawn -> Triple(drawn.frameTimeMs, drawn.displayStep, drawn.stale)
         }
+        // Still blip (0.4.0): the classic radar town marker — a white
+        // dot with a thin ring, geo-anchored to the selected place.
+        // Drawn AFTER the overlay (so it sits on top of the echo)
+        // and BEFORE the CRT bake (so it ages with the rest — a
+        // widget cannot blink, so the dot is always on). The spec
+        // comes from the pure model ([radarWidgetBlipDrawSpec]) — the
+        // compositor draws it verbatim, so the pure pixel-coverage
+        // test pins the pixels this bake carries. The label below is
+        // built from this same bake's frame time, so the dot and the
+        // label always describe the same frame.
+        val blip = radarWidgetBlipDrawSpec(grid, place.point.lat, place.point.lon)
+        val dotPaint = Paint().apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        canvas.drawCircle(
+            blip.centerXPx.toFloat(), blip.centerYPx.toFloat(),
+            blip.dotRadiusPx, dotPaint
+        )
+        val ringPaint = Paint().apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = blip.ringStrokePx
+            isAntiAlias = true
+        }
+        canvas.drawCircle(
+            blip.centerXPx.toFloat(), blip.centerYPx.toFloat(),
+            blip.ringRadiusPx, ringPaint
+        )
         bakeCrt(canvas)
         return RadarWidgetBakeResult.Success(
             bitmap = base,
