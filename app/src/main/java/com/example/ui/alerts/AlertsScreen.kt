@@ -154,7 +154,7 @@ fun AlertsScreen(
 
         if (sortedAlerts.isEmpty()) {
             item {
-                EmptyAlertsCard()
+                EmptyAlertsCard(fetchedAt = fetchedAt, zoneId = zoneId)
             }
         } else {
             itemsIndexed(sortedAlerts, key = { _, alert -> alert.id }) { index, alert ->
@@ -170,27 +170,33 @@ fun AlertsScreen(
 }
 
 @Composable
-private fun EmptyAlertsCard() {
+private fun EmptyAlertsCard(
+    fetchedAt: Instant? = null,
+    zoneId: ZoneId = ZoneId.systemDefault()
+) {
+    val lastCheckedFormatter = remember(zoneId) {
+        DateTimeFormatter.ofPattern("EEE, MMM d, h:mm a", Locale.US).withZone(zoneId)
+    }
     RetroPanel(
         shape = RetroShapes.medium,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 24.dp)
+            .padding(vertical = 8.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(32.dp),
+                .padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(
                 imageVector = Icons.Default.CheckCircle,
                 contentDescription = "No alerts",
                 tint = RetroTokens.Yellow,
-                modifier = Modifier.size(56.dp)
+                modifier = Modifier.size(40.dp)
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Text(
                 text = "ALL CLEAR IN THE REGION",
@@ -207,6 +213,16 @@ private fun EmptyAlertsCard() {
                 color = RetroTokens.TextSecondary,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
+
+            if (fetchedAt != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "LAST CHECKED ${lastCheckedFormatter.format(fetchedAt)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = RetroTokens.TextSecondary,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
         }
     }
 }
