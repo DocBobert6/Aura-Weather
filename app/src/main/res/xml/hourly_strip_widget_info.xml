@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Build E: hourly-strip widget (audit item 19). A wide 4x1 strip;
-     a narrower placement shows fewer hours. -->
+     a narrower placement shows fewer hours.
+     0.3.2: minHeight 40dp — the 1-row value (70n-30 for n=1). The
+     old 110dp was the 2-row value, so the strip rendered ~2 rows
+     tall with a dead band between the place name and the hours. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="180dp"
-    android:minHeight="110dp"
+    android:minHeight="40dp"
     android:maxResizeWidth="320dp"
-    android:maxResizeHeight="110dp"
+    android:maxResizeHeight="40dp"
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/widget_preview"
     android:previewLayout="@layout/widget_preview"
