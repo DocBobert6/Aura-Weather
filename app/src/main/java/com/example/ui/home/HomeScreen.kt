@@ -665,8 +665,11 @@ private fun HeroWeatherCard(
     val description = state?.current?.description?.ifBlank { null } ?: condition.displayName
 
     val todayDaily = state?.daily14d?.firstOrNull()
-    val highFormatted = unitFormatter.formatTemperature(todayDaily?.highC ?: state?.current?.tempC)
-    // No invented low: when the daily low is missing the UI shows "--".
+    // No invented high or low: when the daily high/low is missing the
+    // UI shows "--". The hero used to fall back to the current
+    // temperature for a missing high, presenting right-now as the
+    // day's high.
+    val highFormatted = unitFormatter.formatTemperature(todayDaily?.highC)
     val lowFormatted = unitFormatter.formatTemperature(todayDaily?.lowC)
 
     RetroPanel(

@@ -21,6 +21,7 @@ import com.example.data.mapper.distanceMeters
 import com.example.data.mapper.isDaytimeAt
 import com.example.data.mapper.parseOpenMeteoUtcInstant
 import com.example.data.mapper.regionalCompassLabel
+import com.example.data.mapper.dropPastDailyDays
 import com.example.data.mapper.fillDailyHighs
 import com.example.data.mapper.fillDailyPrecipAndExtend
 import com.example.data.mapper.stableAlertId
@@ -528,7 +529,13 @@ class WeatherRepository(
             parseOpenMeteoDaily(localResult, zoneId)
                 .ifEmpty { parseOpenMeteoDaily(openMeteoResult, zoneId) }
         }
-        val dailyList = parseNwsDaily(nwsForecastResult?.properties?.periods, zoneId)
+        // Today in the PLACE's zone, never the device date: the daily
+        // dates are in the place zone.
+        val today = now.atZone(zoneId).toLocalDate()
+        val dailyList = dropPastDailyDays(parseNwsDaily(nwsForecastResult?.properties?.periods, zoneId), today)
+            // An NWS list of only past buckets falls back to Open-Meteo
+            // (whose daily array starts at the local today) instead of
+            // leaving an empty outlook.
             .ifEmpty { omDailyList }
             // NWS daily has no UV index (parseNwsDaily leaves uvIndexMax
             // null), so the UV card read "--" even at midday. Merge
@@ -553,6 +560,9 @@ class WeatherRepository(
             // Open-Meteo, and the NWS rows get their precip/snow sums
             // from Open-Meteo by date (audit Build A).
             .let { list -> fillDailyPrecipAndExtend(list, omDailyList) }
+            // Final guard: whatever source the list came from, it must
+            // start at today — past buckets never reach the UI.
+            .let { list -> dropPastDailyDays(list, today) }
 
         // --- 60-minute nowcast (Open-Meteo minutely_15, anchored on now).
         // The 15-minute interpolation IS the minute-cast: there is no
@@ -914,7 +924,10 @@ class WeatherRepository(
                 place = place,
                 current = current,
                 hourly48h = hourly,
-                daily14d = daily,
+                // A list cached yesterday and restored today must not
+                // show yesterday as TODAY: drop past buckets in the
+                // place's zone, exactly as the fresh path does.
+                daily14d = dropPastDailyDays(daily, now.atZone(zoneId).toLocalDate()),
                 minutely60m = minutely,
                 minuteSummary = cache.minuteSummary,
                 activeAlerts = alerts,

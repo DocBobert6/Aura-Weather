@@ -1,3 +1,26 @@
+# Aura Weather 0.3.1
+
+Today's high is honest now. The hero used to show the current
+temperature as the day's high whenever the real high was missing —
+at 12:43 AM it read "H: 37°" when 37° was just the temperature right
+then, not the day's high. It now shows "H: --" until a real high
+exists, the same way the low already did. The 14-day outlook had the
+same kind of problem the other way round: it labelled its first row
+"TODAY" by position, and after midnight that row was still yesterday
+— its daytime high long gone — while the real today sat one row down
+mislabelled as tomorrow. The outlook now starts at today, so TODAY
+is actually today and Monday is actually Monday.
+
+## Notes
+
+- This is an arm64-only APK (`arm64-v8a`); there is no universal build.
+- The signed release APK installs straight over 0.3.0 (same signing
+  key) — no uninstall, no data wipe. It will not install over a debug
+  build (different signing key); uninstall the debug build first, which
+  wipes app data.
+
+---
+
 # Aura Weather 0.3.0
 
 Six-hour future radar, a lighter CRT vignette, and widgets that finally

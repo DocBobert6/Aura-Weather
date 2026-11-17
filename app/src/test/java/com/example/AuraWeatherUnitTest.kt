@@ -3,6 +3,7 @@ package com.example
 import com.example.core.UnitFormatter
 import com.example.data.mapper.PirateWeatherMinutePoint
 import com.example.data.mapper.WeatherMappers
+import com.example.data.mapper.dropPastDailyDays
 import com.example.data.mapper.fillDailyHighs
 import com.example.data.mapper.fillDailyPrecipAndExtend
 import com.example.data.mapper.pressureDescriptor
@@ -468,6 +469,66 @@ class AuraWeatherUnitTest {
         val filled = fillDailyHighs(nws, emptyList())
         assertNull(filled[0].highC)
         assertEquals(5.6, filled[0].lowC!!, 0.001)
+    }
+
+    @Test
+    fun testDropPastDailyDays_dropsYesterdayKeepsTodayAndFuture() {
+        // The midnight case: the overnight period that started last
+        // evening is still the first bucket, so yesterday must go
+        // and the real today becomes the first row.
+        val yesterday = LocalDate.of(2026, 11, 15)
+        val today = LocalDate.of(2026, 11, 16)
+        val tomorrow = LocalDate.of(2026, 11, 17)
+        val days = listOf(
+            DailyPoint(yesterday, null, 1.1, 10, WeatherCondition.ClearNight, "Clear", null),
+            DailyPoint(today, 12.0, 1.1, 10, WeatherCondition.ClearDay, "Sunny", null),
+            DailyPoint(tomorrow, 13.0, 2.0, 10, WeatherCondition.ClearDay, "Sunny", null)
+        )
+        val kept = dropPastDailyDays(days, today)
+        assertEquals(2, kept.size)
+        assertEquals(today, kept[0].date)
+        assertEquals(tomorrow, kept[1].date)
+    }
+
+    @Test
+    fun testDropPastDailyDays_todayNightOnlyBucketIsKept() {
+        // Today has only a nighttime period so far — low present, high
+        // null. The bucket must survive: the hero shows "H: --" for
+        // it, and it is the missing high that must never be invented.
+        val today = LocalDate.of(2026, 11, 16)
+        val days = listOf(
+            DailyPoint(today, null, 1.1, 10, WeatherCondition.ClearNight, "Clear", null)
+        )
+        val kept = dropPastDailyDays(days, today)
+        assertEquals(1, kept.size)
+        assertNull(kept[0].highC)
+        assertEquals(1.1, kept[0].lowC!!, 0.001)
+    }
+
+    @Test
+    fun testDropPastDailyDays_emptyListStaysEmpty() {
+        assertTrue(dropPastDailyDays(emptyList(), LocalDate.of(2026, 11, 16)).isEmpty())
+    }
+
+    @Test
+    fun testDropPastDailyDays_placeZoneDateDropsWhatDeviceDateWouldKeep() {
+        // 2026-11-16T02:00Z is still Nov 15 in New York but already
+        // Nov 16 in Kiritimati (UTC+14). A bucket dated Nov 15 is
+        // "today" on a New York device clock and "yesterday" at the
+        // Kiritimati place — the filter must be fed the PLACE zone's
+        // date, so it drops it. This pins the caller's contract: the
+        // helper compares against the date it is given, never the
+        // device clock.
+        val instant = Instant.parse("2026-11-16T02:00:00Z")
+        val deviceDate = instant.atZone(ZoneId.of("America/New_York")).toLocalDate()
+        val placeDate = instant.atZone(ZoneId.of("Pacific/Kiritimati")).toLocalDate()
+        assertEquals(LocalDate.of(2026, 11, 15), deviceDate)
+        assertEquals(LocalDate.of(2026, 11, 16), placeDate)
+        val days = listOf(
+            DailyPoint(deviceDate, null, 1.1, 10, WeatherCondition.ClearNight, "Clear", null)
+        )
+        assertEquals(1, dropPastDailyDays(days, deviceDate).size)
+        assertEquals(0, dropPastDailyDays(days, placeDate).size)
     }
 
     @Test

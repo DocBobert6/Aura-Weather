@@ -6,11 +6,15 @@ The look is the classic late-90s / early-2000s Weather Channel local forecast �
 
 ## Status
 
-0.3.0 — tag `v0.3.0` (`versionName "0.3.0"` / `versionCode 9` in
-`app/build.gradle.kts`), arm64-only APK. Adds IN 6H future radar, the
-lighter CRT vignette, RemoteViews widgets with Star4000 and a square
-2×2 main widget, and a 4×2 radar widget (15-min refresh, for that
-widget only). 0.2.0 added place search and
+0.3.1 — tag `v0.3.1` (`versionName "0.3.1"` / `versionCode 10` in
+`app/build.gradle.kts`), arm64-only APK. Today's high is honest now:
+the hero no longer invents a day's high from the current temperature
+when the real high is missing — it shows "H: --" instead — and the
+14-day outlook starts at today, so TODAY is actually today. It follows
+0.3.0, which added IN 6H future radar, the lighter CRT vignette,
+RemoteViews widgets with Star4000 and a square 2×2 main widget, and a
+4×2 radar widget (15-min refresh, for that widget only). 0.2.0 added
+place search and
 remove-a-location: Settings → SAVED PLACES → ADD now searches a city,
 "City, ST", or a zip code (Open-Meteo Geocoding + Zippopotam.us) and
 shows a picker list to tap; entering coordinates stays as a secondary
@@ -18,7 +22,8 @@ path. Each saved place has a remove button; Current Location cannot be
 removed (it is the device's GPS place). 0.1.1 fixed the 0.1.0
 first-launch crash: R8 had renamed the weather-condition names Moshi
 reads when saving the forecast cache, so the first cache save crashed
-the app. Release builds are cut from a `v*` tag by
+the app. The in-app updater (see below) finds that release.
+Release builds are cut from a `v*` tag by
 `.github/workflows/release.yml`, which signs the arm64 APK with the
 release keystore and attaches it to the GitHub release.
 
