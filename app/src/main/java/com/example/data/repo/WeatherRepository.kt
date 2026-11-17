@@ -154,7 +154,16 @@ class WeatherRepository(
             useMetric = useMetric,
             isDaytime = state.solar.isDaytime,
             // Build E: the next 6 hours for the hourly-strip widget.
-            hourly = hourlyStripPoints(state.hourly48h, state.place.zoneId, 6)
+            // 0.3.2: the strip's NOW cell carries the observed current
+            // temp (state.current.tempC), not the hourly forecast temp
+            // for that hour — same single source of truth as the main
+            // widget and the Home strip's NOW cell.
+            hourly = hourlyStripPoints(
+                state.hourly48h,
+                state.place.zoneId,
+                6,
+                currentTempC = state.current.tempC
+            )
         )
     }
 

@@ -43,18 +43,27 @@ data class WidgetHourlyPoint(
  * ("NOW", like the Home hourly strip); the rest are labelled in the
  * place's zone ("2 PM"). Capped at [count] so a narrow widget takes
  * fewer hours than a wide one.
+ *
+ * 0.3.2: [currentTempC] is the observed current temperature — the same
+ * value the main widget and the Home strip's NOW cell show. The first
+ * point carries it instead of the hourly forecast's own temp for that
+ * hour (which can sit a few degrees apart — the reported 38° strip
+ * NOW against a 43° observed). Single source of truth for "now", the
+ * way HomeScreen's HourlyForecastCard does it. Null falls back to the
+ * forecast temp, so callers without an observation keep working.
  */
 fun hourlyStripPoints(
     hourly: List<com.example.domain.model.HourlyPoint>,
     zoneId: String,
-    count: Int
+    count: Int,
+    currentTempC: Double? = null
 ): List<WidgetHourlyPoint> {
     val zone = runCatching { ZoneId.of(zoneId) }.getOrDefault(ZoneId.systemDefault())
     val formatter = DateTimeFormatter.ofPattern("h a", Locale.US).withZone(zone)
     return hourly.take(count).mapIndexed { index, point ->
         WidgetHourlyPoint(
             hourLabel = if (index == 0) "NOW" else formatter.format(point.time).uppercase(Locale.US),
-            tempC = point.tempC,
+            tempC = if (index == 0) currentTempC ?: point.tempC else point.tempC,
             condition = point.condition,
             isDaytime = point.isDaytime
         )

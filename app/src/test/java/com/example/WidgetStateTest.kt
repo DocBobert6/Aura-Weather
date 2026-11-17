@@ -212,6 +212,32 @@ class WidgetStateTest {
         assertEquals(15.0, points[5].tempC)
     }
 
+    // 0.3.2: the strip's NOW cell must show the OBSERVED current temp,
+    // not the hourly forecast temp for that hour. The reported case:
+    // strip NOW 38 F against an observed 43 F (main widget + Home
+    // strip both showed 43). The label stays "NOW"; only the temp
+    // changes, and only for the first cell.
+    @Test
+    fun testHourlyStrip_nowUsesObservedTemp() {
+        // Forecast first hour 10.0 C (50 F); observed 6.1 C (43 F).
+        val points = hourlyStripPoints(hourlyPoints(), "America/New_York", 6, currentTempC = 6.1)
+        assertEquals("NOW", points[0].hourLabel)
+        assertEquals(6.1, points[0].tempC)
+        // Later hours keep their forecast temps — the observed temp
+        // must not leak past the first cell.
+        assertEquals(11.0, points[1].tempC)
+        assertEquals(15.0, points[5].tempC)
+    }
+
+    // 0.3.2: no observation (null) falls back to the forecast temp,
+    // so callers without one keep the old behaviour.
+    @Test
+    fun testHourlyStrip_nowFallsBackToForecastWhenObservedNull() {
+        val points = hourlyStripPoints(hourlyPoints(), "America/New_York", 6, currentTempC = null)
+        assertEquals("NOW", points[0].hourLabel)
+        assertEquals(10.0, points[0].tempC)
+    }
+
     @Test
     fun testHourlyStrip_dayNightCarriedForIcons() {
         // Hour 5 is night (isDaytime false) — the strip must render a
