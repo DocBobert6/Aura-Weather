@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Fog: cloud shifted up + three horizontal lines beneath (widget-audit
+         item 7c). Same three-disc cloud construction as ic_widget_cloud
+         (shifted up 3.5) and the same stroke treatment as ic_widget_rain's
+         drops. White-filled / white-stroked so RemoteViews tints it via
+         setColorFilter. Fog must never render as the plain overcast cloud.
+         WIRING OWED (WidgetState.kt / WidgetRemoteViews.kt, owned
+         elsewhere): Fog/Haze must map to this drawable instead of
+         ic_widget_cloud — see WidgetConditionIcon. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M8 6.5 A3.5 3.5 0 1 1 8 13.5 A3.5 3.5 0 1 1 8 6.5 Z M13.5 3.5 A4.5 4.5 0 1 1 13.5 12.5 A4.5 4.5 0 1 1 13.5 3.5 Z M17.5 8 A3 3 0 1 1 17.5 14 A3 3 0 1 1 17.5 8 Z M5 10.5 L19 10.5 L19 15 L5 15 Z" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:pathData="M5 17.5 L19 17.5 M7 20 L17 20 M9 22.5 L15 22.5" />
+</vector>
