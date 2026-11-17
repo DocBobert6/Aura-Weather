@@ -4,9 +4,12 @@ import android.content.Context
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.example.ui.widget.RADAR_WIDGET_RETRY_DELAY_MINUTES
 import java.util.concurrent.TimeUnit
 
 /**
@@ -28,6 +31,37 @@ import java.util.concurrent.TimeUnit
  */
 object RadarWidgetScheduler {
     const val UNIQUE_WORK_NAME = "aura-radar-widget-update"
+
+    /** Unique name for the one-off retry after a bake that showed nothing. */
+    const val UNIQUE_RETRY_WORK_NAME = "aura-radar-widget-retry"
+
+    /**
+     * One-off retry after a failed placement bake (Item 4
+     * refinement): the periodic 15-min tick is too long to leave a
+     * fresh widget blank, so a bake that showed nothing schedules
+     * one retry in [RADAR_WIDGET_RETRY_DELAY_MINUTES]. The worker
+     * maps UNAVAILABLE to Result.retry(), so a retry that also fails
+     * backs off and tries again. REPLACE: repeated failures re-arm
+     * one retry, never a pile. The periodic worker's own
+     * Result.retry() already covers its ticks, so only the
+     * receiver's placement path calls this.
+     */
+    fun enqueueRetry(context: Context) {
+        val request = OneTimeWorkRequestBuilder<RadarWidgetWorker>()
+            .setInitialDelay(RADAR_WIDGET_RETRY_DELAY_MINUTES, TimeUnit.MINUTES)
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            UNIQUE_RETRY_WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
+    }
 
     fun enqueue(context: Context) {
         val request = PeriodicWorkRequestBuilder<RadarWidgetWorker>(

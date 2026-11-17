@@ -1,5 +1,6 @@
 package com.example.ui.widget
 
+import com.example.data.mapper.MRMS_FRAME_STEP_MS
 import com.example.data.mapper.RadarFrame
 import com.example.data.mapper.RadarRange
 import com.example.data.mapper.mrmsFrameTimesFromServiceInfoJson
@@ -37,6 +38,13 @@ import kotlin.math.tan
  * 15-min boundary), and a late run simply shows the step its time
  * falls in. The label always states which frame is shown, so a
  * skipped step is visible, never silent.
+ *
+ * Fallbacks (Item 4 refinement, 2026-11-16): a forecast step whose
+ * HRRR lead has not published falls back to the live MRMS frame
+ * ([radarWidgetOverlayStep]); a live frame that fails or is blank
+ * steps back 5 min at a time ([radarWidgetMrmsCandidateTimes]) and
+ * bakes the most recent frame that works, labelled with its real
+ * valid time (and STALE when it is not the newest).
  */
 
 // ---------------------------------------------------------------------------
@@ -58,6 +66,30 @@ const val RADAR_WIDGET_STEP_MINUTES: Int = 15
 
 /** Steps in the cycle: now, +15, +30. */
 const val RADAR_WIDGET_STEP_COUNT: Int = 3
+
+/**
+ * Live-frame step-back (Item 4 refinement, 2026-11-16): how many
+ * MRMS candidates the compositor tries, newest first, before giving
+ * up — the newest frame plus three 5-min step-backs (15 min of
+ * history). Robert's principle: use the most recent frame that
+ * works, even if it is not the newest.
+ */
+const val RADAR_WIDGET_MRMS_FALLBACK_ATTEMPTS: Int = 4
+
+/** Delay before the one-off retry after a bake that showed nothing. */
+const val RADAR_WIDGET_RETRY_DELAY_MINUTES: Long = 2L
+
+/**
+ * Empty-state wording (Item 5): the first failure with no image —
+ * a retry is pending, so the widget is waiting, not dead.
+ */
+const val RADAR_WIDGET_WAITING_LABEL: String = "WAITING FOR RADAR"
+
+/**
+ * Empty-state wording (Item 5): bakes were attempted and failed
+ * with no cached image — nothing has ever been shown.
+ */
+const val RADAR_WIDGET_UNAVAILABLE_LABEL: String = "RADAR UNAVAILABLE"
 
 /** Tile size in px (Web Mercator 256 px tiles, basemap and HRRR alike). */
 const val RADAR_WIDGET_TILE_PX: Int = 256
@@ -251,3 +283,61 @@ fun radarWidgetFutureFrame(now: Instant, offsetMinutes: Int): RadarFrame? {
     val target = now.plusSeconds(offsetMinutes * 60L)
     return frames.firstOrNull { !it.validTime.isBefore(target) } ?: frames.last()
 }
+
+/**
+ * Which step's label a bake shows when the HRRR fetch for
+ * [stepIndex] fails: the live frame (step 0), honestly labelled
+ * "LIVE NOW · HH:MM". A forecast step that cannot be served never
+ * blanks the widget. The step cycle itself is unchanged — the next
+ * refresh still shows its own step.
+ */
+fun radarWidgetOverlayStep(stepIndex: Int, hrrrFailed: Boolean): Int =
+    if (hrrrFailed) 0 else stepIndex.coerceIn(0, RADAR_WIDGET_STEP_COUNT - 1)
+
+/**
+ * MRMS candidate frame times (epoch ms), newest first: the newest
+ * frame from the service extent when [newestMs] is known, else now
+ * truncated to the 5-min cadence ([radarWidgetFallbackFrameTimeMs]),
+ * stepping back one [MRMS_FRAME_STEP_MS] per attempt, [attempts]
+ * candidates in all. The compositor tries them in order and bakes
+ * the first that serves — the most recent frame that works, even
+ * when it is not the newest.
+ */
+fun radarWidgetMrmsCandidateTimes(
+    newestMs: Long?,
+    now: Instant,
+    attempts: Int = RADAR_WIDGET_MRMS_FALLBACK_ATTEMPTS
+): List<Long> {
+    val first = newestMs ?: radarWidgetFallbackFrameTimeMs(now)
+    return (0 until attempts.coerceAtLeast(1)).map { first - it * MRMS_FRAME_STEP_MS }
+}
+
+/**
+ * The failed-bake decision (Item 4): a cached image re-shows
+ * labelled stale, else there is nothing to show. Pure so the
+ * updater's branch is unit-testable locally; the updater maps this
+ * onto its own [RadarWidgetUpdater.Outcome].
+ */
+enum class RadarWidgetFailedBakeOutcome {
+    STALE_SHOWN,
+    UNAVAILABLE
+}
+
+fun radarWidgetFailedBakeOutcome(
+    hasCachedImage: Boolean
+): RadarWidgetFailedBakeOutcome =
+    if (hasCachedImage) RadarWidgetFailedBakeOutcome.STALE_SHOWN
+    else RadarWidgetFailedBakeOutcome.UNAVAILABLE
+
+/**
+ * Empty-state wording (Item 5): "WAITING FOR RADAR" on the first
+ * failure with no image (a retry is pending), "RADAR UNAVAILABLE"
+ * once a bake has already failed and left nothing to show. The
+ * strings live here so Worker B's bitmap-text rendering can share
+ * them; the updater passes them as the label until the layout can
+ * carry them centred (see the Worker C report — the centred empty
+ * view's text is fixed in XML, so the label bar is the only
+ * wording channel the updater owns).
+ */
+fun radarWidgetEmptyStateLabel(hasFailedBefore: Boolean): String =
+    if (hasFailedBefore) RADAR_WIDGET_UNAVAILABLE_LABEL else RADAR_WIDGET_WAITING_LABEL

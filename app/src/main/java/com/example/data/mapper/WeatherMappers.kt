@@ -4,6 +4,8 @@ import com.example.domain.model.AirQuality
 import com.example.domain.model.DailyPoint
 import com.example.domain.model.AlertSeverity
 import com.example.domain.model.GeoPoint
+import com.example.domain.model.HourlyPoint
+import com.example.domain.model.HourlySource
 import com.example.domain.model.MinutePrecip
 import com.example.domain.model.WeatherAlert
 import com.example.domain.model.WeatherCondition
@@ -271,20 +273,109 @@ object WeatherMappers {
         return when {
             lower.contains("thunder") || lower.contains("t-storm") -> WeatherCondition.Thunderstorm
             lower.contains("heavy rain") || lower.contains("downpour") -> WeatherCondition.HeavyRain
-            lower.contains("rain") || lower.contains("showers") -> WeatherCondition.Rain
-            lower.contains("drizzle") || lower.contains("sprinkles") -> WeatherCondition.Drizzle
+            // Freezing rain MUST be checked before plain rain ("Freezing
+            // Rain" contains "rain"), and snow before showers ("Snow
+            // Showers" contains "showers") — otherwise NWS text could
+            // never yield FreezingRain or Snow, and the snowflake glyph
+            // (widget-audit item 7c) would be unreachable from this
+            // source. "Rain and Snow" reads as Snow: the more severe
+            // condition wins.
+            lower.contains("freezing rain") || lower.contains("freezing drizzle") -> WeatherCondition.FreezingRain
             lower.contains("snow") || lower.contains("flurries") || lower.contains("blizzard") -> WeatherCondition.Snow
             lower.contains("sleet") || lower.contains("ice pellets") -> WeatherCondition.Sleet
-            lower.contains("freezing rain") -> WeatherCondition.FreezingRain
+            lower.contains("rain") || lower.contains("showers") -> WeatherCondition.Rain
+            lower.contains("drizzle") || lower.contains("sprinkles") -> WeatherCondition.Drizzle
             lower.contains("fog") || lower.contains("mist") -> WeatherCondition.Fog
             lower.contains("haze") || lower.contains("smoke") -> WeatherCondition.Haze
             lower.contains("wind") || lower.contains("breezy") -> WeatherCondition.Windy
-            lower.contains("overcast") || lower.contains("cloudy") -> WeatherCondition.Cloudy
+            // "Partly" MUST be checked before "cloudy"/"overcast": "Partly
+            // Cloudy" contains "cloudy", and the old order mapped it to
+            // Cloudy — so the 48h strip showed a plain overcast-cloud icon
+            // at 2 AM on 2026-11-16 for an NWS "Partly Cloudy" hour (live
+            // probe: ILN hourly 02:00 "Partly Cloudy"; OM WMO code 0,
+            // cloud 1%). "Mostly Cloudy" has no "partly" and still maps
+            // to Cloudy, which is the honest reading of mostly-cloudy.
             lower.contains("partly") -> if (isDaytime) WeatherCondition.PartlyCloudyDay else WeatherCondition.PartlyCloudyNight
+            lower.contains("overcast") || lower.contains("cloudy") -> WeatherCondition.Cloudy
             lower.contains("sunny") || lower.contains("clear") || lower.contains("fair") ->
                 if (isDaytime) WeatherCondition.ClearDay else WeatherCondition.ClearNight
             else -> if (isDaytime) WeatherCondition.ClearDay else WeatherCondition.ClearNight
         }
+    }
+
+    /**
+     * The in-app strip icon's name for a (condition, isDaytime) pair
+     * (widget-audit diagnostic, Worker E). A pure mirror of
+     * `getWeatherIcon` in HomeScreen.kt — same branches, same day/night
+     * splits — so the repository can log which icon a strip cell will
+     * draw without pulling Compose into the data layer. If a branch is
+     * added or changed in `getWeatherIcon`, change this one too (and
+     * vice versa); HourlyCellDiagnosticTest pins every branch.
+     * The widget strip maps the same pair through `conditionToWidgetIcon`
+     * (WidgetState.kt), which differs in two places: Windy reads Cloudy
+     * there (Air here), and ClearDay at night reads Sunny there
+     * (DarkMode here). The log names the in-app icon: the reported
+     * 2 AM / 3 AM plain-cloud cells are in the app's 48h strip.
+     */
+    fun hourlyCellIconName(condition: WeatherCondition, isDaytime: Boolean = true): String =
+        when (condition) {
+            WeatherCondition.ClearDay -> if (isDaytime) "WbSunny" else "DarkMode"
+            WeatherCondition.ClearNight -> "DarkMode"
+            WeatherCondition.PartlyCloudyDay,
+            WeatherCondition.PartlyCloudyNight -> if (isDaytime) "PartlyCloudyDayIcon" else "PartlyCloudyNightIcon"
+            WeatherCondition.Cloudy -> "Cloud"
+            WeatherCondition.Fog, WeatherCondition.Haze -> "FogIcon"
+            WeatherCondition.Drizzle, WeatherCondition.Rain, WeatherCondition.HeavyRain -> "WaterDrop"
+            WeatherCondition.Thunderstorm -> "Thunderstorm"
+            WeatherCondition.Snow, WeatherCondition.Sleet, WeatherCondition.FreezingRain -> "AcUnit"
+            WeatherCondition.Windy -> "Air"
+            WeatherCondition.Unknown -> if (isDaytime) "WbSunny" else "NightsStay"
+        }
+
+    /**
+     * One log line per hourly strip cell (widget-audit diagnostic,
+     * Worker E): the hour in the place zone, which source fed the cell,
+     * the WMO code the app actually holds for it (or the raw NWS text —
+     * NWS has no WMO code), the mapped condition, and the icon the strip
+     * will draw. The WMO / raw fields are data-driven, never invented:
+     * `wmo=<code>` only when a code is held, `raw="..."` only when NWS
+     * text is held, so a cell with neither reads `wmo=n/a` and a cell
+     * with no recorded source reads `source=UNKNOWN`.
+     * Example (NWS): `hourly cell hour=2026-11-17 02:00 source=NWS
+     * wmo=n/a raw="Partly Cloudy" condition=PartlyCloudyNight
+     * icon=PartlyCloudyNightIcon`
+     * Example (OM): `hourly cell hour=2026-11-17 02:00 source=OpenMeteo
+     * wmo=0 condition=ClearNight icon=DarkMode`
+     */
+    fun hourlyCellDiagnostic(point: HourlyPoint, zoneId: ZoneId): String {
+        val hour = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+            .withZone(zoneId).format(point.time)
+        val source = when (point.source) {
+            HourlySource.Nws -> "NWS"
+            HourlySource.OpenMeteo -> "OpenMeteo"
+            HourlySource.Unknown -> "UNKNOWN"
+        }
+        val wmo = point.wmoCode?.let { "wmo=$it" } ?: "wmo=n/a"
+        val raw = point.rawShortForecast?.let { " raw=\"$it\"" } ?: ""
+        return "hourly cell hour=$hour source=$source $wmo$raw " +
+            "condition=${point.condition} icon=${hourlyCellIconName(point.condition, point.isDaytime)}"
+    }
+
+    /**
+     * The daily row's single display condition (widget-audit item 7b).
+     * The pop override and the row's text AND icon share this one value,
+     * so a row can never say one thing and show another: pop >= 50
+     * reads Rain in both, a moderate chance on a clear day/night reads
+     * Partly Cloudy in both. The override is day/night-aware — the old
+     * inline version always emitted the DAY variant, so a TODAY row at
+     * night showed a day condition behind a night glyph. Anything else
+     * passes through unchanged.
+     */
+    fun dailyDisplayCondition(condition: WeatherCondition, popPct: Int, isDaytime: Boolean): WeatherCondition = when {
+        popPct >= 50 -> WeatherCondition.Rain
+        popPct >= 30 && (condition == WeatherCondition.ClearDay || condition == WeatherCondition.ClearNight) ->
+            if (isDaytime) WeatherCondition.PartlyCloudyDay else WeatherCondition.PartlyCloudyNight
+        else -> condition
     }
 
     /**

@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RadialGradient
 import android.graphics.Shader
+import android.util.Log
 import com.example.data.mapper.LonLatBbox
 import com.example.data.mapper.MRMS_SERVICE_INFO_URL
 import com.example.data.mapper.iemTileUrl
@@ -36,9 +37,13 @@ import kotlinx.coroutines.coroutineScope
  *    (one `exportImage` over the grid's exact bbox) for step 0, or
  *    the HRRR tiles for the +15/+30 frame (Item 1's
  *    [radarWidgetFutureFrame], fetched with the canonical IEM tile
- *    URL for its HRRR layer name) for steps 1/2. A forecast lead that has not published yet 503s — the
- *    centre tile is the coverage signal, so a failed centre tile
- *    fails the frame instead of drawing a basemap with no radar.
+ *    URL for its HRRR layer name) for steps 1/2. A forecast lead
+ *    that has not published yet 503s — the centre tile is the
+ *    coverage signal, so a failed centre tile fails the frame — but
+ *    a failed forecast frame now falls back to the live MRMS frame
+ *    (labelled LIVE NOW) instead of failing the whole bake. A live
+ *    frame that fails or is blank steps back 5 min at a time and
+ *    bakes the most recent frame that works.
  * 3. The CRT baked in on Canvas, in the same order and with the
  *    same numbers as [CrtFilterLayer] draws it in-app: warm
  *    phosphor tint, scanlines, aperture grille, then the vignette.
@@ -52,12 +57,37 @@ import kotlinx.coroutines.coroutineScope
  * PNG for a bad/stale time as well as for a genuinely clear sky, so
  * a decoded-pixel check (any non-transparent pixel = echo) is
  * combined with the metadata extent exactly like [RadarLoopStore]
- * does: blank + time outside the extent = stale (the bake fails and
- * the updater shows the last baked image labelled stale); blank +
- * time inside the extent = a ready, empty frame (clear sky — the
- * basemap bakes alone). The known-blank hash set cannot be used
+ * does: blank + time inside the extent = a ready, empty frame
+ * (clear sky — the basemap bakes alone); blank + time outside the
+ * extent, or with the extent unread, steps back to an older frame
+ * (see Fallbacks below). The known-blank hash set cannot be used
  * here: it covers only the probed sizes (2048x2048, 1080x1000),
  * and the widget requests 830x290.
+ *
+ * Fallbacks (Item 4 refinement, 2026-11-16 — the 23:41 placement
+ * bake failed on the LIVE step, not a forecast step, so the live
+ * path is the one that must never blank the widget):
+ * - A forecast step whose HRRR lead has not published falls back
+ *   to the live MRMS frame, labelled "LIVE NOW · HH:MM" — the step
+ *   cycle is unchanged, the next refresh still shows its own step.
+ * - A live frame that fails to fetch/decode, or is blank for a time
+ *   the extent cannot verify, steps back 5 min at a time
+ *   ([radarWidgetMrmsCandidateTimes], 4 attempts) and bakes the
+ *   most recent frame that works, labelled with ITS real valid time
+ *   (and " · STALE" when it is not the newest).
+ * - When the service answers but every candidate is blank and the
+ *   extent was never read (service-info fetch failed), the sky is
+ *   almost certainly clear — the basemap bakes alone, labelled with
+ *   the newest attempted time and " · STALE" (freshness unverified),
+ *   rather than blanking the widget. Probed 2026-11-17 ~04:51 UTC:
+ *   the live service returns HTTP 200 + a 1,012 B fully transparent
+ *   PNG for the widget's exact bbox at the newest frame, at
+ *   newest-10, AND at a time 10 min ahead of the newest — blank is
+ *   the service's normal clear-sky answer, and a failed service-info
+ *   fetch used to turn that answer into a failed bake.
+ * - Every failure is logged ([Log.d]) with its reason, so the next
+ *   failed bake is traceable instead of vanishing into the updater's
+ *   catch-all (the 23:41 failure left no trace at all).
  *
  * The result is an RGB_565 bitmap: 830x290x2 = 481,400 B
  * ([radarWidgetBitmapByteCount]), well inside the serialized
@@ -76,9 +106,6 @@ sealed class RadarWidgetBakeResult {
 }
 
 enum class RadarWidgetBakeFailure {
-    /** The MRMS image was blank for a time outside the extent (stale). */
-    MRMS_STALE_BLANK,
-
     /** The forecast frame has no HRRR lead yet (centre tile 503'd). */
     FRAME_NOT_PUBLISHED,
 
@@ -87,6 +114,8 @@ enum class RadarWidgetBakeFailure {
 }
 
 object RadarWidgetCompositor {
+
+    private const val TAG = "RadarWidget"
 
     /** Navy behind any tile that fails: the engine's background. */
     private const val BASEMAP_FALLBACK_ARGB: Int = 0xFF0A1A33.toInt()
@@ -124,22 +153,11 @@ object RadarWidgetCompositor {
             }
         }
 
-        // Overlay for this step, then the CRT bake.
-        val frameTimeMs = when (step) {
-            0 -> {
-                when (val overlay = fetchMrmsOverlay(fetcher, generationId, grid, now)) {
-                    is MrmsOverlay.Ready -> {
-                        canvas.drawBitmap(overlay.bitmap, 0f, 0f, null)
-                        overlay.bitmap.recycle()
-                        overlay.frameTimeMs
-                    }
-                    is MrmsOverlay.ClearSky -> {
-                        // Genuinely clear: the basemap bakes alone.
-                        overlay.frameTimeMs
-                    }
-                    is MrmsOverlay.Failed -> return RadarWidgetBakeResult.Failed(overlay.reason)
-                }
-            }
+        // Overlay for this step, then the CRT bake. A forecast step
+        // whose HRRR lead has not published falls back to the live
+        // MRMS frame instead of failing the bake (Item 4).
+        val drawn: OverlayResult = when (step) {
+            0 -> drawLiveOverlay(canvas, fetcher, generationId, grid, now)
             else -> {
                 when (val overlay = fetchHrrrOverlay(fetcher, generationId, grid, now, step)) {
                     is HrrrOverlay.Ready -> {
@@ -154,25 +172,91 @@ object RadarWidgetCompositor {
                                 it.recycle()
                             }
                         }
-                        overlay.frameTimeMs
+                        OverlayResult.Drawn(overlay.frameTimeMs, step, stale = false)
                     }
-                    is HrrrOverlay.Failed -> return RadarWidgetBakeResult.Failed(overlay.reason)
+                    is HrrrOverlay.Failed -> {
+                        Log.d(
+                            TAG,
+                            "radar bake: HRRR step $step unavailable " +
+                                "(${overlay.reason}); falling back to live MRMS"
+                        )
+                        drawLiveOverlay(
+                            canvas,
+                            fetcher,
+                            generationId,
+                            grid,
+                            now,
+                            displayStep = radarWidgetOverlayStep(step, hrrrFailed = true)
+                        )
+                    }
                 }
             }
+        }
+        val (frameTimeMs, displayStep, stale) = when (drawn) {
+            is OverlayResult.Failed -> {
+                Log.d(TAG, "radar bake failed: ${drawn.reason} (step $step)")
+                return RadarWidgetBakeResult.Failed(drawn.reason)
+            }
+            is OverlayResult.Drawn -> Triple(drawn.frameTimeMs, drawn.displayStep, drawn.stale)
         }
         bakeCrt(canvas)
         return RadarWidgetBakeResult.Success(
             bitmap = base,
-            label = radarWidgetLabel(step, Instant.ofEpochMilli(frameTimeMs), place.zoneId),
+            label = radarWidgetLabel(displayStep, Instant.ofEpochMilli(frameTimeMs), place.zoneId, stale = stale),
             frameTimeMs = frameTimeMs
         )
     }
 
     // -- Overlays ----------------------------------------------------------
 
+    /**
+     * One step's overlay drawn onto [canvas]: the frame's valid time,
+     * the step its label shows ([displayStep] — 0 for the live frame,
+     * including the HRRR fallback), and whether the frame is older
+     * than the newest (labelled STALE). A failure carries the reason
+     * so the caller can log it instead of swallowing it.
+     */
+    private sealed class OverlayResult {
+        data class Drawn(val frameTimeMs: Long, val displayStep: Int, val stale: Boolean) : OverlayResult()
+        data class Failed(val reason: RadarWidgetBakeFailure) : OverlayResult()
+    }
+
+    /**
+     * Draw the live MRMS overlay for [now]: try the candidate frame
+     * times newest-first ([fetchMrmsOverlay]) and draw whichever
+     * serves. [displayStep] is the label step — 0 for the live step,
+     * and 0 for the HRRR fallback (the fallback is a live frame,
+     * labelled LIVE NOW).
+     */
+    private suspend fun drawLiveOverlay(
+        canvas: Canvas,
+        fetcher: CoalescingFetcher,
+        generationId: Long,
+        grid: RadarWidgetTileGrid,
+        now: Instant,
+        displayStep: Int = radarWidgetOverlayStep(0, hrrrFailed = false)
+    ): OverlayResult {
+        return when (val overlay = fetchMrmsOverlay(fetcher, generationId, grid, now)) {
+            is MrmsOverlay.Ready -> {
+                canvas.drawBitmap(overlay.bitmap, 0f, 0f, null)
+                overlay.bitmap.recycle()
+                OverlayResult.Drawn(overlay.frameTimeMs, displayStep, overlay.stale)
+            }
+            is MrmsOverlay.ClearSky -> {
+                // Genuinely clear (or unverified-blank, see below):
+                // the basemap bakes alone.
+                OverlayResult.Drawn(overlay.frameTimeMs, displayStep, overlay.stale)
+            }
+            is MrmsOverlay.Failed -> {
+                Log.d(TAG, "radar bake: live MRMS failed (${overlay.reason})")
+                OverlayResult.Failed(overlay.reason)
+            }
+        }
+    }
+
     private sealed class MrmsOverlay {
-        data class Ready(val bitmap: Bitmap, val frameTimeMs: Long) : MrmsOverlay()
-        data class ClearSky(val frameTimeMs: Long) : MrmsOverlay()
+        data class Ready(val bitmap: Bitmap, val frameTimeMs: Long, val stale: Boolean) : MrmsOverlay()
+        data class ClearSky(val frameTimeMs: Long, val stale: Boolean) : MrmsOverlay()
         data class Failed(val reason: RadarWidgetBakeFailure) : MrmsOverlay()
     }
 
@@ -187,6 +271,23 @@ object RadarWidgetCompositor {
 
     private data class TileBitmap(val tileX: Int, val tileY: Int, val bitmap: Bitmap?)
 
+    /**
+     * The live MRMS overlay: try the candidate frame times
+     * newest-first ([radarWidgetMrmsCandidateTimes]) and serve the
+     * first that works. A candidate fails two ways — the fetch/decode
+     * fails (try the next, 5 min older), or the image is blank:
+     * blank + time inside the extent is clear sky (the basemap bakes
+     * alone, done — a clear sky needs no older frame); blank + time
+     * outside the extent, or with the extent unread, tries the next
+     * candidate. A served frame older than the newest is [stale] and
+     * its label says so. When the service answers but every
+     * candidate is blank and the extent was never read, the sky is
+     * almost certainly clear — the basemap bakes alone, labelled
+     * with the newest attempted time and STALE (freshness
+     * unverified), rather than blanking the widget on a clear night
+     * for a failed service-info fetch (the 23:41 failure mode).
+     * Only when no candidate serves an image at all does this fail.
+     */
     private suspend fun fetchMrmsOverlay(
         fetcher: CoalescingFetcher,
         generationId: Long,
@@ -196,39 +297,67 @@ object RadarWidgetCompositor {
         val serviceInfo = fetcher.fetchText(MRMS_SERVICE_INFO_URL, generationId)
         val newestMs = radarWidgetNewestMrmsTimeMs(serviceInfo)
         val withinExtent = newestMs != null
-        val frameTimeMs = newestMs ?: radarWidgetFallbackFrameTimeMs(now)
-        val bbox = LonLatBbox(grid.westLon, grid.southLat, grid.eastLon, grid.northLat)
-        val url = mrmsExportImageUrl(
-            bbox,
-            frameTimeMs,
-            RADAR_WIDGET_WIDTH_PX,
-            RADAR_WIDGET_HEIGHT_PX
-        )
-        val result = fetcher.fetch(url, generationId)
-        val bytes = (result as? FetchResult.Success)?.bytes
-            ?: return MrmsOverlay.Failed(RadarWidgetBakeFailure.NETWORK)
-        val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            ?: return MrmsOverlay.Failed(RadarWidgetBakeFailure.NETWORK)
-        if (!hasNonTransparentPixel(decoded)) {
-            decoded.recycle()
-            // Blank + time outside the extent = stale; blank + time
-            // inside = clear sky (the control the store relies on).
-            return if (!withinExtent) {
-                MrmsOverlay.Failed(RadarWidgetBakeFailure.MRMS_STALE_BLANK)
-            } else {
-                MrmsOverlay.ClearSky(frameTimeMs)
-            }
+        if (serviceInfo == null) {
+            Log.d(TAG, "radar bake: MRMS service info unreadable; extent unknown")
         }
-        // The MRMS image covers the grid's exact bbox, so it draws
-        // stretched over the whole bitmap.
-        val stretched = Bitmap.createScaledBitmap(
-            decoded,
-            RADAR_WIDGET_WIDTH_PX,
-            RADAR_WIDGET_HEIGHT_PX,
-            true
-        )
-        decoded.recycle()
-        return MrmsOverlay.Ready(stretched, frameTimeMs)
+        val candidates = radarWidgetMrmsCandidateTimes(newestMs, now)
+        val bbox = LonLatBbox(grid.westLon, grid.southLat, grid.eastLon, grid.northLat)
+        var sawBlank = false
+        for ((index, frameTimeMs) in candidates.withIndex()) {
+            val url = mrmsExportImageUrl(
+                bbox,
+                frameTimeMs,
+                RADAR_WIDGET_WIDTH_PX,
+                RADAR_WIDGET_HEIGHT_PX
+            )
+            val result = fetcher.fetch(url, generationId)
+            val bytes = (result as? FetchResult.Success)?.bytes
+            if (bytes == null) {
+                Log.d(TAG, "radar bake: MRMS frame $frameTimeMs fetch failed ($result); stepping back")
+                continue
+            }
+            val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            if (decoded == null) {
+                Log.d(TAG, "radar bake: MRMS frame $frameTimeMs undecodable; stepping back")
+                continue
+            }
+            if (!hasNonTransparentPixel(decoded)) {
+                decoded.recycle()
+                sawBlank = true
+                if (withinExtent) {
+                    // Blank + time inside the extent = clear sky (the
+                    // control the store relies on).
+                    return MrmsOverlay.ClearSky(frameTimeMs, stale = index > 0)
+                }
+                Log.d(
+                    TAG,
+                    "radar bake: MRMS frame $frameTimeMs blank, extent unknown; stepping back"
+                )
+                continue
+            }
+            // The MRMS image covers the grid's exact bbox, so it draws
+            // stretched over the whole bitmap.
+            val stretched = Bitmap.createScaledBitmap(
+                decoded,
+                RADAR_WIDGET_WIDTH_PX,
+                RADAR_WIDGET_HEIGHT_PX,
+                true
+            )
+            decoded.recycle()
+            return MrmsOverlay.Ready(stretched, frameTimeMs, stale = index > 0)
+        }
+        if (sawBlank && !withinExtent) {
+            // Every frame the service answered was blank and the
+            // extent was never read: bake the basemap alone, labelled
+            // with the newest attempted time and STALE.
+            Log.d(
+                TAG,
+                "radar bake: all ${candidates.size} MRMS candidates blank, extent unknown; " +
+                    "basemap-only stale bake at ${candidates.first()}"
+            )
+            return MrmsOverlay.ClearSky(candidates.first(), stale = true)
+        }
+        return MrmsOverlay.Failed(RadarWidgetBakeFailure.NETWORK)
     }
 
     private suspend fun fetchHrrrOverlay(

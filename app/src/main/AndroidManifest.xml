@@ -9,6 +9,12 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- In-app updater: installing an APK the app downloaded itself. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 0.3.2: battery-optimization exemption for the widgets' update
+         work. Requested ONLY from Settings, on the user's tap — never
+         automatically, never on launch. Without it Doze defers the
+         60-minute update work (the main widget was 86 minutes stale
+         on a 60-minute cadence). No background location is added. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:name=".AuraWeatherApp"

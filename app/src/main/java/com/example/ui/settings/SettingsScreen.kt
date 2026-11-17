@@ -1,8 +1,13 @@
 package com.example.ui.settings
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -23,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
@@ -49,6 +55,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,6 +68,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.util.Locale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -113,6 +123,39 @@ fun SettingsScreen(
     // there is no runtime permission; it is granted at install.
     val context = LocalContext.current
     var showAlertRationale by remember { mutableStateOf(false) }
+
+    // 0.3.2: battery-exemption status for the Background updates row.
+    // The widget's 60-minute update work is deferred by Doze while the
+    // app is battery-optimized (the main widget was 86 minutes stale
+    // on a 60-minute cadence). The exemption is requested ONLY from
+    // that row, on the user's tap — never on launch, never
+    // automatically. This block only reads the status.
+    val powerManager = remember(context) {
+        context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    }
+    fun isBatteryExempt(): Boolean =
+        powerManager.isIgnoringBatteryOptimizations(context.packageName)
+    var batteryExempt by remember { mutableStateOf(isBatteryExempt()) }
+    // Re-check on resume: the user comes back here from the system
+    // prompt, and the status may have changed.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                batteryExempt = isBatteryExempt()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    // Fires the system battery-optimization prompt. Called only from
+    // the Background updates row's button — never automatically.
+    fun requestBatteryExemption() {
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:${context.packageName}")
+        }
+        context.startActivity(intent)
+    }
     // Build C: which toggle asked for the permission ("alerts" or "rain"),
     // so the grant turns on the right one.
     var permissionFor by remember { mutableStateOf<String?>(null) }
@@ -390,6 +433,72 @@ fun SettingsScreen(
                             checkedTrackColor = RetroTokens.PanelLight
                         )
                     )
+                }
+            }
+        }
+
+        // 0.3.2: background updates (battery-optimization exemption).
+        // The widgets refresh on a 60-minute cadence, but Doze defers
+        // that work while the app is battery-optimized — the main
+        // widget was 86 minutes stale. The button below fires the
+        // system prompt; nothing is requested until the user taps it,
+        // and the system decides. Status re-checks on resume.
+        item {
+            RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.BatteryChargingFull,
+                            contentDescription = "Background updates",
+                            tint = RetroTokens.Yellow,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "BACKGROUND UPDATES",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = RetroTokens.TextPrimary
+                            )
+                            Text(
+                                text = if (batteryExempt) "Battery optimization off — widget updates run on schedule" else "Battery optimization on — Doze can delay widget updates",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = RetroTokens.TextSecondary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (batteryExempt) {
+                        Text(
+                            text = "No action needed — the system will not delay Aura Weather's background updates.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RetroTokens.TextSecondary
+                        )
+                    } else {
+                        Button(
+                            onClick = { requestBatteryExemption() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = RetroTokens.Yellow,
+                                contentColor = RetroTokens.Background
+                            ),
+                            shape = RetroShapes.medium,
+                            modifier = Modifier.testTag("request_battery_exemption")
+                        ) {
+                            Text("ALLOW BACKGROUND UPDATES")
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Opens the system prompt — nothing changes until you allow it there. You can turn it off again in system Settings.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RetroTokens.TextSecondary
+                        )
+                    }
                 }
             }
         }

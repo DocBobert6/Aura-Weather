@@ -1,5 +1,6 @@
 package com.example.data.repo
 
+import android.util.Log
 import com.example.data.api.PirateWeatherApi
 import com.example.data.api.NwsAlertFeature
 import com.example.data.api.NwsApi
@@ -32,6 +33,7 @@ import com.example.domain.model.DailyPoint
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.GeoPoint
 import com.example.domain.model.HourlyPoint
+import com.example.domain.model.HourlySource
 import com.example.domain.model.MinutePrecip
 import com.example.domain.model.Place
 import com.example.domain.model.PollenData
@@ -154,7 +156,16 @@ class WeatherRepository(
             useMetric = useMetric,
             isDaytime = state.solar.isDaytime,
             // Build E: the next 6 hours for the hourly-strip widget.
-            hourly = hourlyStripPoints(state.hourly48h, state.place.zoneId, 6)
+            // 0.3.2: the strip's NOW cell carries the observed current
+            // temp (state.current.tempC), not the hourly forecast temp
+            // for that hour — same single source of truth as the main
+            // widget and the Home strip's NOW cell.
+            hourly = hourlyStripPoints(
+                state.hourly48h,
+                state.place.zoneId,
+                6,
+                currentTempC = state.current.tempC
+            )
         )
     }
 
@@ -509,6 +520,25 @@ class WeatherRepository(
                 } else list
             }
 
+        // Per-cell diagnostic (widget-audit, Worker E): log what each
+        // strip cell actually holds — source, WMO code (or the raw NWS
+        // text), mapped condition, icon — AFTER the index-0 hero
+        // override above, so the log is the strip as rendered, not the
+        // parse. The parse-time logs (parseNwsHourly / parseOpenMeteoHourly)
+        // stay: they show what each provider returned; these lines show
+        // what each cell became. Debug only, tag WeatherRepository.
+        // Decision rule on device: if 02:00/03:00 log source=NWS with
+        // raw="Partly Cloudy" and icon=PartlyCloudyNightIcon (or
+        // source=OpenMeteo wmo=0 icon=DarkMode) yet the strip still shows
+        // a plain cloud, the bug is downstream of the model (icon/strip/
+        // stale cache), not the mapping. If they log condition=Cloudy
+        // icon=Cloud, the mapping (or the NWS text itself) is still the
+        // cause — the fix did not take effect or the text genuinely says
+        // cloudy.
+        hourlyList.forEach { point ->
+            Log.d(TAG, WeatherMappers.hourlyCellDiagnostic(point, zoneId))
+        }
+
         // --- Daily (14d). Same split as hourly.
         // The date-matched daily fills (UV merge, fillDailyHighs,
         // fillDailyPrecipAndExtend) and the NWS-unavailable fallback all
@@ -742,6 +772,7 @@ class WeatherRepository(
             }
             val windMs = parseNwsWindSpeedMph(period.windSpeed)?.let { it * 0.44704 }
             val condition = WeatherMappers.mapNwsTextToCondition(period.shortForecast, period.isDaytime)
+            Log.d(TAG, "hourly NWS $start shortForecast=${period.shortForecast} -> $condition")
             HourlyPoint(
                 time = start,
                 tempC = tempC,
@@ -749,7 +780,13 @@ class WeatherRepository(
                 precipMm = null,
                 condition = condition,
                 windMs = windMs,
-                isDaytime = period.isDaytime
+                isDaytime = period.isDaytime,
+                // NWS has no WMO code: wmoCode stays null and the raw
+                // shortForecast is kept, so the per-cell diagnostic can
+                // show the exact text that was mapped.
+                source = HourlySource.Nws,
+                wmoCode = null,
+                rawShortForecast = period.shortForecast
             )
         }.take(48)
     }
@@ -815,16 +852,25 @@ class WeatherRepository(
             if (instant.isBefore(cutoff)) continue
             val code = omHourly.weatherCode?.getOrNull(i)
             val daytime = isDaytimeAt(place.point, instant, zoneId)
+            val omCondition = WeatherMappers.mapWmoCodeToCondition(code, daytime)
+            Log.d(TAG, "hourly OM $instant wmo=$code -> $omCondition")
             points.add(
                 HourlyPoint(
                     time = instant,
                     tempC = omHourly.temperature2m?.getOrNull(i),
                     popPct = omHourly.precipitationProbability?.getOrNull(i),
                     precipMm = omHourly.precipitation?.getOrNull(i),
-                    condition = WeatherMappers.mapWmoCodeToCondition(code, daytime),
+                    condition = omCondition,
                     snowfallCm = omHourly.snowfall?.getOrNull(i),
                     windMs = omHourly.windSpeed10m?.getOrNull(i)?.let { it * 1000.0 / 3600.0 },
-                    isDaytime = daytime
+                    isDaytime = daytime,
+                    // Keep the WMO code on the point: the per-cell
+                    // diagnostic logs the code the app actually holds,
+                    // so a clear-code hour can never silently render
+                    // as a cloud without the log saying so.
+                    source = HourlySource.OpenMeteo,
+                    wmoCode = code,
+                    rawShortForecast = null
                 )
             )
             if (points.size >= 48) break
@@ -956,6 +1002,14 @@ class WeatherRepository(
          * place, at the 8 compass bearings — roughly the spacing of the
          * classic stills' cities (~50 mi). One constant, easy to tune. */
         const val REGIONAL_NEIGHBOUR_DISTANCE_METERS = 80_000.0
+
+        // Widget-audit item 7a: hourly icon trace. The 2 AM cloud icon
+        // of 2026-11-16 was only diagnosable from a live probe + a code
+        // read; these lines log each hour's raw source value and the
+        // condition it mapped to, so the next wrong-icon report is
+        // traceable from logcat alone. Debug logging only — no
+        // user-visible debug screen.
+        private const val TAG = "WeatherRepository"
     }
 }
 

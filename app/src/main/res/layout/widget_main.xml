@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Classic RemoteViews main widget (Item 3). Default 2x2 square,
-     stretches to 4x2. Star4000 faces via android:fontFamily on the
-     font resources (API 26+; API 24-25 falls back to system sans).
-     Static retro chrome: navy panel, blue border, yellow logo box
-     and temp, ticker-blue strip with one fact per update. -->
+     stretches to 4x2. Static retro chrome: navy panel, blue border,
+     yellow logo box and temp, ticker-blue strip with one fact per
+     update. Text is BITMAP-rendered Star4000 (WidgetTextBitmapRenderer):
+     the @font/ XML route failed on the Pixel launcher (all widgets
+     rendered system sans, proved 2026-11-16), so every text run is an
+     ImageView fed by setImageViewBitmap, with the string as its content
+     description. Sizes and colours match the old TextViews. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_main_root"
     android:layout_width="match_parent"
@@ -23,13 +26,11 @@
         android:paddingTop="2dp"
         android:paddingBottom="2dp">
 
-        <TextView
+        <ImageView
+            android:id="@+id/widget_main_logo"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:fontFamily="@font/star4000_small"
-            android:text="AURA WEATHER"
-            android:textColor="@color/retro_yellow"
-            android:textSize="12sp" />
+            android:contentDescription="Aura Weather" />
 
     </LinearLayout>
 
@@ -53,54 +54,34 @@
                 android:layout_width="44dp"
                 android:layout_height="44dp" />
 
-            <TextView
+            <ImageView
                 android:id="@+id/widget_main_temp"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:fontFamily="@font/star4000_large"
-                android:textColor="@color/retro_yellow"
-                android:textSize="34sp" />
+                android:layout_marginStart="8dp" />
 
         </LinearLayout>
 
-        <TextView
+        <ImageView
             android:id="@+id/widget_main_place"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:ellipsize="end"
-            android:fontFamily="@font/star4000_small"
-            android:maxLines="1"
-            android:textColor="@color/retro_text_primary"
-            android:textSize="13sp" />
+            android:layout_marginTop="2dp" />
 
-        <TextView
+        <ImageView
             android:id="@+id/widget_main_condition"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:fontFamily="@font/star4000_small"
-            android:maxLines="1"
-            android:textColor="@color/retro_text_primary"
-            android:textSize="12sp" />
+            android:layout_height="wrap_content" />
 
-        <TextView
+        <ImageView
             android:id="@+id/widget_main_highlow"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:fontFamily="@font/star4000_small"
-            android:maxLines="1"
-            android:textColor="@color/retro_text_primary"
-            android:textSize="12sp" />
+            android:layout_height="wrap_content" />
 
-        <TextView
+        <ImageView
             android:id="@+id/widget_main_updated"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:fontFamily="@font/star4000_small"
-            android:maxLines="1"
-            android:textColor="@color/retro_text_primary"
-            android:textSize="10sp" />
+            android:layout_height="wrap_content" />
 
     </LinearLayout>
 
@@ -114,30 +95,32 @@
         android:orientation="vertical"
         android:visibility="gone">
 
-        <TextView
+        <ImageView
+            android:id="@+id/widget_main_empty_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:fontFamily="@font/star4000_small"
-            android:text="OPEN AURA WEATHER TO LOAD"
-            android:textColor="@color/retro_text_primary"
-            android:textSize="12sp" />
+            android:contentDescription="Open Aura Weather to load" />
 
     </LinearLayout>
 
-    <!-- Ticker strip: one fact per update, swapped on refresh. -->
-    <TextView
+    <!-- Ticker strip: one fact per update, swapped on refresh. The bar
+         keeps the id (visibility is toggled on it); the bitmap goes in
+         the inner ImageView. -->
+    <LinearLayout
         android:id="@+id/widget_main_ticker"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
         android:background="@drawable/widget_ticker_bg"
-        android:ellipsize="end"
-        android:fontFamily="@font/star4000_small"
         android:gravity="center"
-        android:maxLines="1"
         android:paddingTop="3dp"
-        android:paddingBottom="3dp"
-        android:textColor="@color/retro_text_primary"
-        android:textSize="11sp" />
+        android:paddingBottom="3dp">
+
+        <ImageView
+            android:id="@+id/widget_main_ticker_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+    </LinearLayout>
 
 </LinearLayout>
