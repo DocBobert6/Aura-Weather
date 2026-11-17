@@ -31,9 +31,11 @@ package com.example.ui.radar.engine
  *
  * When the loop is not playing (paused, loading, primed) the dot
  * holds steady VISIBLE: the marker is the point of the radar, and
- * only the beat blinks it. On satellite layers the blip is OFF —
- * it is a radar marker, and the brief scopes it to the live and
- * forecast loops.
+ * only the beat blinks it. The blip shows on the satellite layers
+ * too (Robert, 2026-11-17): it is the place marker, not just a
+ * radar marker, and the same rule applies there — steady VISIBLE
+ * while the loop is not playing, blinking with the playhead
+ * parity while it plays.
  */
 
 // ---------------------------------------------------------------------------
@@ -83,23 +85,19 @@ enum class RadarBlipDisplay {
     VISIBLE,
 
     /** Dot hidden (blinking off-phase while the loop plays). */
-    HIDDEN,
-
-    /** Not a radar layer: the blip is off entirely. */
-    OFF
+    HIDDEN
 }
 
 /**
- * The blip's display state: OFF off the radar layers; steady
- * VISIBLE while the loop is not playing; blinking with the playhead
- * parity while it plays.
+ * The blip's display state: steady VISIBLE while the loop is not
+ * playing; blinking with the playhead parity while it plays. The
+ * rule is layer-independent — radar and satellite alike (Robert,
+ * 2026-11-17: the blip shows on satellite too).
  */
 fun radarBlipDisplay(
-    isRadarLayer: Boolean,
     isLoopPlaying: Boolean,
     currentFrameIndex: Int
 ): RadarBlipDisplay {
-    if (!isRadarLayer) return RadarBlipDisplay.OFF
     if (!isLoopPlaying) return RadarBlipDisplay.VISIBLE
     return if (radarBlipVisibleForFrameIndex(currentFrameIndex)) {
         RadarBlipDisplay.VISIBLE

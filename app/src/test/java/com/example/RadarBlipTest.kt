@@ -29,10 +29,16 @@ class RadarBlipTest {
     // -- Display rule ------------------------------------------------------
 
     @Test
-    fun `satellite is always off, playing or not`() {
-        assertEquals(RadarBlipDisplay.OFF, radarBlipDisplay(false, true, 0))
-        assertEquals(RadarBlipDisplay.OFF, radarBlipDisplay(false, true, 1))
-        assertEquals(RadarBlipDisplay.OFF, radarBlipDisplay(false, false, 0))
+    fun `satellite layers show the blip like radar`() {
+        // Robert, 2026-11-17: the blip shows on satellite too.
+        // The rule takes no layer input at all — satellite
+        // follows the same steady/blink rule as radar: steady
+        // VISIBLE while the loop is not playing, blinking with
+        // the playhead parity while it plays.
+        assertEquals(RadarBlipDisplay.VISIBLE, radarBlipDisplay(false, 0))
+        assertEquals(RadarBlipDisplay.VISIBLE, radarBlipDisplay(false, 1))
+        assertEquals(RadarBlipDisplay.VISIBLE, radarBlipDisplay(true, 0))
+        assertEquals(RadarBlipDisplay.HIDDEN, radarBlipDisplay(true, 1))
     }
 
     @Test
@@ -40,16 +46,16 @@ class RadarBlipTest {
         // Not playing: the beat has stopped, so the dot holds — on
         // either parity, never a hidden dot while the user looks at
         // a still radar.
-        assertEquals(RadarBlipDisplay.VISIBLE, radarBlipDisplay(true, false, 0))
-        assertEquals(RadarBlipDisplay.VISIBLE, radarBlipDisplay(true, false, 1))
-        assertEquals(RadarBlipDisplay.VISIBLE, radarBlipDisplay(true, false, 9))
+        assertEquals(RadarBlipDisplay.VISIBLE, radarBlipDisplay(false, 0))
+        assertEquals(RadarBlipDisplay.VISIBLE, radarBlipDisplay(false, 1))
+        assertEquals(RadarBlipDisplay.VISIBLE, radarBlipDisplay(false, 9))
     }
 
     @Test
     fun `playing radar blinks with the playhead parity`() {
-        assertEquals(RadarBlipDisplay.VISIBLE, radarBlipDisplay(true, true, 0))
-        assertEquals(RadarBlipDisplay.HIDDEN, radarBlipDisplay(true, true, 1))
-        assertEquals(RadarBlipDisplay.VISIBLE, radarBlipDisplay(true, true, 8))
-        assertEquals(RadarBlipDisplay.HIDDEN, radarBlipDisplay(true, true, 9))
+        assertEquals(RadarBlipDisplay.VISIBLE, radarBlipDisplay(true, 0))
+        assertEquals(RadarBlipDisplay.HIDDEN, radarBlipDisplay(true, 1))
+        assertEquals(RadarBlipDisplay.VISIBLE, radarBlipDisplay(true, 8))
+        assertEquals(RadarBlipDisplay.HIDDEN, radarBlipDisplay(true, 9))
     }
 }

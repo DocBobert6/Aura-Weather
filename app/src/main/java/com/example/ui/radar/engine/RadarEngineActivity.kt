@@ -1107,9 +1107,10 @@ class RadarEngineController(
     /**
      * Apply the blip's current display state ([radarBlipDisplay]):
      * the blink flips `iconOpacity` 1/0 with the playhead parity
-     * while the loop plays, holds steady VISIBLE otherwise, and
-     * turns OFF on satellite. No-op when nothing changed — this
-     * runs on every chrome refresh ([refreshUiState]).
+     * while the loop plays, holds steady VISIBLE otherwise — the
+     * same rule on the radar and satellite layers. No-op when
+     * nothing changed — this runs on every chrome refresh
+     * ([refreshUiState]).
      */
     private fun updateBlip() {
         val layer = blipLayer ?: return
@@ -1118,7 +1119,6 @@ class RadarEngineController(
             (store.state == LiveLoopState.PLAYING ||
                 store.state == LiveLoopState.WAITING_NEXT)
         val display = radarBlipDisplay(
-            isRadarLayer = selectedLayer == EngineLayer.Radar,
             isLoopPlaying = playing,
             currentFrameIndex = store.currentIndex
         )
