@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Classic RemoteViews radar widget (Item 4). 4x2: a static
+     composited bitmap (newest MRMS frame over the Esri dark-gray
+     basemap, CRT baked in) with a small Star4000 label line overlaid
+     at the bottom. Tap anywhere opens the radar engine. The label
+     bar is a translucent navy strip so the label stays readable over
+     any radar colours. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_radar_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/retro_background">
+
+    <ImageView
+        android:id="@+id/widget_radar_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop" />
+
+    <!-- Empty prompt: no selected place. -->
+    <TextView
+        android:id="@+id/widget_radar_empty"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:fontFamily="@font/star4000_small"
+        android:text="OPEN AURA WEATHER TO ADD A PLACE"
+        android:textColor="@color/retro_text_primary"
+        android:textSize="11sp"
+        android:visibility="gone" />
+
+    <!-- Label bar over the bottom of the image. -->
+    <LinearLayout
+        android:id="@+id/widget_radar_label_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="#CC0A1E5C"
+        android:gravity="center"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp">
+
+        <TextView
+            android:id="@+id/widget_radar_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/star4000_small"
+            android:text="LOADING RADAR"
+            android:textColor="@color/retro_text_primary"
+            android:textSize="11sp" />
+
+    </LinearLayout>
+
+</FrameLayout>

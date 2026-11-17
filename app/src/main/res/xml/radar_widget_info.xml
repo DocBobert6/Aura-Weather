@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Item 4: radar widget, 4x2 (min 250x110dp per the 70n-30 cell
+     formula). Resizes horizontally/vertically; the baked bitmap is
+     center-cropped to the placement. The 15-minute update cadence
+     is driven by the worker, not updatePeriodMillis — and it is
+     Robert's scoped approval for this widget only (2026-11-16), not
+     a change to the 60-min cadence of the other widgets. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:maxResizeWidth="320dp"
+    android:maxResizeHeight="180dp"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_radar"
+    android:previewLayout="@layout/widget_radar"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2" />

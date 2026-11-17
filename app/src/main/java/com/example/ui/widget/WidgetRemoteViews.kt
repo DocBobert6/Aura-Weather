@@ -4,10 +4,12 @@ import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.view.View
 import android.widget.RemoteViews
 import com.example.MainActivity
 import com.example.R
+import com.example.data.work.AlertNotifier
 import java.util.Locale
 
 /**
@@ -54,6 +56,51 @@ object WidgetRemoteViews {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+    }
+
+    /** Tap target for the radar widget: opens the app on the Radar tab. */
+    private fun openRadarPendingIntent(context: Context): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            putExtra(AlertNotifier.EXTRA_DESTINATION, AlertNotifier.DESTINATION_RADAR)
+        }
+        return PendingIntent.getActivity(
+            context,
+            1,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    /**
+     * The radar widget (Item 4): a static composited bitmap plus its
+     * label line. [bitmap] null with [showEmptyPrompt] false is the
+     * unavailable state (label only, no image, never a blank);
+     * [showEmptyPrompt] true is the no-selected-place prompt.
+     */
+    fun buildRadar(
+        context: Context,
+        bitmap: Bitmap?,
+        label: String,
+        showEmptyPrompt: Boolean
+    ): RemoteViews {
+        val views = RemoteViews(context.packageName, R.layout.widget_radar)
+        views.setOnClickPendingIntent(R.id.widget_radar_root, openRadarPendingIntent(context))
+        if (showEmptyPrompt) {
+            views.setViewVisibility(R.id.widget_radar_image, View.GONE)
+            views.setViewVisibility(R.id.widget_radar_label_bar, View.GONE)
+            views.setViewVisibility(R.id.widget_radar_empty, View.VISIBLE)
+            return views
+        }
+        views.setViewVisibility(R.id.widget_radar_empty, View.GONE)
+        views.setViewVisibility(R.id.widget_radar_label_bar, View.VISIBLE)
+        views.setTextViewText(R.id.widget_radar_label, label)
+        if (bitmap != null) {
+            views.setViewVisibility(R.id.widget_radar_image, View.VISIBLE)
+            views.setImageViewBitmap(R.id.widget_radar_image, bitmap)
+        } else {
+            views.setViewVisibility(R.id.widget_radar_image, View.GONE)
+        }
+        return views
     }
 
     /** The main widget. A null [state] renders the empty prompt. */

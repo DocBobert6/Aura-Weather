@@ -69,6 +69,23 @@
                 android:resource="@xml/hourly_strip_widget_info" />
         </receiver>
 
+        <!-- Item 4: radar widget (4x2). Its 15-minute update work is
+             separate from the shared 60-minute work of the other two
+             widgets; the receiver stops it when the last radar widget
+             is removed. -->
+        <receiver
+            android:name=".ui.widget.RadarWidgetReceiver"
+            android:exported="true"
+            android:label="Aura Weather Radar">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/radar_widget_info" />
+        </receiver>
+
         <!-- In-app updater: the downloaded APK reaches the system
              installer through this FileProvider — never a
              world-readable path. -->
