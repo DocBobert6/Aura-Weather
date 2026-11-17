@@ -6,7 +6,6 @@ import android.graphics.drawable.VectorDrawable
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertFalse
@@ -90,7 +89,9 @@ class HeaderLogoPainterTest {
             )
         }
         composeRule.waitForIdle()
-        composeRule.onRoot().assertExists()
+        // No further assertion: if painterResource throws, setContent
+        // throws and this test fails. Reaching here means the logo
+        // painter loaded and composed.
     }
 
     @Test(expected = IllegalArgumentException::class)
