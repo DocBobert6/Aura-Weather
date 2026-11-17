@@ -6,8 +6,15 @@ The look is the classic late-90s / early-2000s Weather Channel local forecast �
 
 ## Status
 
-0.3.4 — tag `v0.3.4` (`versionName "0.3.4"` / `versionCode 14` in
-`app/build.gradle.kts`), arm64-only APK. Fixes the 0.3.3 launch
+0.3.5 — tag `v0.3.5` (`versionName "0.3.5"` / `versionCode 15` in
+`app/build.gradle.kts`), arm64-only APK. Fixes the radar range-switch
+bug: going from a forecast range (IN 6H) back to Live left the
+forecast frame on top of the map while the live loop advanced
+underneath it, so the screen said LIVE while the map still showed the
+forecast. Switching ranges now always hides the outgoing range's
+picture first, so only the range you picked is ever on screen — and
+the same fix covers forecast-to-forecast switches and coming back to
+radar from satellite. It follows 0.3.4, which fixed the 0.3.3 launch
 crash: 0.3.3 would not open at all — the header logo loaded the
 launcher icon, which on modern Android is an adaptive icon that the
 UI toolkit cannot draw, so the app crashed on the first layout pass
@@ -15,7 +22,7 @@ before anything appeared. The logo box now loads the sun mark from a
 plain picture file instead, and there are two guards so it cannot
 happen again: a test that loads the logo the same way the app does,
 and a build check that fails if any picture is ever loaded from the
-launcher icons again. It follows 0.3.3, which did a UI and font audit: the
+launcher icons again. 0.3.3 did a UI and font audit: the
 header is solid navy now (the orange-red gradient is gone) with our
 sun mark in the logo box; the hero temperature is centred under the
 moon; pollutant units read "UG/M3" (the µ and ³ characters draw as

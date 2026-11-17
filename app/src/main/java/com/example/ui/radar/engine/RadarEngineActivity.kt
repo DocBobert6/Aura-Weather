@@ -951,6 +951,13 @@ class RadarEngineController(
                 }
             }
             EngineLayer.Radar -> {
+                // 0.3.5: hide the satellite WMS pair too. It sits
+                // ABOVE the MRMS slots (added later), and nothing hid
+                // it on the way back to radar — the tile layers were
+                // zeroed here but the pair stayed at opacity 1, so a
+                // satellite visit's image stayed on top of the live
+                // radar. (No-op when no satellite image is showing.)
+                hideSatWmsPair()
                 setOpacity(satVisLayer, 0f)
                 setOpacity(satIrLayer, 0f)
                 refreshDisplay()
@@ -978,24 +985,43 @@ class RadarEngineController(
      * current frame is a HOLD: the previously visible frame stays
      * exactly where it is (no jump, no blank) and the chrome says
      * "waiting" — the store's state, read by [refreshUiState], is the
-     * signal. Families not in use are hidden (no-op when already hidden).
+     * signal. The hold is WITHIN the active family only.
+     *
+     * 0.3.5: the families not in use are hidden FIRST, from the pure
+     * rule [displayFamiliesFor] — the single authority for which
+     * family owns the map for this (range, source) pair. The old code
+     * hid the other live families per branch but never the future
+     * family in a Live branch, so IN 6H -> Live left the sixth-hour
+     * frame (appended above the MRMS slots) on top while the live
+     * loop advanced underneath. A range switch now hides the outgoing
+     * family unconditionally, even if the incoming frame is not ready
+     * yet (basemap briefly, then the live frame). The active family
+     * is never hidden here, so its crossfade and its within-family
+     * hold are untouched.
      */
     private fun refreshDisplay() {
         if (loadedStyle == null) return
         if (selectedLayer != EngineLayer.Radar) return
         val store = activeStore()
+        val visible = displayFamiliesFor(displayRangeFor(selectedRange), store.source)
+        if (RadarDisplayFamily.MRMS !in visible) hideMrmsSlots()
+        if (RadarDisplayFamily.LIVE_IEM !in visible) {
+            visibleLiveIemIndex = hideTiledFamily(liveFrameLayers, visibleLiveIemIndex)
+        }
+        if (RadarDisplayFamily.LIBRE_WXR !in visible) {
+            visibleLibreWxrIndex = hideTiledFamily(libreWxrFrameLayers, visibleLibreWxrIndex)
+        }
+        if (RadarDisplayFamily.FUTURE !in visible) {
+            visibleFutureIndex = hideTiledFamily(futureFrameLayers, visibleFutureIndex)
+        }
         if (store.frameCount() == 0) return
         val index = store.currentIndex
         when (selectedRange) {
             EngineRange.Live -> when (store.source) {
                 RadarSourceKind.MRMS -> {
-                    visibleLiveIemIndex = hideTiledFamily(liveFrameLayers, visibleLiveIemIndex)
-                    visibleLibreWxrIndex = hideTiledFamily(libreWxrFrameLayers, visibleLibreWxrIndex)
                     if (store.isReady(index)) showMrmsFrame(index)
                 }
                 RadarSourceKind.LIBRE_WXR -> {
-                    hideMrmsSlots()
-                    visibleLiveIemIndex = hideTiledFamily(liveFrameLayers, visibleLiveIemIndex)
                     if (store.isReady(index)) {
                         visibleLibreWxrIndex = showTiledFrame(
                             libreWxrFrameLayers, visibleLibreWxrIndex, index
@@ -1003,8 +1029,6 @@ class RadarEngineController(
                     }
                 }
                 RadarSourceKind.IEM -> {
-                    hideMrmsSlots()
-                    visibleLibreWxrIndex = hideTiledFamily(libreWxrFrameLayers, visibleLibreWxrIndex)
                     if (store.isReady(index)) {
                         visibleLiveIemIndex = showTiledFrame(
                             liveFrameLayers, visibleLiveIemIndex, index
@@ -1014,9 +1038,18 @@ class RadarEngineController(
                 null -> Unit
             }
             else -> {
-                hideMrmsSlots()
-                visibleLiveIemIndex = hideTiledFamily(liveFrameLayers, visibleLiveIemIndex)
-                visibleLibreWxrIndex = hideTiledFamily(libreWxrFrameLayers, visibleLibreWxrIndex)
+                // A held future frame is only a valid hold while it is
+                // a frame of the ACTIVE future list: after a
+                // future->future switch (24 h -> 6 h) or a tail cap the
+                // old visible index can sit past the end of the new
+                // list, and holding it would show a frame the new
+                // range never contains. Drop it (basemap briefly)
+                // instead of holding another range's frame.
+                if (visibleFutureIndex >= 0 &&
+                    !isFutureVisibleIndexValid(visibleFutureIndex, store.frameCount())
+                ) {
+                    visibleFutureIndex = hideTiledFamily(futureFrameLayers, visibleFutureIndex)
+                }
                 if (store.isReady(index)) {
                     // Belt-and-braces: the layer must be visible
                     // before the opacity crossfade (a ready frame is
@@ -1030,6 +1063,14 @@ class RadarEngineController(
                 }
             }
         }
+    }
+
+    /** The pure-rule range for the selected range ([displayFamiliesFor]). */
+    private fun displayRangeFor(range: EngineRange): RadarDisplayRange = when (range) {
+        EngineRange.Live -> RadarDisplayRange.LIVE
+        EngineRange.Future6h -> RadarDisplayRange.FUTURE_6H
+        EngineRange.Future24h -> RadarDisplayRange.FUTURE_24H
+        EngineRange.Future48h -> RadarDisplayRange.FUTURE_48H
     }
 
     /** Crossfade a tiled family to [index]; returns the new visible index. */
