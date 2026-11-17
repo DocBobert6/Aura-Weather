@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
 import com.example.data.geocoding.PlaceSearchResult
+import com.example.data.geocoding.PlaceSearchSource
 import com.example.data.geocoding.PlaceSearchUiState
 import com.example.data.repo.WeatherRepository
 import com.example.domain.model.Place
@@ -1046,11 +1047,13 @@ private fun AttributionRow(title: String, source: String) {
 }
 
 /**
- * Place search (0.2.0): the default add path. One field takes a city,
- * "City, ST", or a zip code; results arrive debounced from the
- * ViewModel and the user picks one — never an auto-selected first
- * result. "ENTER COORDINATES" opens the manual lat/lon dialog, which
- * stays as the secondary path for power users.
+ * Place search (0.2.0, addresses 0.4.0): the default add path. One
+ * field takes a city, "City, ST", a zip code, or an exact street
+ * address ("20 Ferguson Blvd, Dry Ridge, KY" goes to Nominatim);
+ * results arrive debounced from the ViewModel and the user picks
+ * one — never an auto-selected first result. "ENTER COORDINATES"
+ * opens the manual lat/lon dialog, which stays as the secondary
+ * path for power users.
  */
 @Composable
 private fun SearchPlaceDialog(
@@ -1073,8 +1076,8 @@ private fun SearchPlaceDialog(
                         query = it
                         onQueryChange(it)
                     },
-                    label = { Text("City or zip code") },
-                    placeholder = { Text("Try Crittenden, KY") },
+                    label = { Text("City, zip code, or street address") },
+                    placeholder = { Text("Try Crittenden, KY or 20 Ferguson Blvd") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = RetroTokens.TextPrimary,
@@ -1090,7 +1093,7 @@ private fun SearchPlaceDialog(
                 when (val state = searchState) {
                     is PlaceSearchUiState.Idle -> {
                         Text(
-                            text = "Search a city, \"City, ST\", or a zip code. Tap a result to add it.",
+                            text = "Search a city, \"City, ST\", a zip code, or a street address. Tap a result to add it.",
                             style = MaterialTheme.typography.bodySmall,
                             color = RetroTokens.TextSecondary
                         )
@@ -1134,6 +1137,15 @@ private fun SearchPlaceDialog(
                                     }
                                 }
                             }
+                        }
+                        // Nominatim's usage policy requires attribution
+                        // when its results are shown (0.4.0).
+                        if (state.results.any { it.source == PlaceSearchSource.NOMINATIM }) {
+                            Text(
+                                text = "© OpenStreetMap contributors",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = RetroTokens.TextSecondary
+                            )
                         }
                     }
                     is PlaceSearchUiState.NoResults -> {

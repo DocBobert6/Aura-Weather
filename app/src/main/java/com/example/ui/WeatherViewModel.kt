@@ -8,6 +8,7 @@ import com.example.core.UnitFormatter
 import com.example.data.geocoding.GeocodingRepository
 import com.example.data.geocoding.PlaceSearchResult
 import com.example.data.geocoding.PlaceSearchUiState
+import com.example.data.geocoding.debounceMsFor
 import com.example.data.repo.WeatherRepository
 import com.example.data.settings.SettingsManager
 import com.example.data.work.AlertScheduler
@@ -179,9 +180,12 @@ class WeatherViewModel(
     private var placeSearchJob: Job? = null
 
     /**
-     * Searches for places as the user types, debounced ~300 ms. Queries
-     * under 2 characters are not searched (Open-Meteo returns nothing
-     * for them) — the state goes back to Idle.
+     * Searches for places as the user types, debounced ~300 ms — except
+     * street-address queries, which wait 1000 ms (0.4.0): Nominatim's
+     * usage policy allows at most 1 request/second, and the repository
+     * throttles the address path to the same rate. Queries under 2
+     * characters are not searched (Open-Meteo returns nothing for
+     * them) — the state goes back to Idle.
      */
     fun searchPlaces(query: String) {
         placeSearchJob?.cancel()
@@ -190,7 +194,7 @@ class WeatherViewModel(
             return
         }
         placeSearchJob = viewModelScope.launch {
-            delay(300)
+            delay(debounceMsFor(query))
             _placeSearchState.value = PlaceSearchUiState.Searching
             val repository = geocodingRepository
             if (repository == null) {

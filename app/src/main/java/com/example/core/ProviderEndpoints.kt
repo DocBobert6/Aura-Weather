@@ -27,6 +27,17 @@ object ProviderEndpoints {
     // used instead). Probe-verified 2026-11-16.
     const val ZIPPOPOTAM_BASE_URL = "https://api.zippopotam.us/"
 
+    // Nominatim (OpenStreetMap, Free, Keyless): an exact street
+    // address -> named places with coordinates. First choice for
+    // queries starting with a house number; Open-Meteo is the
+    // fallback when it fails. Usage policy (0.4.0): max 1 req/s,
+    // a valid User-Agent identifying the app, and a
+    // "© OpenStreetMap contributors" line in the picker.
+    // Probe-verified 2026-11-17 ("20 Ferguson Blvd, Dry Ridge, KY"
+    // -> Walmart Supercenter, 38.6789290, -84.5973400).
+    const val NOMINATIM_BASE_URL = "https://nominatim.openstreetmap.org/"
+    const val NOMINATIM_USER_AGENT = "AuraWeather/1.0 (https://github.com/DocBobert6/Aura-Weather)"
+
     // AQI comes from Open-Meteo Air Quality (modelled, not station
     // observations). There is no keyed provider: Tomorrow.io and
     // AirNow were removed (2026-11-10 audit build D) — their free

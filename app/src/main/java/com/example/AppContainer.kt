@@ -3,6 +3,7 @@ package com.example
 import android.content.Context
 import com.example.core.HttpClients
 import com.example.core.ProviderEndpoints
+import com.example.data.api.NominatimApi
 import com.example.data.api.OpenMeteoGeocodingApi
 import com.example.data.api.PirateWeatherApi
 import com.example.data.api.ZippopotamApi
@@ -110,10 +111,23 @@ class AppContainer(private val context: Context) {
             .build()
     }
 
+    // Nominatim (0.4.0): its own Retrofit on the Nominatim client,
+    // which carries the app User-Agent its usage policy requires
+    // (never the NWS client — no NWS headers to a non-NWS host,
+    // and no geo+json Accept).
+    private val nominatimRetrofit: Retrofit by lazy {
+        Retrofit.Builder()
+            .baseUrl(ProviderEndpoints.NOMINATIM_BASE_URL)
+            .client(HttpClients.nominatimClient())
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+    }
+
     val geocodingRepository: GeocodingRepository by lazy {
         GeocodingRepository(
             openMeteoGeocodingApi = geocodingRetrofit.create(OpenMeteoGeocodingApi::class.java),
-            zippopotamApi = zippopotamRetrofit.create(ZippopotamApi::class.java)
+            zippopotamApi = zippopotamRetrofit.create(ZippopotamApi::class.java),
+            nominatimApi = nominatimRetrofit.create(NominatimApi::class.java)
         )
     }
 
