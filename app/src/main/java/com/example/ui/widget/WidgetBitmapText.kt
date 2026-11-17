@@ -26,13 +26,28 @@ enum class WidgetTextFace {
 
 /**
  * Star4000 has no en dash (U+2013), em dash (U+2014), or ellipsis
- * (U+2026) glyphs — they render blank. Strings rendered in a Star4000
- * face pass through here so a stray dash never vanishes. Same rule as
- * HomeScreen's star4000Safe (L-8); duplicated here because this file
- * must stay free of Compose/Android imports for the pure tests.
+ * (U+2026) glyphs — they render blank. The same is true of the micro
+ * sign (U+00B5), the superscripts 1/2/3 (U+00B9/U+00B2/U+00B3), the
+ * subscript digits (U+2080-U+2089, which render as the missing-glyph
+ * box, not blank), the middot (U+00B7), the multiply sign (U+00D7),
+ * and the minus sign (U+2212) — all verified with a PIL ink probe of
+ * both star4000_large.ttf and star4000_small.ttf (0 ink pixels each;
+ * the degree sign U+00B0, the bullet U+2022, and the curly quotes do
+ * have ink and are left alone). Strings rendered in a Star4000 face
+ * pass through here so a stray character never vanishes or turns
+ * into a box. Same rule as HomeScreen's star4000Safe (L-8);
+ * duplicated here because this file must stay free of Compose/Android
+ * imports for the pure tests.
  */
 fun star4000Safe(text: String): String =
     text.replace("\u2014", "-").replace("\u2013", "-").replace("\u2026", "...")
+        .replace("\u00B5", "U")
+        .replace("\u00B9", "1").replace("\u00B2", "2").replace("\u00B3", "3")
+        .replace("\u2080", "0").replace("\u2081", "1").replace("\u2082", "2")
+        .replace("\u2083", "3").replace("\u2084", "4").replace("\u2085", "5")
+        .replace("\u2086", "6").replace("\u2087", "7").replace("\u2088", "8")
+        .replace("\u2089", "9")
+        .replace("\u00B7", "-").replace("\u00D7", "x").replace("\u2212", "-")
 
 /** Bytes per pixel of Bitmap.Config.ARGB_8888 — the renderer's config. */
 const val WIDGET_BITMAP_BYTES_PER_PIXEL = 4

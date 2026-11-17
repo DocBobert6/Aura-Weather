@@ -82,6 +82,9 @@ import androidx.compose.ui.unit.sp
 import com.example.core.UnitFormatter
 import com.example.data.mapper.WeatherMappers
 import com.example.data.mapper.pressureDescriptor
+import com.example.data.mapper.UvCardState
+import com.example.data.mapper.shortConditionCode
+import com.example.data.mapper.uvCardState
 import com.example.data.mapper.visibilityDescriptor
 import com.example.domain.model.AlertSeverity
 import com.example.ui.designsystem.AuraBars
@@ -701,8 +704,17 @@ private fun HeroWeatherCard(
 
             // Optically centered on the numerals: the degree glyph hangs
             // off the right edge, so the numerals' visual center sits
-            // left of the geometric center - a small rightward shift
-            // puts the numerals themselves on the panel center line.
+            // left of the geometric center - a rightward shift puts the
+            // numerals themselves on the panel center line. Measured,
+            // not guessed (0.3.3 item 3): star4000_large at 72sp gives
+            // the degree glyph a 1233/2048 em advance = 43.3dp, so the
+            // digits' ink center sits half that advance (21.7dp) left
+            // of the string's geometric center. Robert's screenshot
+            // agrees: with the old 8dp shift the digits' mass center
+            // was still 31px left of the panel center, i.e. ~12-14dp
+            // more, for 20-22dp total. 22dp is the rounded value.
+            // Fahrenheit form only: a metric "NN C" string carries a
+            // second trailing glyph and would want a larger shift.
             Text(
                 text = tempFormatted.uppercase(),
                 style = MaterialTheme.typography.displayLarge.copy(fontSize = 72.sp),
@@ -711,7 +723,7 @@ private fun HeroWeatherCard(
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .offset(x = 8.dp)
+                    .offset(x = 22.dp)
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -1045,9 +1057,16 @@ private fun DailyForecastCard(
                         isDaytime = if (index == 0) isDaytimeNow else true
                     )
 
-                    Row(
-                        modifier = Modifier.width(88.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Pop% sits UNDER the icon, not beside it (0.3.3
+                    // item 5): the old side-by-side row was 88dp wide
+                    // and starved the condition column to ~35dp, so
+                    // "PARTLY CLOUDY" clipped to "PARTL". This column
+                    // is 40dp ("100%" at 16sp is ~31dp) and frees 48dp
+                    // for the condition text. The blank pop line stays
+                    // so dry rows keep the same height as wet ones.
+                    Column(
+                        modifier = Modifier.width(40.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
                             imageVector = getWeatherIcon(displayCondition, isDaytime = if (index == 0) isDaytimeNow else true),
@@ -1055,20 +1074,22 @@ private fun DailyForecastCard(
                             tint = RetroTokens.TextPrimary,
                             modifier = Modifier.size(32.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = if (pop > 0) "$pop%" else "",
                             style = MaterialTheme.typography.bodyMedium.copy(fontSize = 16.sp),
                             color = RetroTokens.TextPrimary,
-                            modifier = Modifier.width(40.dp)
+                            textAlign = TextAlign.Center
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
                     }
 
                     // Condition as a text column, not a bar: the tabular
-                    // form of the classic 3-day panels.
+                    // form of the classic 3-day panels. Short code, not
+                    // the full name (0.3.3 item 5): the full name never
+                    // fit - "PARTLY CLOUDY" is 13 chars at 14sp in an
+                    // 83dp column. The icon still announces the full
+                    // name (contentDescription above).
                     Text(
-                        text = displayCondition.displayName.uppercase(),
+                        text = shortConditionCode(displayCondition),
                         style = MaterialTheme.typography.bodyMedium,
                         color = RetroTokens.TextPrimary,
                         maxLines = 1,
@@ -1146,17 +1167,24 @@ private fun WeatherDetailsGrid(
     // intentionally instead of showing bare dashes. A null isDaytime
     // (no sun data) is unknown, not night, so it keeps "--".
     val isNight = state?.solar?.isDaytime == false
-    val uvMainValue = when {
-        uvIndex != null -> "${uvIndex.roundToInt()}"
-        isNight -> "NIGHT"
-        else -> "--"
+    // Night wins over today's max (0.3.3 item 6): the old order
+    // checked the max first, so the NIGHT branch was unreachable
+    // whenever a max was present and 11:53 PM showed "3 MODERATE".
+    // The selection lives in uvCardState (pure, tested); the UI only
+    // renders the outcome. In daylight the value is today's MAX, so
+    // the sub-value says so next to the category label.
+    val uvState = uvCardState(uvIndex, isNight)
+    val uvMainValue = when (uvState) {
+        UvCardState.Night -> "NIGHT"
+        is UvCardState.Daytime -> "${uvState.uvIndexMax.roundToInt()}"
+        UvCardState.Unknown -> "--"
     }
-    val uvSubValue = when {
-        uvIndex != null -> AuraColors.uvCategory(uvIndex).uppercase()
-        isNight -> "NO UV AFTER DARK"
-        else -> "--"
+    val uvSubValue = when (uvState) {
+        UvCardState.Night -> "NO UV AFTER DARK"
+        is UvCardState.Daytime -> "${AuraColors.uvCategory(uvState.uvIndexMax).uppercase()} - TODAY'S MAX"
+        UvCardState.Unknown -> "--"
     }
-    val uvIcon = if (uvIndex == null && isNight) Icons.Default.NightsStay else Icons.Default.WbSunny
+    val uvIcon = if (uvState == UvCardState.Night) Icons.Default.NightsStay else Icons.Default.WbSunny
     val cloudCover = state?.current?.cloudCoverPct
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1166,8 +1194,12 @@ private fun WeatherDetailsGrid(
         ) {
             // Wind Card. The sub-line carries the compass point and the
             // gust (only when there is one — "Gusts to --" is noise), and
-            // the arrow is a clean upward arrow rotated to the direction,
-            // not the Navigation triangle that reads as a play button.
+            // the arrow is a clean upward arrow rotated downwind: wind
+            // direction is the FROM direction, so the arrow turns
+            // windDir + 180 and shows where the wind blows TO, not
+            // where it comes from (0.3.3 item 7). The sub-line keeps
+            // the meteorological FROM point ("SE" means from SE).
+            // Not the Navigation triangle that reads as a play button.
             DetailMiniCard(
                 title = "WIND",
                 icon = Icons.Default.Air,
@@ -1184,11 +1216,11 @@ private fun WeatherDetailsGrid(
                     {
                         Icon(
                             imageVector = Icons.Default.ArrowUpward,
-                            contentDescription = "Wind direction ${compassPoint(windDir.toDouble())}",
+                            contentDescription = "Wind blowing to ${compassPoint((windDir + 180).toDouble())}",
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
                                 .size(24.dp)
-                                .rotate(windDir.toFloat())
+                                .rotate(windDir.toFloat() + 180f)
                         )
                     }
                 } else null,
@@ -1232,7 +1264,7 @@ private fun WeatherDetailsGrid(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // UV Index Card (today's max; the data was fetched, never shown)
+            // UV Index Card: today's max in daylight, NIGHT after dark.
             DetailMiniCard(
                 title = "UV INDEX",
                 icon = uvIcon,

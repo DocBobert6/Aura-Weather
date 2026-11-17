@@ -2,23 +2,31 @@
 
 Aura Weather is a native Android weather application built with Kotlin, Jetpack Compose, Material 3, and Room. It works anywhere: pick a place (or use your current location) and it shows that place's forecasts, live NWS observations and active alerts where NWS coverage exists, composite radar loops, 60-minute nowcasting, air quality, and solar/lunar dynamics. No place is pre-chosen and no region is baked in.
 
-The look is the classic late-90s / early-2000s Weather Channel local forecast — solid navy panels, a red/orange header bar with a yellow title and an "Aura Weather" logo box, yellow temperatures and white text in the Star4000 faces, a bottom ticker, and a regional map forecast. There is no theme picker and no light variant: the retro look is the only UI.
+The look is the classic late-90s / early-2000s Weather Channel local forecast — solid navy panels, a navy header bar with a yellow title and a sun-mark logo box, yellow temperatures and white text in the Star4000 faces, a bottom ticker, and a regional map forecast. There is no theme picker and no light variant: the retro look is the only UI.
 
 ## Status
 
-0.3.2 — tag `v0.3.2` (`versionName "0.3.2"` / `versionCode 11` in
-`app/build.gradle.kts`), arm64-only APK. A widget audit, done
-properly: the widgets now actually show the Star4000 type (drawn as
-bitmaps, since the home screen would not use the bundled font); the
-hourly strip is the right height and its first cell agrees with the
-app about right now; the radar widget falls back to the most recent
-frame that works, labelled honestly, and retries two minutes after a
-failed first picture; Settings gains a "Background updates" row that
-opens the system's battery-exemption prompt on your tap only; and the
-weather icons are fixed (snowflake for snow, cloud-with-lines for
-fog, moon-with-cloud for a partly-cloudy night), with the 14-day
-row's words and icon always agreeing. It follows 0.3.1, which made
-today's high honest: the hero no longer invents a day's high from the
+0.3.3 — tag `v0.3.3` (`versionName "0.3.3"` / `versionCode 12` in
+`app/build.gradle.kts`), arm64-only APK. A UI and font audit: the
+header is solid navy now (the orange-red gradient is gone) with our
+sun mark in the logo box; the hero temperature is centred under the
+moon; pollutant units read "UG/M3" (the µ and ³ characters draw as
+nothing in the retro type); the 14-day rows no longer clip long
+words; the UV card says NIGHT after dark and TODAY'S MAX in
+daylight; the wind arrow points downwind; the air-quality gauge is
+an era segmented bar with a CURRENT HOUR label on the pollutant
+numbers; and the all-clear alerts card is tighter. It follows 0.3.2,
+which did the widget audit, done properly: the widgets now actually
+show the Star4000 type (drawn as bitmaps, since the home screen
+would not use the bundled font); the hourly strip is the right height
+and its first cell agrees with the app about right now; the radar
+widget falls back to the most recent frame that works, labelled
+honestly, and retries two minutes after a failed first picture;
+Settings gains a "Background updates" row that opens the system's
+battery-exemption prompt on your tap only; and the weather icons are
+fixed (snowflake for snow, cloud-with-lines for fog, moon-with-cloud
+for a partly-cloudy night), with the 14-day row's words and icon
+always agreeing. It follows 0.3.1, which made today's high honest: the hero no longer invents a day's high from the
 current temperature when the real high is missing — it shows "H: --"
 instead — and the
 14-day outlook starts at today, so TODAY is actually today. It follows
@@ -48,7 +56,7 @@ release keystore and attaches it to the GitHub release.
    - Cached weather renders instantly on startup, even in offline or airplane mode. Cached data is real JSON, round-tripped exactly — alerts included — and labelled with its age when stale.
 
 2. **Retro WeatherStar 4000-style UI**
-   - Solid navy panels, a red/orange header (logo box, tab title, live clock in the place's timezone), and a solid navy bottom bar with the same five tabs (Forecast, Radar, Alerts, Air Quality, Settings) and a yellow active indicator.
+   - Solid navy panels, a navy header (sun-mark logo box, tab title, live clock in the place's timezone), and a solid navy bottom bar with the same five tabs (Forecast, Radar, Alerts, Air Quality, Settings) and a yellow active indicator.
    - Star4000 Large / Small type throughout — the WeatherStar 4000 faces, originally created by Nick Smith (twcclassics.com), redistributed in the MIT-licensed ws4kp / FUN-WeatherStar-4000 fan projects. Large is the display face (headings, big temperatures); Small is the label/body face. Text is rendered in the retro all-caps style.
    - A bottom ticker above the nav bar rotates visibility, pressure, wind, and dew point (6 seconds per item; missing facts are skipped). Humidity is not in the ticker — it already lives in the detail grid. There is no ceiling field in the data model, so the ticker does not show one.
    - Background music: four WeatherStar-inspired smooth-jazz tracks from the ws4kp project (netbymatt/ws4kp), AI-generated and unencumbered by copyright, played in random order at a fixed low volume (15%) only while the app is open — no foreground service, no notification. A small music-note toggle on the Home header turns it on/off (off by default, remembered).

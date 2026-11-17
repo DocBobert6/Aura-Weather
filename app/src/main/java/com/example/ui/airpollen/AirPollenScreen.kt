@@ -1,17 +1,17 @@
 package com.example.ui.airpollen
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -21,17 +21,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.mapper.AllergyLevel
 import com.example.data.mapper.allergyIndex
+import com.example.data.mapper.aqiSegments
 import com.example.domain.model.AirQuality
 import com.example.domain.model.PollenData
 import com.example.ui.designsystem.AuraBars
@@ -40,6 +37,7 @@ import com.example.ui.designsystem.AuraShapes
 import com.example.ui.designsystem.RetroPanel
 import com.example.ui.designsystem.RetroShapes
 import com.example.ui.designsystem.RetroTokens
+import com.example.ui.widget.star4000Safe
 import kotlin.math.roundToInt
 
 @Composable
@@ -86,7 +84,7 @@ fun AirPollenScreen(
             }
         }
 
-        // AQI Dial Card
+        // AQI Card (segmented bar, Item 9)
         item {
             RetroPanel(shape = RetroShapes.medium, modifier = Modifier.fillMaxWidth()) {
                 Column(
@@ -95,71 +93,59 @@ fun AirPollenScreen(
                         .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Box(
-                        modifier = Modifier.size(200.dp),
-                        contentAlignment = Alignment.Center
+                    // Era segmented AQI bar (Item 9, 0.3.3): the
+                    // semicircular gauge was a modern element. Six
+                    // segments match the EPA categories; each
+                    // segment's fill comes from the pure
+                    // aqiSegments() function (AqiSegments.kt) —
+                    // Compose only draws what it returns. The big
+                    // number and the category pill stay.
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = aqi?.toString() ?: "--",
+                            style = MaterialTheme.typography.displayMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = RetroTokens.Yellow
+                        )
+                        Text(
+                            text = "US AQI",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = RetroTokens.TextSecondary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val strokeWidth = 18.dp.toPx()
-                            val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
-                            val topLeft = Offset(strokeWidth / 2, strokeWidth / 2)
-
-                            // Background arc, segmented by the 6 AQI bands
-                            // (0..500, so Hazardous is on the gauge — the old
-                            // code normalised the foreground to 300 and cut
-                            // it off). Each band is its scale colour at low
-                            // alpha, so the track reads as the bands. The
-                            // colours come from AuraColors.aqiColor (one
-                            // representative value per band), never hardcoded.
-                            val bandBounds = listOf(50, 100, 150, 200, 300, 500)
-                            val bandColors = listOf(
-                                AuraColors.aqiColor(25), AuraColors.aqiColor(75),
-                                AuraColors.aqiColor(125), AuraColors.aqiColor(175),
-                                AuraColors.aqiColor(250), AuraColors.aqiColor(400)
-                            )
-                            var bandStart = 0
-                            bandBounds.forEachIndexed { i, bound ->
-                                val startAngle = 150f + (bandStart / 500f) * 240f
-                                val sweep = ((bound - bandStart) / 500f) * 240f
-                                drawArc(
-                                    color = bandColors[i].copy(alpha = 0.30f),
-                                    startAngle = startAngle,
-                                    sweepAngle = sweep,
-                                    useCenter = false,
-                                    topLeft = topLeft,
-                                    size = arcSize,
-                                    style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
+                        aqiSegments(aqi).forEach { segment ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(segment.widthFraction)
+                                    .height(18.dp)
+                            ) {
+                                // Unfilled track: the band colour at
+                                // low alpha, as the old gauge did.
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            AuraColors.aqiColor(segment.representativeAqi)
+                                                .copy(alpha = 0.30f)
+                                        )
                                 )
-                                bandStart = bound
+                                // Filled part, left to right.
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(segment.fillFraction)
+                                        .fillMaxHeight()
+                                        .background(
+                                            AuraColors.aqiColor(segment.representativeAqi)
+                                        )
+                                )
                             }
-
-                            // Foreground AQI progress arc (normalised 0..500,
-                            // the same scale as the bands). With no AQI, the
-                            // arc stays at the background.
-                            val sweep = if (aqi != null) ((aqi.coerceIn(0, 500) / 500f) * 240f).coerceAtLeast(6f) else 0f
-                            drawArc(
-                                color = aqiColor,
-                                startAngle = 150f,
-                                sweepAngle = sweep,
-                                useCenter = false,
-                                topLeft = topLeft,
-                                size = arcSize,
-                                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                            )
-                        }
-
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = aqi?.toString() ?: "--",
-                                style = MaterialTheme.typography.displayMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = RetroTokens.Yellow
-                            )
-                            Text(
-                                text = "US AQI",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = RetroTokens.TextSecondary
-                            )
                         }
                     }
 
@@ -206,6 +192,11 @@ fun AirPollenScreen(
                 fontWeight = FontWeight.Bold,
                 color = RetroTokens.Yellow
             )
+            Text(
+                text = "CURRENT HOUR",
+                style = MaterialTheme.typography.labelSmall,
+                color = RetroTokens.TextSecondary
+            )
         }
 
         item {
@@ -216,7 +207,7 @@ fun AirPollenScreen(
                 PollutantCard(
                     title = "PM2.5",
                     label = "Fine Dust",
-                    value = airQuality?.pm25?.let { "$it µg/m³" } ?: "--",
+                    value = airQuality?.pm25?.let { star4000Safe("$it UG/M3") } ?: "--",
                     status = airQuality?.pm25?.let { if (it < 12.0) "Good" else "Moderate" } ?: "--",
                     modifier = Modifier.weight(1f)
                 )
@@ -224,15 +215,15 @@ fun AirPollenScreen(
                 PollutantCard(
                     title = "PM10",
                     label = "Coarse Particles",
-                    value = airQuality?.pm10?.let { "$it µg/m³" } ?: "--",
+                    value = airQuality?.pm10?.let { star4000Safe("$it UG/M3") } ?: "--",
                     status = airQuality?.pm10?.let { if (it < 54.0) "Good" else "Moderate" } ?: "--",
                     modifier = Modifier.weight(1f)
                 )
 
                 PollutantCard(
                     title = "OZONE",
-                    label = "O₃ Level",
-                    value = airQuality?.ozonePpb?.let { "${it.roundToInt()} ppb" } ?: "--",
+                    label = "O3 Level",
+                    value = airQuality?.ozonePpb?.let { star4000Safe("${it.roundToInt()} ppb") } ?: "--",
                     status = airQuality?.ozonePpb?.let { if (it < 54.0) "Good" else "Moderate" } ?: "--",
                     modifier = Modifier.weight(1f)
                 )
