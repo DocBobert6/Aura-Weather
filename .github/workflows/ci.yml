@@ -18,6 +18,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 0.3.3 launch-crash guard: Compose's painterResource only draws
+      # VectorDrawables and rasterized assets (PNG/JPG/WEBP). 0.3.3 loaded
+      # R.mipmap.ic_launcher in the header logo, which resolves on API 26+
+      # to the adaptive-icon XML and threw IllegalArgumentException on the
+      # first layout pass, so the app never opened. No mipmap resource may
+      # ever be loaded through painterResource again — fail the build if
+      # one is. (HeaderLogoPainterTest is the runtime half of this guard.)
+      - name: No mipmap painters (0.3.3 launch-crash guard)
+        run: |
+          set -euo pipefail
+          if grep -rn "painterResource(R.mipmap" app/src/main/; then
+            echo "painterResource must never load a mipmap resource (see 0.3.3 launch crash)"
+            exit 1
+          fi
+
       # JDK 21, not 17: Robolectric's Android SDK 36 sandbox requires
       # Java 21 ("Android SDK 36 requires Java 21 (have Java 17)").
       # AGP 9.1.1 and Gradle 9.3.1 both run fine on 21.

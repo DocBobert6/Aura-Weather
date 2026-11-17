@@ -6,8 +6,16 @@ The look is the classic late-90s / early-2000s Weather Channel local forecast �
 
 ## Status
 
-0.3.3 — tag `v0.3.3` (`versionName "0.3.3"` / `versionCode 12` in
-`app/build.gradle.kts`), arm64-only APK. A UI and font audit: the
+0.3.4 — tag `v0.3.4` (`versionName "0.3.4"` / `versionCode 14` in
+`app/build.gradle.kts`), arm64-only APK. Fixes the 0.3.3 launch
+crash: 0.3.3 would not open at all — the header logo loaded the
+launcher icon, which on modern Android is an adaptive icon that the
+UI toolkit cannot draw, so the app crashed on the first layout pass
+before anything appeared. The logo box now loads the sun mark from a
+plain picture file instead, and there are two guards so it cannot
+happen again: a test that loads the logo the same way the app does,
+and a build check that fails if any picture is ever loaded from the
+launcher icons again. It follows 0.3.3, which did a UI and font audit: the
 header is solid navy now (the orange-red gradient is gone) with our
 sun mark in the logo box; the hero temperature is centred under the
 moon; pollutant units read "UG/M3" (the µ and ³ characters draw as

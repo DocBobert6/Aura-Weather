@@ -436,8 +436,12 @@ private fun RetroHeader(
             .padding(horizontal = 12.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Logo box: a rounded blue square holding the sun mark from
-        // the launcher icon.
+        // Logo box: a rounded blue square holding the sun mark. The
+        // asset must stay a rasterized PNG: 0.3.3 loaded the launcher
+        // mipmap here, which resolves on API 26+ to the adaptive-icon
+        // XML, and painterResource cannot draw adaptive icons — the
+        // app crashed on launch before anything drew. Never point
+        // this at R.mipmap again (CI guards it, see ci.yml).
         Box(
             modifier = Modifier
                 .size(48.dp)
@@ -445,7 +449,7 @@ private fun RetroHeader(
             contentAlignment = Alignment.Center
         ) {
             Image(
-                painter = painterResource(R.mipmap.ic_launcher),
+                painter = painterResource(R.drawable.ic_aura_weather_sun_orbit),
                 contentDescription = "Aura Weather",
                 modifier = Modifier.fillMaxSize()
             )
