@@ -1,5 +1,6 @@
 package com.example.ui.navigation
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,9 +30,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +41,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.example.R
 import com.example.data.mapper.pressureDescriptor
 import com.example.data.mapper.visibilityDescriptor
 import com.example.domain.model.FullWeatherState
@@ -402,12 +404,13 @@ private fun SolidNavRail(
 }
 
 /**
- * The classic header (R3): a red/orange gradient band across the top,
+ * The classic header (R3): a solid era-navy band across the top,
  * the "Aura Weather" logo box on the left, the segment title in yellow
  * in the middle, and a live clock on the right. It sits in normal flow
  * at the top of the shell — never an overlay — so content is never
- * hidden under it. Our own box with our own name: the real Weather
- * Channel logo is a trademark and is not reproduced.
+ * hidden under it. The logo box holds the sun mark from our own
+ * launcher icon: the real Weather Channel logo is a trademark and
+ * is not reproduced.
  */
 @Composable
 private fun RetroHeader(
@@ -429,35 +432,23 @@ private fun RetroHeader(
         modifier = modifier
             .fillMaxWidth()
             .height(AuraBars.headerHeight)
-            .background(
-                Brush.horizontalGradient(
-                    listOf(RetroTokens.HeaderRed, RetroTokens.HeaderOrange)
-                )
-            )
+            .background(RetroTokens.Background)
             .padding(horizontal = 12.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Logo box: a rounded blue square with our name in white.
+        // Logo box: a rounded blue square holding the sun mark from
+        // the launcher icon.
         Box(
             modifier = Modifier
                 .size(48.dp)
                 .background(RetroTokens.PanelLight, RetroShapes.medium),
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "AURA",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = RetroTokens.TextPrimary
-                )
-                Text(
-                    text = "WEATHER",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = RetroTokens.TextPrimary
-                )
-            }
+            Image(
+                painter = painterResource(R.mipmap.ic_launcher),
+                contentDescription = "Aura Weather",
+                modifier = Modifier.fillMaxSize()
+            )
         }
 
         Text(
