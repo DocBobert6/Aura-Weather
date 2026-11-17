@@ -5,6 +5,7 @@ import com.example.ui.radar.engine.RadarDisplayFamily
 import com.example.ui.radar.engine.RadarDisplayRange
 import com.example.ui.radar.engine.displayFamiliesFor
 import com.example.ui.radar.engine.isFutureVisibleIndexValid
+import com.example.ui.radar.engine.referenceLayerVisibleFor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -131,5 +132,32 @@ class RadarDisplayFamiliesTest {
         assertFalse(isFutureVisibleIndexValid(13, 13))
         assertFalse(isFutureVisibleIndexValid(40, 13))
         assertFalse(isFutureVisibleIndexValid(0, 0))
+    }
+
+    // 0.4.1 reference (city labels) layer: shown on any radar display,
+    // hidden on satellite — the pre-rebuild screen's rule, restored
+    // after the rebuild dropped the layer entirely. Live with no
+    // source yet still shows labels (basemap + labels while the loop
+    // primes): the rule is about the display, not the radar family.
+    @Test
+    fun `reference layer shows on live whatever the source, even none yet`() {
+        for (source in allSources) {
+            assertTrue(
+                "source=$source",
+                referenceLayerVisibleFor(RadarDisplayRange.LIVE)
+            )
+        }
+    }
+
+    @Test
+    fun `reference layer shows on every future range`() {
+        for (range in futureRanges) {
+            assertTrue("range=$range", referenceLayerVisibleFor(range))
+        }
+    }
+
+    @Test
+    fun `reference layer hides on satellite`() {
+        assertFalse(referenceLayerVisibleFor(RadarDisplayRange.SATELLITE))
     }
 }

@@ -83,6 +83,21 @@ fun displayFamiliesFor(
 }
 
 /**
+ * The Esri reference (city labels) layer is visible for ([range]):
+ * shown on any radar display — Live (whatever the live source, or
+ * no source yet: basemap + labels while the loop primes) and every
+ * future range — and hidden on satellite, where GIBS carries its
+ * own embedded labels and a second set would double-label (the
+ * pre-rebuild screen's rule, `RadarScreen.kt`). The activity
+ * applies it in `RadarEngineActivity.refreshDisplay` (radar path,
+ * shows) and `applyLayerAndFrame`'s satellite branch (hides).
+ * 0.4.1: the rebuild dropped the layer entirely; this rule is the
+ * restored behaviour, stated here so the pure test pins it.
+ */
+fun referenceLayerVisibleFor(range: RadarDisplayRange): Boolean =
+    range != RadarDisplayRange.SATELLITE
+
+/**
  * A held future frame is only a valid hold while its layer index is a
  * frame of the ACTIVE future list. Future lists are prefix-aligned
  * (a shorter range is a prefix of the built superset, a tail cap is a
