@@ -271,20 +271,51 @@ object WeatherMappers {
         return when {
             lower.contains("thunder") || lower.contains("t-storm") -> WeatherCondition.Thunderstorm
             lower.contains("heavy rain") || lower.contains("downpour") -> WeatherCondition.HeavyRain
-            lower.contains("rain") || lower.contains("showers") -> WeatherCondition.Rain
-            lower.contains("drizzle") || lower.contains("sprinkles") -> WeatherCondition.Drizzle
+            // Freezing rain MUST be checked before plain rain ("Freezing
+            // Rain" contains "rain"), and snow before showers ("Snow
+            // Showers" contains "showers") — otherwise NWS text could
+            // never yield FreezingRain or Snow, and the snowflake glyph
+            // (widget-audit item 7c) would be unreachable from this
+            // source. "Rain and Snow" reads as Snow: the more severe
+            // condition wins.
+            lower.contains("freezing rain") || lower.contains("freezing drizzle") -> WeatherCondition.FreezingRain
             lower.contains("snow") || lower.contains("flurries") || lower.contains("blizzard") -> WeatherCondition.Snow
             lower.contains("sleet") || lower.contains("ice pellets") -> WeatherCondition.Sleet
-            lower.contains("freezing rain") -> WeatherCondition.FreezingRain
+            lower.contains("rain") || lower.contains("showers") -> WeatherCondition.Rain
+            lower.contains("drizzle") || lower.contains("sprinkles") -> WeatherCondition.Drizzle
             lower.contains("fog") || lower.contains("mist") -> WeatherCondition.Fog
             lower.contains("haze") || lower.contains("smoke") -> WeatherCondition.Haze
             lower.contains("wind") || lower.contains("breezy") -> WeatherCondition.Windy
-            lower.contains("overcast") || lower.contains("cloudy") -> WeatherCondition.Cloudy
+            // "Partly" MUST be checked before "cloudy"/"overcast": "Partly
+            // Cloudy" contains "cloudy", and the old order mapped it to
+            // Cloudy — so the 48h strip showed a plain overcast-cloud icon
+            // at 2 AM on 2026-11-16 for an NWS "Partly Cloudy" hour (live
+            // probe: ILN hourly 02:00 "Partly Cloudy"; OM WMO code 0,
+            // cloud 1%). "Mostly Cloudy" has no "partly" and still maps
+            // to Cloudy, which is the honest reading of mostly-cloudy.
             lower.contains("partly") -> if (isDaytime) WeatherCondition.PartlyCloudyDay else WeatherCondition.PartlyCloudyNight
+            lower.contains("overcast") || lower.contains("cloudy") -> WeatherCondition.Cloudy
             lower.contains("sunny") || lower.contains("clear") || lower.contains("fair") ->
                 if (isDaytime) WeatherCondition.ClearDay else WeatherCondition.ClearNight
             else -> if (isDaytime) WeatherCondition.ClearDay else WeatherCondition.ClearNight
         }
+    }
+
+    /**
+     * The daily row's single display condition (widget-audit item 7b).
+     * The pop override and the row's text AND icon share this one value,
+     * so a row can never say one thing and show another: pop >= 50
+     * reads Rain in both, a moderate chance on a clear day/night reads
+     * Partly Cloudy in both. The override is day/night-aware — the old
+     * inline version always emitted the DAY variant, so a TODAY row at
+     * night showed a day condition behind a night glyph. Anything else
+     * passes through unchanged.
+     */
+    fun dailyDisplayCondition(condition: WeatherCondition, popPct: Int, isDaytime: Boolean): WeatherCondition = when {
+        popPct >= 50 -> WeatherCondition.Rain
+        popPct >= 30 && (condition == WeatherCondition.ClearDay || condition == WeatherCondition.ClearNight) ->
+            if (isDaytime) WeatherCondition.PartlyCloudyDay else WeatherCondition.PartlyCloudyNight
+        else -> condition
     }
 
     /**
