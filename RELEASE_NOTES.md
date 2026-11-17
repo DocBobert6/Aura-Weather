@@ -1,3 +1,35 @@
+# Aura Weather 0.3.2
+
+A widget audit, done properly. The widgets now actually show the
+Star4000 type (the font files were in the last build, but the home
+screen would not use them — the text is now drawn with the type baked
+in, so what you see is the retro face on all three widgets). The
+hourly strip is the right height again instead of nearly twice as
+tall, and its first cell shows the same temperature as the app — it
+used to disagree with the main widget about right now. The radar
+widget no longer goes blank when its newest picture is not ready: it
+uses the most recent frame that works and says so on the label, and
+if the very first picture fails it tries again two minutes later
+instead of waiting a quarter of an hour. There is a new row in
+Settings, "Background updates", which opens the system's
+battery-exemption prompt for Aura — your tap only, nothing
+automatic — so the widgets stay fresh while the app is closed.
+Weather icons are fixed too: snow shows a snowflake instead of a
+raindrop, fog shows a cloud with lines instead of a plain overcast
+cloud, and a partly-cloudy night shows a moon with a small cloud
+instead of a bare moon. The 14-day row's words and its icon now
+always agree with each other.
+
+## Notes
+
+- This is an arm64-only APK (`arm64-v8a`); there is no universal build.
+- The signed release APK installs straight over 0.3.1 (same signing
+  key) — no uninstall, no data wipe. It will not install over a debug
+  build (different signing key); uninstall the debug build first, which
+  wipes app data.
+
+---
+
 # Aura Weather 0.3.1
 
 Today's high is honest now. The hero used to show the current

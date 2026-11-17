@@ -6,10 +6,21 @@ The look is the classic late-90s / early-2000s Weather Channel local forecast �
 
 ## Status
 
-0.3.1 — tag `v0.3.1` (`versionName "0.3.1"` / `versionCode 10` in
-`app/build.gradle.kts`), arm64-only APK. Today's high is honest now:
-the hero no longer invents a day's high from the current temperature
-when the real high is missing — it shows "H: --" instead — and the
+0.3.2 — tag `v0.3.2` (`versionName "0.3.2"` / `versionCode 11` in
+`app/build.gradle.kts`), arm64-only APK. A widget audit, done
+properly: the widgets now actually show the Star4000 type (drawn as
+bitmaps, since the home screen would not use the bundled font); the
+hourly strip is the right height and its first cell agrees with the
+app about right now; the radar widget falls back to the most recent
+frame that works, labelled honestly, and retries two minutes after a
+failed first picture; Settings gains a "Background updates" row that
+opens the system's battery-exemption prompt on your tap only; and the
+weather icons are fixed (snowflake for snow, cloud-with-lines for
+fog, moon-with-cloud for a partly-cloudy night), with the 14-day
+row's words and icon always agreeing. It follows 0.3.1, which made
+today's high honest: the hero no longer invents a day's high from the
+current temperature when the real high is missing — it shows "H: --"
+instead — and the
 14-day outlook starts at today, so TODAY is actually today. It follows
 0.3.0, which added IN 6H future radar, the lighter CRT vignette,
 RemoteViews widgets with Star4000 and a square 2×2 main widget, and a
