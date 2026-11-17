@@ -142,8 +142,8 @@ fun libreWxrTileUrl(
  * them per tile at request time). Default [tileSizePx] is 512: the
  * Phase 2 fallback source requests 512 px tiles at zoom−1 (see
  * [LIBRE_WXR_TILE_SIZE_512]) and caps the source's maxzoom at 7, so
- * MapLibre overzooms the z7 tiles at map zoom 8–9 instead of ever
- * requesting z8/z9 tiles from LibreWXR.
+ * MapLibre overzooms the z7 tiles at map zoom 8–12 instead of ever
+ * requesting z8–z12 tiles from LibreWXR.
  */
 fun libreWxrTileTemplate(
     host: String,

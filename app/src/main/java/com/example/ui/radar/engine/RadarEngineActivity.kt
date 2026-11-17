@@ -128,7 +128,7 @@ import org.maplibre.geojson.Point
  * - Pan/zoom/rotate are MapLibre's own gestures (on by default);
  *   the zoom/recenter buttons drive the camera directly. A pan past
  *   the 0.5° margin re-resolves the MRMS loop with a new bbox; small
- *   pans are free. Zoom is bounded 5..9 by the map's own min/max zoom
+ *   pans are free. Zoom is bounded 5..12 by the map's own min/max zoom
  *   preferences — a pinch-out stops at the floor during the gesture
  *   and stays where the fingers left it (no post-settle snap-back).
  *   On satellite the same settle retargets the WMS image (pan past
@@ -188,8 +188,9 @@ class RadarEngineController(
 
         /** IEM/HRRR proving grid (256 px tiles): 7 x 11 = 77 tiles — the
          *  old grid cap. Covers the viewport + margin at zoom 9, the
-         *  widest viewport in the 7..9 range, under either reading of
-         *  the viewport size (dp or physical px). */
+         *  old ceiling; higher zooms cover less ground, so the same
+         *  grid covers them too, under either reading of the viewport
+         *  size (dp or physical px). */
         private const val PROVING_TILES_X: Int = 7
         private const val PROVING_TILES_Y: Int = 11
 
@@ -921,8 +922,8 @@ class RadarEngineController(
      * LibreWXR fallback sources: 10 per-frame volatile raster sources
      * at 512 px, maxzoom 7 — one 512 tile at zoom−1 covers exactly the
      * 2x2 256 tiles at zoom (Phase 0 spike 5, MAD 0.0), so at map zoom
-     * 8–9 MapLibre overzooms the z7 tiles instead of ever requesting
-     * z8/z9 tiles from LibreWXR (~20 requests/frame instead of ~77).
+     * 8–12 MapLibre overzooms the z7 tiles instead of ever requesting
+     * z8–z12 tiles from LibreWXR (~20 requests/frame instead of ~77).
      * Built at fallback time: the templates embed the per-frame `path`
      * from the maps JSON, known only after metadata arrives. Deferred
      * when the style is not loaded yet; no-op when already built for
@@ -3204,7 +3205,7 @@ class RadarEngineController(
     fun zoomByStep(delta: Int) {
         val map = mapLibreMap ?: return
         val current = map.cameraPosition
-        // Uniform 5..9 on every layer (RADAR_ENGINE_ZOOM_MIN/MAX) —
+        // Uniform 5..12 on every layer (RADAR_ENGINE_ZOOM_MIN/MAX) —
         // the same range the map preferences enforce for gestures,
         // so the buttons and the pinch agree on the floor.
         val newZoom = (current.zoom + delta)

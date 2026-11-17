@@ -181,7 +181,7 @@ const val RADAR_ENGINE_CENTER_LON: Double = -84.5
 const val RADAR_ENGINE_ZOOM: Double = 7.0
 
 /**
- * Zoom range on every layer, radar and satellite alike (5..9). The
+ * Zoom range on every layer, radar and satellite alike (5..12). The
  * radar floor used to be 7 (the old screen's 7..9) — but 7 is also
  * the opening zoom, so a pinch-out on radar could never move: every
  * settle snapped the camera back to 7 (the controller enforced it
@@ -191,10 +191,15 @@ const val RADAR_ENGINE_ZOOM: Double = 7.0
  * keeps playing inside it. The bound is enforced by the map's own
  * min/max zoom preferences (set in [RadarEngineController.start]),
  * so a pinch-out stops at the floor during the gesture itself —
- * never a post-settle snap-back.
+ * never a post-settle snap-back. The ceiling is 12 (0.4.1, was 9):
+ * IEM/HRRR fetch at camera zoom, LibreWXR caps at maxZoom 7 and
+ * overzooms past it (a fallback — accepted), the satellite sources
+ * cap at 6/5 and overzoom by design, and the MRMS single image
+ * upscales and softens past ~10 (accepted — it is one fixed-bbox
+ * image, not tiles).
  */
 const val RADAR_ENGINE_ZOOM_MIN: Int = 5
-const val RADAR_ENGINE_ZOOM_MAX: Int = 9
+const val RADAR_ENGINE_ZOOM_MAX: Int = 12
 
 /** MRMS image size (px): the viewport size, not a fixed 512. */
 const val RADAR_ENGINE_MRMS_IMAGE_WIDTH_PX: Int = 1080
