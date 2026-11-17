@@ -66,6 +66,15 @@ const val RADAR_ENGINE_NAVY_BG: String = "#0a1a33"
 const val RADAR_ENGINE_BASEMAP_SOURCE_ID: String = "radar-basemap"
 const val RADAR_ENGINE_BASEMAP_LAYER_ID: String = "radar-basemap-layer"
 
+/**
+ * Ids for the Esri reference (city labels + boundaries) source/layer.
+ * Added programmatically by the activity, NOT in the style JSON (see
+ * [RADAR_ENGINE_REFERENCE_TILE_TEMPLATE]): JSON layers draw first
+ * (bottom), so a JSON reference layer would sit UNDER the radar.
+ */
+const val RADAR_ENGINE_REFERENCE_SOURCE_ID: String = "radar-reference"
+const val RADAR_ENGINE_REFERENCE_LAYER_ID: String = "radar-reference-layer"
+
 /** Style-JSON ids for the satellite sources/layers. */
 const val RADAR_ENGINE_SAT_VIS_SOURCE_ID: String = "radar-sat-vis"
 const val RADAR_ENGINE_SAT_IR_SOURCE_ID: String = "radar-sat-ir"
@@ -147,6 +156,24 @@ fun panPastMargin(
  */
 const val RADAR_ENGINE_BASEMAP_TILE_TEMPLATE: String =
     "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+
+/**
+ * Esri reference layer (city labels + boundaries) — the old screen's
+ * place labels (`RadarScreen.kt`, pre-rebuild), restored in 0.4.1:
+ * the rebuild's style JSON never carried it over. Same host as the
+ * basemap, same `{z}/{y}/{x}` order, keyless, 256 px tiles, LODs
+ * 0–23 — probed live 2026-11-17, real label content at z9 (19,246 B,
+ * 8,868 non-transparent px over Cincinnati) and z12 (5,936 B,
+ * 2,546 px). The 24 h cache TTL for `server.arcgisonline.com`
+ * (`CoalescingPolicy` `ESRI_TTL_SECONDS`) already covers it.
+ * NOT in [buildRadarStyleJson]: the activity adds it
+ * programmatically after the radar layers — above all radar
+ * families, below the blip — and re-asserts that order whenever a
+ * later layer lands on top (see `RadarEngineActivity`
+ * `ensureReferenceLayerAboveRadar`).
+ */
+const val RADAR_ENGINE_REFERENCE_TILE_TEMPLATE: String =
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
 
 /** Camera default: Cincinnati, OH (Robert's area), zoom 7 — as the spike. */
 const val RADAR_ENGINE_CENTER_LAT: Double = 39.1
@@ -319,6 +346,16 @@ fun buildRadarStyleJson(gibsVisTime: String, gibsIrTime: String): String = "{" +
  * full range the activity built, ~74 for 24 h, ~97 for 48 h), then
  * the MRMS slots on top. The activity adds layers in exactly this
  * order (`addLayer` appends).
+ *
+ * Deliberately NOT in this list (like the blip, which is also
+ * absent): the Esri reference (city labels) layer and the blip.
+ * Both are programmatic overlays added after the MRMS slots — the
+ * reference above every radar family, the blip above the reference
+ * — and the activity re-asserts that order whenever a later layer
+ * lands on top (`ensureReferenceLayerAboveRadar` /
+ * `ensureBlipOnTop`). Adding them here would misstate the order
+ * the activity actually builds, so the list stays the JSON +
+ * radar-family order and the test pins it exactly.
  */
 fun layerDrawOrder(futureFrameCount: Int): List<String> {
     val order = mutableListOf<String>()

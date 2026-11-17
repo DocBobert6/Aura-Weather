@@ -254,6 +254,18 @@ class RadarEngineController(
      *  for the blink rule). Null until the style loads. */
     private var blipLayer: SymbolLayer? = null
 
+    /** Esri reference (city labels) layer (0.4.1): the RasterLayer
+     *  drawing the `Reference/World_Boundaries_and_Places` tiles
+     *  above every radar family, below the blip. Null until the
+     *  style loads (or when adding it failed). */
+    private var referenceLayer: RasterLayer? = null
+
+    /** Is the reference layer currently visible ([setReferenceLayerVisible]
+     *  is a no-op when nothing changed — it runs on every
+     *  [refreshDisplay]). Starts false: the layer is added visible,
+     *  and the add site sets this true with it. */
+    private var referenceLayerVisible: Boolean = false
+
     /** Last blip display state applied to the layer (updateBlip is a
      *  no-op when nothing changed — it runs on every chrome refresh). */
     private var lastBlipDisplay: RadarBlipDisplay? = null
@@ -736,6 +748,36 @@ class RadarEngineController(
             Log.w(TAG, "basemap read-back failed: ${e.javaClass.simpleName}: ${e.message}")
         }
 
+        // Esri reference (city labels + boundaries, 0.4.1): restored
+        // from the pre-rebuild screen — the rebuild's style JSON never
+        // carried it over, and it cannot go in the JSON (JSON layers
+        // draw first, so it would sit UNDER the radar). Added here,
+        // after the radar layers and the satellite WMS pair, so it
+        // draws above every radar family; the blip goes on top of it
+        // (addBlipSourceAndLayer, below). NOT volatile: it is a static
+        // basemap-style layer and SHOULD cache (the 24 h TTL for
+        // server.arcgisonline.com already covers it). Visibility
+        // follows the pure rule [referenceLayerVisibleFor]: shown on
+        // radar ([refreshDisplay]), hidden on satellite
+        // ([applyLayerAndFrame]).
+        try {
+            val referenceSource = RasterSource(
+                RADAR_ENGINE_REFERENCE_SOURCE_ID,
+                TileSet("2.2.0", RADAR_ENGINE_REFERENCE_TILE_TEMPLATE),
+                256
+            )
+            style.addSource(referenceSource)
+            referenceLayer = RasterLayer(
+                RADAR_ENGINE_REFERENCE_LAYER_ID, RADAR_ENGINE_REFERENCE_SOURCE_ID
+            ).withProperties(PropertyFactory.visibility(Property.VISIBLE))
+            style.addLayer(referenceLayer!!)
+            referenceLayerVisible = true
+            Log.i(TAG, "added Esri reference (city labels) layer")
+        } catch (e: Exception) {
+            Log.w(TAG, "adding reference layer failed: ${e.javaClass.simpleName}: ${e.message}")
+            referenceLayer = null
+        }
+
         // Era-accurate radar blip (0.4.0): added last, so it starts
         // on top of every radar/satellite layer — the marker draws
         // over the radar, under the CRT filter. Sources built later
@@ -780,7 +822,9 @@ class RadarEngineController(
                 }
                 futureSourcesBuiltFor = frames
                 syncFutureLayerVisibility()
-                // New layers land above the blip — move it back on top.
+                // New layers land above the reference layer and the
+                // blip — move both back on top, reference first.
+                ensureReferenceLayerAboveRadar()
                 ensureBlipOnTop()
                 Log.i(
                     TAG,
@@ -807,7 +851,9 @@ class RadarEngineController(
             }
             futureSourcesBuiltFor = frames
             syncFutureLayerVisibility()
-            // New layers land above the blip — move it back on top.
+            // New layers land above the reference layer and the
+            // blip — move both back on top, reference first.
+            ensureReferenceLayerAboveRadar()
             ensureBlipOnTop()
             Log.i(TAG, "added ${frames.size} volatile future (HRRR) frame sources")
         } catch (e: Exception) {
@@ -906,7 +952,9 @@ class RadarEngineController(
                 libreWxrFrameLayers.add(layer)
             }
             libreWxrSourcesBuiltFor = frames
-            // New layers land above the blip — move it back on top.
+            // New layers land above the reference layer and the
+            // blip — move both back on top, reference first.
+            ensureReferenceLayerAboveRadar()
             ensureBlipOnTop()
             Log.i(TAG, "added ${frames.size} volatile LibreWXR 512 sources (maxzoom 7)")
         } catch (e: Exception) {
@@ -961,6 +1009,12 @@ class RadarEngineController(
         if (loadedStyle == null) return
         when (selectedLayer) {
             EngineLayer.SatelliteVis, EngineLayer.SatelliteIr -> {
+                // 0.4.1: the reference (city labels) layer hides on
+                // satellite — the pure rule [referenceLayerVisibleFor].
+                // GIBS carries its own embedded labels; a second set
+                // would double-label. (Not inside [hideSatWmsPair]:
+                // that runs from the radar branch too.)
+                setReferenceLayerVisible(referenceLayerVisibleFor(RadarDisplayRange.SATELLITE))
                 hideMrmsSlots()
                 visibleLiveIemIndex = hideTiledFamily(liveFrameLayers, visibleLiveIemIndex)
                 visibleLibreWxrIndex = hideTiledFamily(libreWxrFrameLayers, visibleLibreWxrIndex)
@@ -1136,6 +1190,66 @@ class RadarEngineController(
     }
 
     /**
+     * Show/hide the reference (city labels) layer, following the pure
+     * rule [referenceLayerVisibleFor]: visible on any radar display,
+     * hidden on satellite (GIBS carries its own embedded labels).
+     * No-op when nothing changed — this runs on every
+     * [refreshDisplay]. A hidden layer loads no tiles, so a satellite
+     * visit costs no label traffic.
+     */
+    private fun setReferenceLayerVisible(visible: Boolean) {
+        val layer = referenceLayer ?: return
+        if (visible == referenceLayerVisible) return
+        referenceLayerVisible = visible
+        try {
+            layer.setProperties(
+                PropertyFactory.visibility(
+                    if (visible) Property.VISIBLE else Property.NONE
+                )
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "setting reference layer visibility failed: ${e.javaClass.simpleName}")
+        }
+    }
+
+    /**
+     * Keep the reference layer above the radar families and below the
+     * blip: sources built after the style load (future HRRR rebuild,
+     * LibreWXR fallback) use plain `addLayer`, which lands above the
+     * reference layer — remove it and re-add a fresh one so the
+     * labels always draw over the radar. The source survives (only
+     * the layer is removed/re-added), and the current visibility is
+     * re-applied to the fresh layer. [ensureBlipOnTop] must run
+     * AFTER this at the same sites: the re-added reference lands on
+     * top of everything, and the blip belongs above it. The
+     * satellite tile rebuild needs no call here: it inserts BELOW
+     * the first live frame layer, under the radar families and the
+     * blip alike.
+     */
+    private fun ensureReferenceLayerAboveRadar() {
+        val style = loadedStyle ?: return
+        if (referenceLayer == null) return
+        try {
+            style.removeLayer(RADAR_ENGINE_REFERENCE_LAYER_ID)
+        } catch (e: Exception) {
+            Log.w(TAG, "removing reference layer failed: ${e.javaClass.simpleName}")
+        }
+        try {
+            referenceLayer = RasterLayer(
+                RADAR_ENGINE_REFERENCE_LAYER_ID, RADAR_ENGINE_REFERENCE_SOURCE_ID
+            ).withProperties(
+                PropertyFactory.visibility(
+                    if (referenceLayerVisible) Property.VISIBLE else Property.NONE
+                )
+            )
+            style.addLayer(referenceLayer!!)
+        } catch (e: Exception) {
+            Log.w(TAG, "re-adding reference layer failed: ${e.javaClass.simpleName}")
+            referenceLayer = null
+        }
+    }
+
+    /**
      * Keep the blip on top: sources built after the style load
      * (future HRRR, LibreWXR fallback) use plain `addLayer`, which
      * lands above the blip — remove the blip layer and re-add a
@@ -1186,7 +1300,12 @@ class RadarEngineController(
         if (loadedStyle == null) return
         if (selectedLayer != EngineLayer.Radar) return
         val store = activeStore()
-        val visible = displayFamiliesFor(displayRangeFor(selectedRange), store.source)
+        val range = displayRangeFor(selectedRange)
+        // 0.4.1: the reference (city labels) layer shows on any radar
+        // display — the pure rule [referenceLayerVisibleFor]. The
+        // satellite branch of [applyLayerAndFrame] hides it.
+        setReferenceLayerVisible(referenceLayerVisibleFor(range))
+        val visible = displayFamiliesFor(range, store.source)
         if (RadarDisplayFamily.MRMS !in visible) hideMrmsSlots()
         if (RadarDisplayFamily.LIVE_IEM !in visible) {
             visibleLiveIemIndex = hideTiledFamily(liveFrameLayers, visibleLiveIemIndex)
