@@ -322,7 +322,7 @@ fun SettingsScreen(
                                 color = RetroTokens.TextPrimary
                             )
                             Text(
-                                text = if (crtFilterEnabled) "90s CRT look on the radar map — scanlines, phosphor mask and vignette" else "Radar map shown without the CRT effect",
+                                text = if (crtFilterEnabled) "90s CRT look on the radar map - scanlines, phosphor mask and vignette" else "Radar map shown without the CRT effect",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = RetroTokens.TextSecondary
                             )
@@ -465,7 +465,7 @@ fun SettingsScreen(
                                 color = RetroTokens.TextPrimary
                             )
                             Text(
-                                text = if (batteryExempt) "Battery optimization off — widget updates run on schedule" else "Battery optimization on — Doze can delay widget updates",
+                                text = if (batteryExempt) "Battery optimization off - widget updates run on schedule" else "Battery optimization on - Doze can delay widget updates",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = RetroTokens.TextSecondary
                             )
@@ -476,7 +476,7 @@ fun SettingsScreen(
 
                     if (batteryExempt) {
                         Text(
-                            text = "No action needed — the system will not delay Aura Weather's background updates.",
+                            text = "No action needed - the system will not delay Aura Weather's background updates.",
                             style = MaterialTheme.typography.bodySmall,
                             color = RetroTokens.TextSecondary
                         )
@@ -494,7 +494,7 @@ fun SettingsScreen(
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Opens the system prompt — nothing changes until you allow it there. You can turn it off again in system Settings.",
+                            text = "Opens the system prompt - nothing changes until you allow it there. You can turn it off again in system Settings.",
                             style = MaterialTheme.typography.bodySmall,
                             color = RetroTokens.TextSecondary
                         )
