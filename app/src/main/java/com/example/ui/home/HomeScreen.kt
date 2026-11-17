@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -66,7 +67,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathFillType
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -1027,14 +1032,17 @@ private fun DailyForecastCard(
                     )
 
                     // The icon must agree with the rain chance: a sun icon
-                    // next to a 48% chance reads as a contradiction. When the
-                    // chance is high, show rain; when moderate, partly cloudy
-                    // (unless the condition already says rain).
-                    val displayCondition = when {
-                        pop >= 50 -> WeatherCondition.Rain
-                        pop >= 30 && (point.condition == WeatherCondition.ClearDay || point.condition == WeatherCondition.ClearNight) -> WeatherCondition.PartlyCloudyDay
-                        else -> point.condition
-                    }
+                    // next to a 48% chance reads as a contradiction. The
+                    // pop override lives in WeatherMappers
+                    // (dailyDisplayCondition) and the row's text AND icon
+                    // both read this one value, so they can never disagree.
+                    // It is day/night-aware: a TODAY row at night gets
+                    // PartlyCloudyNight, not the day variant.
+                    val displayCondition = WeatherMappers.dailyDisplayCondition(
+                        point.condition,
+                        pop,
+                        isDaytime = if (index == 0) isDaytimeNow else true
+                    )
 
                     Row(
                         modifier = Modifier.width(88.dp),
@@ -1459,17 +1467,177 @@ private fun SunAndMoonSummaryCard(
     }
 }
 
+/**
+ * Fog: cloud shifted up + three horizontal lines beneath (widget-audit
+ * item 7c). Material has no fog glyph in the extended set, so this is
+ * built from the widget drawable's own geometry (ic_widget_cloud, same
+ * three-disc construction, shifted up) with the rain drawable's
+ * stroke treatment for the lines — app and widget agree by
+ * construction. Fill is black; Icon's tint colours it, exactly like
+ * the Material glyphs below.
+ */
+private val FogIcon: ImageVector = ImageVector.Builder(
+    name = "Fog",
+    defaultWidth = 24.dp,
+    defaultHeight = 24.dp,
+    viewportWidth = 24f,
+    viewportHeight = 24f
+).apply {
+    path(fill = SolidColor(Color.Black), pathFillType = PathFillType.NonZero) {
+        // Cloud, shifted up 3.5 from ic_widget_cloud.
+        moveTo(8f, 6.5f)
+        arcTo(3.5f, 3.5f, 0f, true, true, 8f, 13.5f)
+        arcTo(3.5f, 3.5f, 0f, true, true, 8f, 6.5f)
+        close()
+        moveTo(13.5f, 3.5f)
+        arcTo(4.5f, 4.5f, 0f, true, true, 13.5f, 12.5f)
+        arcTo(4.5f, 4.5f, 0f, true, true, 13.5f, 3.5f)
+        close()
+        moveTo(17.5f, 8f)
+        arcTo(3f, 3f, 0f, true, true, 17.5f, 14f)
+        arcTo(3f, 3f, 0f, true, true, 17.5f, 8f)
+        close()
+        moveTo(5f, 10.5f)
+        lineTo(19f, 10.5f)
+        lineTo(19f, 15f)
+        lineTo(5f, 15f)
+        close()
+    }
+    path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 1.6f,
+        strokeLineCap = StrokeCap.Round
+    ) {
+        moveTo(5f, 17.5f)
+        lineTo(19f, 17.5f)
+        moveTo(7f, 20f)
+        lineTo(17f, 20f)
+        moveTo(9f, 22.5f)
+        lineTo(15f, 22.5f)
+    }
+}.build()
+
+/**
+ * Partly cloudy, day: small sun top-left + cloud bottom-right — the
+ * exact geometry of ic_widget_partly, so the app strip and the widget
+ * draw the same glyph. (The old mapping rendered this as a plain sun,
+ * indistinguishable from clear.)
+ */
+private val PartlyCloudyDayIcon: ImageVector = ImageVector.Builder(
+    name = "PartlyCloudyDay",
+    defaultWidth = 24.dp,
+    defaultHeight = 24.dp,
+    viewportWidth = 24f,
+    viewportHeight = 24f
+).apply {
+    path(fill = SolidColor(Color.Black), pathFillType = PathFillType.NonZero) {
+        // Sun disc, top-left.
+        moveTo(8f, 5.5f)
+        arcTo(2.5f, 2.5f, 0f, true, true, 8f, 10.5f)
+        arcTo(2.5f, 2.5f, 0f, true, true, 8f, 5.5f)
+        close()
+        // Cloud, bottom-right.
+        moveTo(12f, 12.5f)
+        arcTo(3.5f, 3.5f, 0f, true, true, 12f, 19.5f)
+        arcTo(3.5f, 3.5f, 0f, true, true, 12f, 12.5f)
+        close()
+        moveTo(16.5f, 10f)
+        arcTo(4f, 4f, 0f, true, true, 16.5f, 18f)
+        arcTo(4f, 4f, 0f, true, true, 16.5f, 10f)
+        close()
+        moveTo(19.5f, 14f)
+        arcTo(2.5f, 2.5f, 0f, true, true, 19.5f, 19f)
+        arcTo(2.5f, 2.5f, 0f, true, true, 19.5f, 14f)
+        close()
+        moveTo(9f, 16f)
+        lineTo(21f, 16f)
+        lineTo(21f, 20f)
+        lineTo(9f, 20f)
+        close()
+    }
+    path(
+        stroke = SolidColor(Color.Black),
+        strokeLineWidth = 1.4f,
+        strokeLineCap = StrokeCap.Round
+    ) {
+        moveTo(8f, 2f)
+        lineTo(8f, 4f)
+        moveTo(2f, 8f)
+        lineTo(4f, 8f)
+        moveTo(3.8f, 3.8f)
+        lineTo(5.2f, 5.2f)
+        moveTo(12.2f, 3.8f)
+        lineTo(10.8f, 5.2f)
+    }
+}.build()
+
+/**
+ * Partly cloudy, night: crescent moon top-left + cloud bottom-right —
+ * the ic_widget_partly layout with the sun swapped for the crescent
+ * from ic_widget_moon (same two-disc evenOdd construction, smaller).
+ * The old mapping rendered this as a plain moon, indistinguishable
+ * from clear. The moon and the cloud are separate paths because the
+ * crescent needs EvenOdd fill while the cloud needs NonZero.
+ */
+private val PartlyCloudyNightIcon: ImageVector = ImageVector.Builder(
+    name = "PartlyCloudyNight",
+    defaultWidth = 24.dp,
+    defaultHeight = 24.dp,
+    viewportWidth = 24f,
+    viewportHeight = 24f
+).apply {
+    path(fill = SolidColor(Color.Black), pathFillType = PathFillType.EvenOdd) {
+        // Crescent moon, top-left.
+        moveTo(7.5f, 3.3f)
+        arcTo(4.2f, 4.2f, 0f, true, true, 7.5f, 11.7f)
+        arcTo(4.2f, 4.2f, 0f, true, true, 7.5f, 3.3f)
+        close()
+        moveTo(9.6f, 2.8f)
+        arcTo(3.6f, 3.6f, 0f, true, true, 9.6f, 10f)
+        arcTo(3.6f, 3.6f, 0f, true, true, 9.6f, 2.8f)
+        close()
+    }
+    path(fill = SolidColor(Color.Black), pathFillType = PathFillType.NonZero) {
+        // Cloud, bottom-right (same geometry as ic_widget_partly).
+        moveTo(12f, 12.5f)
+        arcTo(3.5f, 3.5f, 0f, true, true, 12f, 19.5f)
+        arcTo(3.5f, 3.5f, 0f, true, true, 12f, 12.5f)
+        close()
+        moveTo(16.5f, 10f)
+        arcTo(4f, 4f, 0f, true, true, 16.5f, 18f)
+        arcTo(4f, 4f, 0f, true, true, 16.5f, 10f)
+        close()
+        moveTo(19.5f, 14f)
+        arcTo(2.5f, 2.5f, 0f, true, true, 19.5f, 19f)
+        arcTo(2.5f, 2.5f, 0f, true, true, 19.5f, 14f)
+        close()
+        moveTo(9f, 16f)
+        lineTo(21f, 16f)
+        lineTo(21f, 20f)
+        lineTo(9f, 20f)
+        close()
+    }
+}.build()
+
 fun getWeatherIcon(condition: WeatherCondition, isDaytime: Boolean = true): ImageVector {
     return when (condition) {
         WeatherCondition.ClearDay -> if (isDaytime) Icons.Default.WbSunny else Icons.Default.DarkMode
         WeatherCondition.ClearNight -> Icons.Default.DarkMode
-        WeatherCondition.PartlyCloudyDay -> if (isDaytime) Icons.Default.WbSunny else Icons.Default.NightsStay
-        WeatherCondition.PartlyCloudyNight -> Icons.Default.NightsStay
+        // Partly cloudy is day/night-driven, not variant-driven: the
+        // two variants share the display name "Partly Cloudy", and the
+        // glyph must show sun+cloud by day and moon+cloud by night so
+        // partly is never identical to clear (widget-audit item 7c).
+        WeatherCondition.PartlyCloudyDay,
+        WeatherCondition.PartlyCloudyNight -> if (isDaytime) PartlyCloudyDayIcon else PartlyCloudyNightIcon
         WeatherCondition.Cloudy -> Icons.Default.Cloud
-        WeatherCondition.Fog, WeatherCondition.Haze -> Icons.Default.Cloud
+        // Fog/haze is cloud + lines, never a plain overcast cloud
+        // (widget-audit item 7c).
+        WeatherCondition.Fog, WeatherCondition.Haze -> FogIcon
         WeatherCondition.Drizzle, WeatherCondition.Rain, WeatherCondition.HeavyRain -> Icons.Default.WaterDrop
         WeatherCondition.Thunderstorm -> Icons.Default.Thunderstorm
-        WeatherCondition.Snow, WeatherCondition.Sleet, WeatherCondition.FreezingRain -> Icons.Default.WaterDrop
+        // Snow/sleet/freezing rain is a snowflake, never a raindrop
+        // (widget-audit item 7c).
+        WeatherCondition.Snow, WeatherCondition.Sleet, WeatherCondition.FreezingRain -> Icons.Default.AcUnit
         WeatherCondition.Windy -> Icons.Default.Air
         WeatherCondition.Unknown -> if (isDaytime) Icons.Default.WbSunny else Icons.Default.NightsStay
     }
