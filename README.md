@@ -6,8 +6,11 @@ The look is the classic late-90s / early-2000s Weather Channel local forecast �
 
 ## Status
 
-0.2.0 — tag `v0.2.0` (`versionName "0.2.0"` / `versionCode 7` in
-`app/build.gradle.kts`), arm64-only APK. Adds place search and
+0.3.0 — tag `v0.3.0` (`versionName "0.3.0"` / `versionCode 9` in
+`app/build.gradle.kts`), arm64-only APK. Adds IN 6H future radar, the
+lighter CRT vignette, RemoteViews widgets with Star4000 and a square
+2×2 main widget, and a 4×2 radar widget (15-min refresh, for that
+widget only). 0.2.0 added place search and
 remove-a-location: Settings → SAVED PLACES → ADD now searches a city,
 "City, ST", or a zip code (Open-Meteo Geocoding + Zippopotam.us) and
 shows a picker list to tap; entering coordinates stays as a secondary
@@ -45,11 +48,11 @@ release keystore and attaches it to the GitHub release.
 
 5. **Interactive Radar Viewer** (rebuilt on MapLibre Native 13.7.1, Vulkan single-backend — the old tile screen is gone)
    - Live: 10-frame composite radar loop (~50 minutes of radar history). MRMS is the primary source — wide-margin (1.5×) single images, decoded on demand and held in memory across the 5-minute refresh; LibreWXR 512-px tiles are the next fallback and IEM NEXRAD tiles the last. The loop is source-locked: a fallback stays fallen-back until RETRY.
-   - Ranges: LIVE (observed NEXRAD), IN 24H and IN 48H (HRRR simulated reflectivity in its live `-0` run form — a forecast, labelled FORECAST, never mixed with the live loop; about 74 frames for 24h and about 97 for 48h, with a probe-driven tail cap and a "FORECAST ENDS ABOUT … UTC" note when the tail is cut). Future 72h is not offered: HRRR caps at 48h.
+   - Ranges: LIVE (observed NEXRAD), IN 6H, IN 24H and IN 48H (HRRR simulated reflectivity in its live `-0` run form — a forecast, labelled FORECAST, never mixed with the live loop; about 24 frames for 6h, about 74 frames for 24h and about 97 for 48h, with a probe-driven tail cap and a "FORECAST ENDS ABOUT … UTC" note when the tail is cut). Future 72h is not offered: HRRR caps at 48h.
    - Layers: Composite Radar, and NASA GIBS GOES-East ABI Satellite — Visible GeoColor and Clean Infrared. There is no Local Site layer: the place drives the map centre instead. Satellite is one WMS JPEG per visit (viewport × 1.5, scan time probed live, blank-checked before display), with GIBS WMTS tiles as the fallback.
    - Play/pause animation, frame scrub slider with timestamps, and a source + data-cost panel naming the loop's locked source (MRMS / LIBREWXR / IEM / HRRR) with the actual bytes fetched — never a fixed estimate. Frames crossfade over 150 ms. The dBZ legend and the transport pill are radar-only: satellite is a single image, so they are hidden on the satellite layers.
    - The map is clipped to the content area, so it cannot paint over the header. There is no Picture-in-Picture support.
-   - 90s CRT filter: the radar map carries a period-CRT treatment — scanlines, aperture grille, warm phosphor tint and vignette (no glow, no curvature, and it never touches the radar pixels). On by default; Settings has a CRT FILTER toggle to turn it off.
+   - 90s CRT filter: the radar map carries a period-CRT treatment — scanlines, aperture grille, warm phosphor tint and a very slight vignette, clear until 55% of the way to the corner and then a gentle ramp to the edge (no glow, no curvature, and it never touches the radar pixels). On by default; Settings has a CRT FILTER toggle to turn it off.
 
 6. **Home: 48-Hour Strip, 14-Day Outlook, Regional Map**
    - A 48-hour hourly strip (five cells across, scrollable by swiping) below the hero temperature.
@@ -71,8 +74,9 @@ release keystore and attaches it to the GitHub release.
    - Rain-starting alerts are a separate opt-in: one notification per rain event (rain above 0.1 mm/h), cleared when no rain is found for 60 minutes.
    - Both are off by default. Turning notifications off cancels the worker.
 
-10. **Home-Screen Widgets**
-    - A Glance main widget and an hourly-strip widget. Both are cache-only (they show the last fetched data, never fetch themselves) and use the system font — Star4000 cannot be used in widgets. The strip widget shows 4, 5, or 6 hours depending on its width.
+10. **Home-Screen Widgets** (classic RemoteViews, not Glance — Glance cannot use custom fonts)
+    - A main widget and an hourly-strip widget, both in the Star4000 faces like the rest of the app. The main widget is square (2×2) by default and resizes up to 4×2; the strip widget stays 4×1 and shows 4, 5, or 6 hours depending on its width. Both are cache-only (they show the last fetched data, never fetch themselves) and refresh hourly.
+    - A 4×2 radar widget: a still radar picture for the selected place (newest MRMS frame over the dark basemap, CRT baked in), refreshed every 15 minutes — for this widget only — stepping through now, +15 and +30 minutes on successive refreshes, with a label saying which frame it is. Tap opens the radar tab. If a refresh fails it keeps the last picture, labelled stale.
 
 11. **In-App Updater (manual check only)**
     - Settings has an APP UPDATES panel with a CHECK FOR UPDATES button. There is no launch check and no background check.
@@ -93,7 +97,7 @@ release keystore and attaches it to the GitHub release.
 - **Open-Meteo Geocoding**: `https://geocoding-api.open-meteo.com/` (Place search by Open-Meteo.com under CC BY 4.0) — city names worldwide, and a US zip code as the query.
 - **Zippopotam.us**: `https://api.zippopotam.us/` (US zip-code lookup for place search — first choice for zip queries).
 - **Pirate Weather**: `https://api.pirateweather.net/` — true 1-minute precipitation for the minute-cast, when the user has entered their own key in Settings. Free tier, no card required.
-- **Iowa Environmental Mesonet (IEM)**: Iowa State University / NOAA NEXRAD Level III composite tile cache — the last-resort live-radar fallback, and the tile host for HRRR simulated reflectivity in the IN 24H / IN 48H forecast ranges.
+- **Iowa Environmental Mesonet (IEM)**: Iowa State University / NOAA NEXRAD Level III composite tile cache — the last-resort live-radar fallback, and the tile host for HRRR simulated reflectivity in the IN 6H / IN 24H / IN 48H forecast ranges.
 - **Esri World Dark Gray Base**: dark basemap under the radar and the regional map (keyless, `server.arcgisonline.com`). CARTO dark_all now returns an "API KEY REQUIRED" watermark tile and cannot be used.
 - **NASA GIBS**: Global Imagery Browse Services (EOSDIS) GOES-East ABI Satellite layers.
 - **Display font**: Star4000 Large / Small, originally created by Nick Smith (twcclassics.com), redistributed in the MIT-licensed ws4kp / FUN-WeatherStar-4000 fan projects.
