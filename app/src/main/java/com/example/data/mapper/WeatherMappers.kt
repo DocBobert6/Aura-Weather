@@ -4,6 +4,8 @@ import com.example.domain.model.AirQuality
 import com.example.domain.model.DailyPoint
 import com.example.domain.model.AlertSeverity
 import com.example.domain.model.GeoPoint
+import com.example.domain.model.HourlyPoint
+import com.example.domain.model.HourlySource
 import com.example.domain.model.MinutePrecip
 import com.example.domain.model.WeatherAlert
 import com.example.domain.model.WeatherCondition
@@ -299,6 +301,64 @@ object WeatherMappers {
                 if (isDaytime) WeatherCondition.ClearDay else WeatherCondition.ClearNight
             else -> if (isDaytime) WeatherCondition.ClearDay else WeatherCondition.ClearNight
         }
+    }
+
+    /**
+     * The in-app strip icon's name for a (condition, isDaytime) pair
+     * (widget-audit diagnostic, Worker E). A pure mirror of
+     * `getWeatherIcon` in HomeScreen.kt — same branches, same day/night
+     * splits — so the repository can log which icon a strip cell will
+     * draw without pulling Compose into the data layer. If a branch is
+     * added or changed in `getWeatherIcon`, change this one too (and
+     * vice versa); HourlyCellDiagnosticTest pins every branch.
+     * The widget strip maps the same pair through `conditionToWidgetIcon`
+     * (WidgetState.kt), which differs in two places: Windy reads Cloudy
+     * there (Air here), and ClearDay at night reads Sunny there
+     * (DarkMode here). The log names the in-app icon: the reported
+     * 2 AM / 3 AM plain-cloud cells are in the app's 48h strip.
+     */
+    fun hourlyCellIconName(condition: WeatherCondition, isDaytime: Boolean = true): String =
+        when (condition) {
+            WeatherCondition.ClearDay -> if (isDaytime) "WbSunny" else "DarkMode"
+            WeatherCondition.ClearNight -> "DarkMode"
+            WeatherCondition.PartlyCloudyDay,
+            WeatherCondition.PartlyCloudyNight -> if (isDaytime) "PartlyCloudyDayIcon" else "PartlyCloudyNightIcon"
+            WeatherCondition.Cloudy -> "Cloud"
+            WeatherCondition.Fog, WeatherCondition.Haze -> "FogIcon"
+            WeatherCondition.Drizzle, WeatherCondition.Rain, WeatherCondition.HeavyRain -> "WaterDrop"
+            WeatherCondition.Thunderstorm -> "Thunderstorm"
+            WeatherCondition.Snow, WeatherCondition.Sleet, WeatherCondition.FreezingRain -> "AcUnit"
+            WeatherCondition.Windy -> "Air"
+            WeatherCondition.Unknown -> if (isDaytime) "WbSunny" else "NightsStay"
+        }
+
+    /**
+     * One log line per hourly strip cell (widget-audit diagnostic,
+     * Worker E): the hour in the place zone, which source fed the cell,
+     * the WMO code the app actually holds for it (or the raw NWS text —
+     * NWS has no WMO code), the mapped condition, and the icon the strip
+     * will draw. The WMO / raw fields are data-driven, never invented:
+     * `wmo=<code>` only when a code is held, `raw="..."` only when NWS
+     * text is held, so a cell with neither reads `wmo=n/a` and a cell
+     * with no recorded source reads `source=UNKNOWN`.
+     * Example (NWS): `hourly cell hour=2026-11-17 02:00 source=NWS
+     * wmo=n/a raw="Partly Cloudy" condition=PartlyCloudyNight
+     * icon=PartlyCloudyNightIcon`
+     * Example (OM): `hourly cell hour=2026-11-17 02:00 source=OpenMeteo
+     * wmo=0 condition=ClearNight icon=DarkMode`
+     */
+    fun hourlyCellDiagnostic(point: HourlyPoint, zoneId: ZoneId): String {
+        val hour = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+            .withZone(zoneId).format(point.time)
+        val source = when (point.source) {
+            HourlySource.Nws -> "NWS"
+            HourlySource.OpenMeteo -> "OpenMeteo"
+            HourlySource.Unknown -> "UNKNOWN"
+        }
+        val wmo = point.wmoCode?.let { "wmo=$it" } ?: "wmo=n/a"
+        val raw = point.rawShortForecast?.let { " raw=\"$it\"" } ?: ""
+        return "hourly cell hour=$hour source=$source $wmo$raw " +
+            "condition=${point.condition} icon=${hourlyCellIconName(point.condition, point.isDaytime)}"
     }
 
     /**

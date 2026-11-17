@@ -82,8 +82,29 @@ data class HourlyPoint(
     val isDaytime: Boolean = true,
     // Snowfall for this hour, in cm (Open-Meteo's snowfall unit).
     // Null when the source has no snowfall (e.g. NWS hourly).
-    val snowfallCm: Double? = null
+    val snowfallCm: Double? = null,
+    // Which provider fed this cell (widget-audit diagnostic, Worker E).
+    // The hourly list is all-or-nothing per refresh — NWS hourly primary,
+    // Open-Meteo fallback — but the point itself used to carry only the
+    // mapped condition, so a wrong strip icon could not be traced back to
+    // its source. Unknown means the point was built before source tracking
+    // existed (old cache) or by a path that does not record it — never an
+    // invented source.
+    val source: HourlySource = HourlySource.Unknown,
+    // The WMO weather_code the app actually holds for this hour, for
+    // Open-Meteo-fed cells. Null for NWS-fed cells: NWS has no WMO code,
+    // and logging "n/a" there is honest, not a missing value.
+    val wmoCode: Int? = null,
+    // The raw NWS shortForecast for NWS-fed cells, so the per-cell log can
+    // show the exact text that was mapped ("Partly Cloudy" vs "Cloudy").
+    // Null for Open-Meteo-fed cells.
+    val rawShortForecast: String? = null
 )
+
+/**
+ * Which provider fed one hourly strip cell. See [HourlyPoint.source].
+ */
+enum class HourlySource { Nws, OpenMeteo, Unknown }
 
 data class DailyPoint(
     val date: LocalDate,

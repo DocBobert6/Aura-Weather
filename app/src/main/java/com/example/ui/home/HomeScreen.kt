@@ -1620,6 +1620,8 @@ private val PartlyCloudyNightIcon: ImageVector = ImageVector.Builder(
 }.build()
 
 fun getWeatherIcon(condition: WeatherCondition, isDaytime: Boolean = true): ImageVector {
+    // Mirrored (names, not vectors) by WeatherMappers.hourlyCellIconName
+    // for the per-cell diagnostic log — change both together.
     return when (condition) {
         WeatherCondition.ClearDay -> if (isDaytime) Icons.Default.WbSunny else Icons.Default.DarkMode
         WeatherCondition.ClearNight -> Icons.Default.DarkMode

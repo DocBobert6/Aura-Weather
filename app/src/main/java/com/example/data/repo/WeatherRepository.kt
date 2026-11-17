@@ -33,6 +33,7 @@ import com.example.domain.model.DailyPoint
 import com.example.domain.model.FullWeatherState
 import com.example.domain.model.GeoPoint
 import com.example.domain.model.HourlyPoint
+import com.example.domain.model.HourlySource
 import com.example.domain.model.MinutePrecip
 import com.example.domain.model.Place
 import com.example.domain.model.PollenData
@@ -519,6 +520,25 @@ class WeatherRepository(
                 } else list
             }
 
+        // Per-cell diagnostic (widget-audit, Worker E): log what each
+        // strip cell actually holds — source, WMO code (or the raw NWS
+        // text), mapped condition, icon — AFTER the index-0 hero
+        // override above, so the log is the strip as rendered, not the
+        // parse. The parse-time logs (parseNwsHourly / parseOpenMeteoHourly)
+        // stay: they show what each provider returned; these lines show
+        // what each cell became. Debug only, tag WeatherRepository.
+        // Decision rule on device: if 02:00/03:00 log source=NWS with
+        // raw="Partly Cloudy" and icon=PartlyCloudyNightIcon (or
+        // source=OpenMeteo wmo=0 icon=DarkMode) yet the strip still shows
+        // a plain cloud, the bug is downstream of the model (icon/strip/
+        // stale cache), not the mapping. If they log condition=Cloudy
+        // icon=Cloud, the mapping (or the NWS text itself) is still the
+        // cause — the fix did not take effect or the text genuinely says
+        // cloudy.
+        hourlyList.forEach { point ->
+            Log.d(TAG, WeatherMappers.hourlyCellDiagnostic(point, zoneId))
+        }
+
         // --- Daily (14d). Same split as hourly.
         // The date-matched daily fills (UV merge, fillDailyHighs,
         // fillDailyPrecipAndExtend) and the NWS-unavailable fallback all
@@ -760,7 +780,13 @@ class WeatherRepository(
                 precipMm = null,
                 condition = condition,
                 windMs = windMs,
-                isDaytime = period.isDaytime
+                isDaytime = period.isDaytime,
+                // NWS has no WMO code: wmoCode stays null and the raw
+                // shortForecast is kept, so the per-cell diagnostic can
+                // show the exact text that was mapped.
+                source = HourlySource.Nws,
+                wmoCode = null,
+                rawShortForecast = period.shortForecast
             )
         }.take(48)
     }
@@ -837,7 +863,14 @@ class WeatherRepository(
                     condition = omCondition,
                     snowfallCm = omHourly.snowfall?.getOrNull(i),
                     windMs = omHourly.windSpeed10m?.getOrNull(i)?.let { it * 1000.0 / 3600.0 },
-                    isDaytime = daytime
+                    isDaytime = daytime,
+                    // Keep the WMO code on the point: the per-cell
+                    // diagnostic logs the code the app actually holds,
+                    // so a clear-code hour can never silently render
+                    // as a cloud without the log saying so.
+                    source = HourlySource.OpenMeteo,
+                    wmoCode = code,
+                    rawShortForecast = null
                 )
             )
             if (points.size >= 48) break
