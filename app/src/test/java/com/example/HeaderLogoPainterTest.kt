@@ -6,6 +6,7 @@ import android.graphics.drawable.VectorDrawable
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertFalse

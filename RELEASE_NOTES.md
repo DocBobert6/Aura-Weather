@@ -1,3 +1,25 @@
+# Aura Weather 0.3.4
+
+Fixes the 0.3.3 launch crash. 0.3.3 would not open at all: the
+header logo loaded the launcher icon, and on modern Android that
+icon is an adaptive icon — a kind of picture the UI toolkit cannot
+draw — so the app crashed before anything appeared on screen. The
+logo box now loads the sun mark from a plain picture file, exactly
+as 0.3.3 intended it to look. Two guards stop it coming back: a
+test that loads the logo the same way the app does, and a build
+check that fails if any picture is ever loaded from the launcher
+icons again.
+
+## Notes
+
+- This is an arm64-only APK (`arm64-v8a`); there is no universal build.
+- The signed release APK installs straight over 0.3.3 (same signing
+  key) — no uninstall, no data wipe. It will not install over a debug
+  build (different signing key); uninstall the debug build first, which
+  wipes app data.
+
+---
+
 # Aura Weather 0.3.3
 
 A UI and font audit, and the header is navy now. The orange-red
