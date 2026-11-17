@@ -2577,7 +2577,7 @@ class RadarEngineController(
             if (liveStore.generationId == 0L) resolveLiveLoop()
         } else {
             // A range switch re-resolves even with a generation in
-            // hand (24 h <-> 48 h are different frame lists); a
+            // hand (6 h / 24 h / 48 h are different frame lists); a
             // re-tap of the same range does not.
             if (futureStore.generationId == 0L || futureResolvedRange != range) {
                 resolveFutureLoop()
@@ -2591,11 +2591,14 @@ class RadarEngineController(
 
     /** The [RadarRange] for the selected future range (Live never reaches here). */
     private fun futureRadarRange(): RadarRange =
-        if (selectedRange == EngineRange.Future48h) RadarRange.Future48h
-        else RadarRange.Future24h
+        when (selectedRange) {
+            EngineRange.Future48h -> RadarRange.Future48h
+            EngineRange.Future6h -> RadarRange.Future6h
+            else -> RadarRange.Future24h
+        }
 
     /** Resolve the future range on first visit (fresh HRRR run), or
-     *  on a range switch (24 h <-> 48 h are different frame lists —
+     *  on a range switch (6 h / 24 h / 48 h are different frame lists —
      *  the old 16-frame window made them look identical, so this
      *  used to resolve Future24h unconditionally). The playhead's
      *  valid time and the pause survive a re-resolution when the

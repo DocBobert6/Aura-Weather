@@ -122,6 +122,7 @@ enum class EngineLayer {
 /** Ranges the engine screen offers. */
 enum class EngineRange {
     Live,
+    Future6h,
     Future24h,
     Future48h
 }
@@ -172,6 +173,7 @@ fun RadarEngineScreen(
     // would be the wrong tense entirely.
     val emptyFrameLabel = when (selectedRange) {
         EngineRange.Live -> "LIVE NOW"
+        EngineRange.Future6h -> "IN 6H"
         EngineRange.Future24h -> "IN 24H"
         EngineRange.Future48h -> "IN 48H"
     }
@@ -278,7 +280,7 @@ fun RadarEngineScreen(
             if (!isSatellite) {
                 Spacer(modifier = Modifier.height(10.dp))
                 PillSegmentedControl(
-                    options = listOf("LIVE", "IN 24H", "IN 48H"),
+                    options = listOf("LIVE", "IN 6H", "IN 24H", "IN 48H"),
                     selectedIndex = selectedRange.ordinal,
                     onSelect = { onSelectRange(EngineRange.entries[it]) },
                     modifier = Modifier.fillMaxWidth()
